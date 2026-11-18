@@ -250,7 +250,8 @@ class NoteRepository(
         title: String,
         blocks: List<NoteBlock>,
         isPinned: Boolean? = null,
-        scheduleBackgroundWork: Boolean = true
+        scheduleBackgroundWork: Boolean = true,
+        defaultSourceType: NoteSourceType = NoteSourceType.MANUAL
     ) {
         val existing = noteDao.getNoteById(noteId)
         val now = System.currentTimeMillis()
@@ -258,7 +259,7 @@ class NoteRepository(
         val resolvedPinned = isPinned ?: existing?.isPinned ?: false
         val createdAt = existing?.createdAtMs ?: now
         val nextRev = (existing?.contentRevision ?: 0L) + 1L
-        val sourceType = enumOrDefault(existing?.sourceType, NoteSourceType.MANUAL)
+        val sourceType = enumOrDefault(existing?.sourceType, defaultSourceType)
 
         upsertNoteInternal(
             noteId = noteId,
@@ -629,6 +630,48 @@ class NoteRepository(
         val expired = noteDao.getExpiredDeletedNotes(cutoff)
         expired.forEach { deletePermanently(it.id) }
         return expired.size
+    }
+
+    suspend fun isNoteCompletelyBlank(noteId: String): Boolean {
+        val note = noteDao.getNoteById(noteId) ?: return false
+        if (note.isDeleted || note.isArchived || note.isPinned ||
+            note.title.isNotBlank() || note.fullPlainText.isNotBlank()
+        ) {
+            return false
+        }
+        val blocks = blockDao.getBlocksForNote(noteId)
+        if (blocks.any { it.textContent.isNotBlank() || !it.attachmentId.isNullOrBlank() || !it.linkUrl.isNullOrBlank() }) {
+            return false
+        }
+        if (attachmentDao.getAttachmentsForNote(noteId).isNotEmpty()) return false
+        if (linkDao.getLinksForNote(noteId).isNotEmpty()) return false
+        if (tagDao.getActiveTagsForNote(noteId).isNotEmpty()) return false
+        if (reminderDao.getReminderForNote(noteId) != null) return false
+        return true
+    }
+
+    suspend fun discardIfCompletelyBlank(noteId: String): Boolean {
+        if (!isNoteCompletelyBlank(noteId)) return false
+        deletePermanently(noteId)
+        return true
+    }
+
+    suspend fun pruneBlankUntouchedNotes(olderThanOrEqualMs: Long = Long.MAX_VALUE): Int {
+        val candidates = noteDao.getAllActiveNotes().filter { note ->
+            !note.isPinned &&
+                !note.isArchived &&
+                !note.isDeleted &&
+                note.title.isBlank() &&
+                note.fullPlainText.isBlank() &&
+                note.updatedAtMs <= olderThanOrEqualMs
+        }
+        var removedCount = 0
+        for (candidate in candidates) {
+            if (discardIfCompletelyBlank(candidate.id)) {
+                removedCount++
+            }
+        }
+        return removedCount
     }
 
     suspend fun getStorageStats(): StorageStats {

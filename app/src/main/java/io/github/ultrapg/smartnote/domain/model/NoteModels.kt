@@ -228,7 +228,13 @@ data class NoteSummary(
     val primaryLinkDomain: String?,
     val ocrSnippet: String? = null,
     val sourceType: NoteSourceType = NoteSourceType.MANUAL
-)
+) {
+    val isBlankUntouchedGhost: Boolean
+        get() = !isPinned && !isArchived && !isDeleted &&
+            title.isBlank() && previewText.isBlank() &&
+            checklistPreview.isEmpty() && imageCount == 0 &&
+            !hasLink && tags.isEmpty() && reminder == null
+}
 
 @Immutable
 data class NoteDetail(

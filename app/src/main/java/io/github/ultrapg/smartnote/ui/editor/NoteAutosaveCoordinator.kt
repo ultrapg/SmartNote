@@ -2,6 +2,7 @@ package io.github.ultrapg.smartnote.ui.editor
 
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
+import io.github.ultrapg.smartnote.domain.model.NoteSourceType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -20,7 +21,8 @@ data class PendingNoteDraft(
     val title: String,
     val blocks: List<NoteBlock>,
     val isPinned: Boolean,
-    val revisionToken: Long
+    val revisionToken: Long,
+    val sourceType: NoteSourceType = NoteSourceType.MANUAL
 )
 
 enum class AutosaveStatus {
@@ -76,6 +78,19 @@ class NoteAutosaveCoordinator(
         pendingDrafts.remove(noteId)
     }
 
+    fun discardAndDeleteIfBlankAsync(noteId: String) {
+        debounceJobs.remove(noteId)?.cancel()
+        pendingDrafts.remove(noteId)
+        _statusFlow.value = AutosaveStatus.IDLE
+        applicationScope.launch {
+            withContext(NonCancellable) {
+                saveMutex.withLock {
+                    noteRepository.discardIfCompletelyBlank(noteId)
+                }
+            }
+        }
+    }
+
     private suspend fun persistLatest(noteId: String) {
         saveMutex.withLock {
             val draft = pendingDrafts[noteId] ?: return
@@ -86,7 +101,8 @@ class NoteAutosaveCoordinator(
                     title = draft.title,
                     blocks = draft.blocks,
                     isPinned = draft.isPinned,
-                    scheduleBackgroundWork = true
+                    scheduleBackgroundWork = true,
+                    defaultSourceType = draft.sourceType
                 )
             }.onSuccess {
                 // Only clear if no newer edit arrived while saving

@@ -42,7 +42,10 @@ class AppContainer(
     val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val settingsRepository: SettingsRepository by lazy {
-        SettingsRepository(context.smartNoteDataStore)
+        SettingsRepository(
+            dataStore = context.smartNoteDataStore,
+            bootPrefs = context.getSharedPreferences("smartnote_boot_cache", Context.MODE_PRIVATE)
+        )
     }
 
     val database: SmartNoteDatabase by lazy {

@@ -1,5 +1,6 @@
 package io.github.ultrapg.smartnote.data.preferences
 
+import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -16,7 +17,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 class SettingsRepository(
-    private val dataStore: DataStore<Preferences>
+    private val dataStore: DataStore<Preferences>,
+    private val bootPrefs: SharedPreferences? = null
 ) {
     private object Keys {
         val THEME_PALETTE = stringPreferencesKey("theme_palette")
@@ -36,6 +38,33 @@ class SettingsRepository(
         val BACKGROUND_ANALYSIS_ENABLED = booleanPreferencesKey("background_analysis_enabled")
         val DEFAULT_SNOOZE_MINUTES = intPreferencesKey("default_snooze_minutes")
         val LIVE_UPDATE_REMINDERS_ENABLED = booleanPreferencesKey("live_update_reminders_enabled")
+    }
+
+    @Volatile
+    var currentSnapshot: AppSettings = loadInitialSnapshot()
+        private set
+
+    private fun loadInitialSnapshot(): AppSettings {
+        val prefs = bootPrefs ?: return AppSettings()
+        return AppSettings(
+            themePalette = enumOrDefault(prefs.getString("theme_palette", null), ThemePalette.DYNAMIC),
+            darkModeConfig = enumOrDefault(prefs.getString("dark_mode_config", null), DarkModeConfig.SYSTEM),
+            notesLayout = enumOrDefault(prefs.getString("notes_layout", null), NotesLayoutMode.STAGGERED_CARDS),
+            reducedMotion = prefs.getBoolean("reduced_motion", false),
+            aiFeaturesEnabled = prefs.getBoolean("ai_features_enabled", true),
+            autoTitleEnabled = prefs.getBoolean("auto_title_enabled", true)
+        )
+    }
+
+    private fun persistBootCache(snapshot: AppSettings) {
+        bootPrefs?.edit()
+            ?.putString("theme_palette", snapshot.themePalette.name)
+            ?.putString("dark_mode_config", snapshot.darkModeConfig.name)
+            ?.putString("notes_layout", snapshot.notesLayout.name)
+            ?.putBoolean("reduced_motion", snapshot.reducedMotion)
+            ?.putBoolean("ai_features_enabled", snapshot.aiFeaturesEnabled)
+            ?.putBoolean("auto_title_enabled", snapshot.autoTitleEnabled)
+            ?.apply()
     }
 
     val settingsFlow: Flow<AppSettings> = dataStore.data
@@ -61,27 +90,40 @@ class SettingsRepository(
                 backgroundAnalysisEnabled = prefs[Keys.BACKGROUND_ANALYSIS_ENABLED] ?: true,
                 defaultSnoozeMinutes = (prefs[Keys.DEFAULT_SNOOZE_MINUTES] ?: 10).coerceIn(1, 120),
                 liveUpdateRemindersEnabled = prefs[Keys.LIVE_UPDATE_REMINDERS_ENABLED] ?: true
-            )
+            ).also { mapped ->
+                currentSnapshot = mapped
+                persistBootCache(mapped)
+            }
         }
         .distinctUntilChanged()
 
     suspend fun setThemePalette(palette: ThemePalette) {
+        currentSnapshot = currentSnapshot.copy(themePalette = palette)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.THEME_PALETTE] = palette.name }
     }
 
     suspend fun setDarkModeConfig(config: DarkModeConfig) {
+        currentSnapshot = currentSnapshot.copy(darkModeConfig = config)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.DARK_MODE_CONFIG] = config.name }
     }
 
     suspend fun setNotesLayout(layout: NotesLayoutMode) {
+        currentSnapshot = currentSnapshot.copy(notesLayout = layout)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.NOTES_LAYOUT] = layout.name }
     }
 
     suspend fun setReducedMotion(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(reducedMotion = enabled)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.REDUCED_MOTION] = enabled }
     }
 
     suspend fun setAiFeaturesEnabled(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(aiFeaturesEnabled = enabled)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.AI_FEATURES_ENABLED] = enabled }
     }
 
@@ -90,6 +132,8 @@ class SettingsRepository(
     }
 
     suspend fun setAutoTitleEnabled(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(autoTitleEnabled = enabled)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.AUTO_TITLE_ENABLED] = enabled }
     }
 

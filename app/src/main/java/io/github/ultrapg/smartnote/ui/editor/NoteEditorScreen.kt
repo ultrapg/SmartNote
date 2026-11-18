@@ -225,6 +225,7 @@ fun NoteEditorScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -586,9 +587,9 @@ fun NoteEditorScreen(
             ) { block ->
                 Box(
                     modifier = Modifier.animateItem(
-                        fadeInSpec = tween(160),
-                        placementSpec = SmartNoteMotion.softPlacementSpring(),
-                        fadeOutSpec = tween(140)
+                        fadeInSpec = null,
+                        placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = null
                     )
                 ) {
                     when (block.type) {
@@ -660,9 +661,9 @@ fun NoteEditorScreen(
             ) { link ->
                 Box(
                     modifier = Modifier.animateItem(
-                        fadeInSpec = tween(160),
-                        placementSpec = SmartNoteMotion.softPlacementSpring(),
-                        fadeOutSpec = tween(140)
+                        fadeInSpec = null,
+                        placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = null
                     )
                 ) {
                     LinkBlockCard(

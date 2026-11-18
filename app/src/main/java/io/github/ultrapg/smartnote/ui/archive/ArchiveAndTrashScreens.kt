@@ -1,6 +1,5 @@
 package io.github.ultrapg.smartnote.ui.archive
 
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +49,7 @@ import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlin.math.max
 
@@ -63,8 +63,10 @@ fun ArchiveScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Archive") },
@@ -104,9 +106,9 @@ fun ArchiveScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateItem(
-                                fadeInSpec = tween(160),
-                                placementSpec = SmartNoteMotion.softPlacementSpring(),
-                                fadeOutSpec = tween(140)
+                                fadeInSpec = null,
+                                placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                                fadeOutSpec = null
                             )
                             .expressivePressable(interactionSource)
                             .clip(shape)
@@ -167,6 +169,7 @@ fun RecycleBinScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Recycle Bin") },
@@ -311,6 +314,7 @@ fun DuplicateReviewScreen(
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("SmartDuplicates") },

@@ -1,10 +1,5 @@
 package io.github.ultrapg.smartnote.ui.overview
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -108,6 +103,7 @@ import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveBadgeSha
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveShapeBadge
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlinx.coroutines.launch
@@ -180,6 +176,7 @@ fun NotesOverviewScreen(
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = bottomBar,
         topBar = {
@@ -394,12 +391,16 @@ fun NotesOverviewScreen(
                     FilterChip(
                         selected = uiState.filterType == filter,
                         onClick = { onSelectFilter(filter) },
-                        label = { Text(label) }
+                        label = { Text(label) },
+                        border = null,
+                        colors = smartNoteTonalFilterChipColors()
                     )
                 }
             }
 
-            if (!uiState.isLoading && allDisplayedNotes.isEmpty()) {
+            if (uiState.isLoading && allDisplayedNotes.isEmpty()) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth())
+            } else if (allDisplayedNotes.isEmpty()) {
                 EmptyNotesPlaceholder(
                     onCreateNote = { onCreateNewNote(false) },
                     onCreateChecklist = { onCreateNewNote(true) },
@@ -407,22 +408,11 @@ fun NotesOverviewScreen(
                     modifier = Modifier.weight(1f)
                 )
             } else {
-                AnimatedContent(
-                    targetState = uiState.layoutMode,
-                    transitionSpec = {
-                        if (reducedMotion) {
-                            fadeIn(tween(90)) togetherWith fadeOut(tween(90))
-                        } else {
-                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
-                        }
-                    },
-                    label = "notes_layout_switch",
-                    modifier = Modifier.weight(1f)
-                ) { mode ->
-                    when (mode) {
+                Box(modifier = Modifier.weight(1f)) {
+                    when (uiState.layoutMode) {
                         NotesLayoutMode.STAGGERED_CARDS -> {
                             LazyVerticalStaggeredGrid(
-                                columns = StaggeredGridCells.Adaptive(minSize = 168.dp),
+                                columns = StaggeredGridCells.Adaptive(minSize = 150.dp),
                                 contentPadding = PaddingValues(
                                     start = 14.dp,
                                     end = 14.dp,
@@ -461,9 +451,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = tween(160),
-                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
-                                                fadeOutSpec = tween(140)
+                                                fadeInSpec = null,
+                                                placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = null
                                             )
                                         )
                                     }
@@ -499,9 +489,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = tween(160),
-                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
-                                                fadeOutSpec = tween(140)
+                                                fadeInSpec = null,
+                                                placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = null
                                             )
                                         )
                                     }
@@ -542,9 +532,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = tween(160),
-                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
-                                                fadeOutSpec = tween(140)
+                                                fadeInSpec = null,
+                                                placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = null
                                             )
                                         )
                                     }
@@ -574,9 +564,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = tween(160),
-                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
-                                                fadeOutSpec = tween(140)
+                                                fadeInSpec = null,
+                                                placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = null
                                             )
                                         )
                                     }
@@ -619,7 +609,7 @@ private fun NoteStaggeredCard(
     val cardBorder = if (isSelected) {
         BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
     } else {
-        baseBorder ?: BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        baseBorder
     }
 
     val accessibleSummary = buildNoteAccessibilityLabel(note)
@@ -699,15 +689,25 @@ private fun NoteStaggeredCard(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                if (note.title.isNotBlank() || note.isPinned || isSelected) {
+                val hasBodyPreview = !note.primaryThumbnailPath.isNullOrBlank() ||
+                    (note.hasChecklist && note.checklistPreview.isNotEmpty()) ||
+                    note.previewText.isNotBlank()
+                val showUntitledFallback = note.title.isBlank() && !hasBodyPreview
+
+                if (note.title.isNotBlank() || showUntitledFallback || note.isPinned || isSelected) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.Top
                     ) {
                         Text(
-                            text = note.title.ifBlank { "" },
+                            text = note.title.ifBlank { if (showUntitledFallback) "Untitled note" else "" },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
+                            color = if (note.title.isBlank()) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -924,7 +924,7 @@ private fun SwipeableCompactNoteRow(
         val rowBorder = if (isSelected) {
             BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
         } else {
-            baseBorder ?: BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+            baseBorder
         }
 
         Surface(
@@ -1121,13 +1121,17 @@ private fun EmptyNotesPlaceholder(
                 selected = true,
                 onClick = onCreateNote,
                 label = { Text("New note") },
-                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) }
+                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                border = null,
+                colors = smartNoteTonalFilterChipColors()
             )
             FilterChip(
                 selected = false,
                 onClick = onCreateChecklist,
                 label = { Text("New checklist") },
-                leadingIcon = { Icon(Icons.Rounded.CheckBox, contentDescription = null) }
+                leadingIcon = { Icon(Icons.Rounded.CheckBox, contentDescription = null) },
+                border = null,
+                colors = smartNoteTonalFilterChipColors()
             )
         }
     }

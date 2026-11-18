@@ -79,7 +79,6 @@ import coil.compose.AsyncImage
 import io.github.ultrapg.smartnote.MainActivity
 import io.github.ultrapg.smartnote.SmartNoteApplication
 import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
-import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
@@ -122,7 +121,9 @@ class SmartCaptureActivity : ComponentActivity() {
         }
 
         setContent {
-            val settings by container.settingsRepository.settingsFlow.collectAsState(initial = AppSettings())
+            val settings by container.settingsRepository.settingsFlow.collectAsState(
+                initial = container.settingsRepository.currentSnapshot
+            )
             var isStaging by remember { mutableStateOf(payload.imageUris.isNotEmpty()) }
             var stagedImages by remember { mutableStateOf<List<StagedAttachment>>(emptyList()) }
             var userEditedTitle by remember { mutableStateOf(false) }

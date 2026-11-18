@@ -178,4 +178,48 @@ class NoteOperationsAndAutosaveTest {
         assertEquals("Draft 39", reloaded.title)
         assertEquals("Typing 39", reloaded.blocks.first().textContent)
     }
+
+    @Test
+    fun blankUntouchedGhostNotesArePrunedWhilePinnedOrTaggedNotesSurvive() = runTest {
+        val blankGhostId = noteRepository.createNote(
+            title = "",
+            blocks = listOf(NoteBlock("b_blank", "id", 0, NoteBlockType.TEXT, "   ")),
+            scheduleBackgroundWork = false
+        )
+        val pinnedBlankId = noteRepository.createNote(
+            title = "",
+            blocks = listOf(NoteBlock("b_pin", "id", 0, NoteBlockType.TEXT, "")),
+            isPinned = true,
+            scheduleBackgroundWork = false
+        )
+        val taggedBlankId = noteRepository.createNote(
+            title = "",
+            blocks = listOf(NoteBlock("b_tag", "id", 0, NoteBlockType.TEXT, "")),
+            initialTags = listOf("Inbox"),
+            scheduleBackgroundWork = false
+        )
+        val contentNoteId = noteRepository.createNote(
+            title = "",
+            blocks = listOf(NoteBlock("b_content", "id", 0, NoteBlockType.TEXT, "Keep this")),
+            scheduleBackgroundWork = false
+        )
+
+        val prunedCount = noteRepository.pruneBlankUntouchedNotes()
+        assertEquals(1, prunedCount)
+        assertNull(noteRepository.getNoteDetail(blankGhostId))
+        assertNotNull(noteRepository.getNoteDetail(pinnedBlankId))
+        assertNotNull(noteRepository.getNoteDetail(taggedBlankId))
+        assertNotNull(noteRepository.getNoteDetail(contentNoteId))
+
+        // Clearing content note down to blank makes discardIfCompletelyBlank delete it
+        assertFalse(noteRepository.discardIfCompletelyBlank(contentNoteId))
+        noteRepository.saveNoteContent(
+            noteId = contentNoteId,
+            title = "",
+            blocks = listOf(NoteBlock("b_content", contentNoteId, 0, NoteBlockType.TEXT, "")),
+            scheduleBackgroundWork = false
+        )
+        assertTrue(noteRepository.discardIfCompletelyBlank(contentNoteId))
+        assertNull(noteRepository.getNoteDetail(contentNoteId))
+    }
 }

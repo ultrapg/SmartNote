@@ -21,12 +21,14 @@ import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ButtonGroupScope
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SelectableChipColors
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Text
@@ -58,7 +60,7 @@ import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 
 fun Modifier.expressivePressable(
     interactionSource: MutableInteractionSource,
-    pressedScale: Float = 0.985f
+    pressedScale: Float = 0.99f
 ): Modifier = composed {
     val pressed by interactionSource.collectIsPressedAsState()
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
@@ -78,14 +80,18 @@ fun Modifier.expressivePressable(
 }
 
 @Composable
-fun smartNoteCardBorder(): BorderStroke? {
-    val meta = LocalSmartNoteThemeMeta.current
-    return if (meta.isAmoledDark) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-    } else {
-        null
-    }
-}
+fun smartNoteCardBorder(): BorderStroke? = null
+
+@Composable
+fun smartNoteTonalFilterChipColors(): SelectableChipColors =
+    FilterChipDefaults.filterChipColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        iconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
+    )
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

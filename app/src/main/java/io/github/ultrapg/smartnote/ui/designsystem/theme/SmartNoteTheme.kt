@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.database.ContentObserver
 import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -28,6 +29,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -36,9 +38,9 @@ import io.github.ultrapg.smartnote.domain.model.ThemePalette
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 object SmartNoteSoftMotionScheme : MotionScheme {
-    private val defaultSpatial = spring<Any>(dampingRatio = 0.85f, stiffness = 420f)
-    private val fastSpatial = spring<Any>(dampingRatio = 0.85f, stiffness = 580f)
-    private val slowSpatial = spring<Any>(dampingRatio = 0.88f, stiffness = 320f)
+    private val defaultSpatial = spring<Any>(dampingRatio = 1.0f, stiffness = 500f)
+    private val fastSpatial = spring<Any>(dampingRatio = 1.0f, stiffness = 700f)
+    private val slowSpatial = spring<Any>(dampingRatio = 1.0f, stiffness = 380f)
     private val defaultEffects = spring<Any>(dampingRatio = 1.0f, stiffness = 1400f)
     private val fastEffects = spring<Any>(dampingRatio = 1.0f, stiffness = 2400f)
     private val slowEffects = spring<Any>(dampingRatio = 1.0f, stiffness = 800f)
@@ -63,9 +65,9 @@ object SmartNoteSoftMotionScheme : MotionScheme {
 }
 
 object SmartNoteMotion {
-    fun <T> softPlacementSpring(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 420f)
-    fun <T> softSizeSpring(): SpringSpec<T> = spring(dampingRatio = 0.88f, stiffness = 460f)
-    fun softPressSpring(): SpringSpec<Float> = spring(dampingRatio = 0.86f, stiffness = 560f)
+    fun <T> softPlacementSpring(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 520f)
+    fun <T> softSizeSpring(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 550f)
+    fun softPressSpring(): SpringSpec<Float> = spring(dampingRatio = 1.0f, stiffness = 700f)
 }
 
 @Immutable
@@ -84,6 +86,7 @@ fun SmartNoteTheme(
     palette: ThemePalette = ThemePalette.DYNAMIC,
     darkModeConfig: DarkModeConfig = DarkModeConfig.SYSTEM,
     reducedMotionPreference: Boolean = false,
+    syncWindowBackground: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -113,6 +116,9 @@ fun SmartNoteTheme(
         SideEffect {
             val window = (view.context as? Activity)?.window
             if (window != null) {
+                if (syncWindowBackground) {
+                    window.setBackgroundDrawable(ColorDrawable(colorScheme.background.toArgb()))
+                }
                 @Suppress("DEPRECATION")
                 window.statusBarColor = AndroidColor.TRANSPARENT
                 @Suppress("DEPRECATION")

@@ -4,6 +4,24 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-11-18
+
+### Fixed
+- **Removed Empty Ghost Bars & Unwanted Outline Lines**:
+  - Switched new notes in `NoteEditorViewModel` to lazy database creation (`persistedInDb`) and added `NoteRepository.discardIfCompletelyBlank(...)` + `NoteRepository.pruneBlankUntouchedNotes(...)` (triggered automatically on app startup in `SmartNoteApplication` and editor exit via `NoteAutosaveCoordinator.discardAndDeleteIfBlankAsync`) so backing out of an untouched blank note or checklist never leaves empty pill bars, and existing empty ghost drafts from prior versions are cleaned up automatically.
+  - Filtered blank untouched ghost summaries (`isBlankUntouchedGhost`) in `NotesOverviewViewModel` and added an `"Untitled note"` card fallback when a pinned/tagged note has empty title/body.
+  - Lowered `LazyVerticalStaggeredGrid` adaptive cell minimum from `168.dp` to `150.dp` so `360dp+` phones render a true 2-column staggered card grid instead of collapsing into full-width horizontal bars.
+  - Removed wireframe outline strokes across note cards, compact rows, `smartNoteCardBorder()`, tonal `FilterChip`s (`smartNoteTonalFilterChipColors()`), and search bars on `SmartSearchScreen` and `TagsScreen`, while raising `AmoledDark` tonal container contrast (`#121218`–`#282834` over `#000000`) so cards separate cleanly without borders.
+- **Eliminated Screen Flashing & Made Motion Sleek and Calm**:
+  - Added dark-safe `Theme.SmartNote` (`android:windowBackground` `#13121A` in `values-night/themes.xml` and `#FBF8FF` in `values/themes.xml`), an opaque root `Surface` in `SmartNoteApp`, explicit `MaterialTheme.colorScheme.background` containers on all screen `Scaffold`s, synchronous window background synchronization in `SmartNoteTheme` (`syncWindowBackground = true` for `MainActivity`), and synchronous `SharedPreferences` boot caching in `SettingsRepository.currentSnapshot` to eliminate white window bleed and theme/layout cold-start flashes.
+  - Lifted `NavigationBar` and `NavigationRail` into a persistent outer chrome shell in `SmartNoteApp` outside `NavHost` so switching top-level tabs never crossfades or flickers the navigation bar.
+  - Replaced semi-transparent overlapping `NavHost` crossfades with opaque `alpha = 1.0` transitions (`delayMillis` hold under `110 ms` tab fades, stationary opaque `EnterTransition.None` pops, and calm `170 ms` / `140 ms` vertical glides for detail routes), removed `AnimatedContent` layout swaps and `Modifier.animateItem` fade-from-zero flashes across lists/grids, and tuned `SmartNoteSoftMotionScheme` / `SmartNoteMotion` springs to critical damping (`dampingRatio = 1.0f`).
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 21 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 21 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `56,999,598` bytes (`54.36 MiB`), `SHA-256: 825d0ed4d951cf69b3dbc72327f93e2d8c363dcafd6a43f02f2552c614648890`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`), with zero Gemini/AppFunctions artifacts packaged.
+
 ## [1.0.2] - 2026-11-18
 
 ### Added

@@ -193,9 +193,9 @@ object SmartNotePalettes {
         outline = Color(0xFF6B6A7A),
         outlineVariant = Color(0xFF2A2A36),
         surfaceContainerLowest = Color(0xFF000000),
-        surfaceContainerLow = Color(0xFF09090D),
-        surfaceContainer = Color(0xFF101016),
-        surfaceContainerHigh = Color(0xFF17171F),
-        surfaceContainerHighest = Color(0xFF20202A)
+        surfaceContainerLow = Color(0xFF121218),
+        surfaceContainer = Color(0xFF17171F),
+        surfaceContainerHigh = Color(0xFF1F1F29),
+        surfaceContainerHighest = Color(0xFF282834)
     )
 }

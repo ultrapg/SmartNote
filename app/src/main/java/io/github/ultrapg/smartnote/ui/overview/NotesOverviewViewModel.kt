@@ -60,22 +60,26 @@ class NotesOverviewViewModel(
         filterTypeFlow,
         selectedIdsFlow
     ) { notes, settings, sort, filter, selected ->
-        val pinned = notes.filter { it.isPinned }
-        val others = notes.filterNot { it.isPinned }
+        val visibleNotes = notes.filterNot { it.isBlankUntouchedGhost }
+        val pinned = visibleNotes.filter { it.isPinned }
+        val others = visibleNotes.filterNot { it.isPinned }
         NotesOverviewUiState(
             pinnedNotes = pinned,
             otherNotes = others,
             layoutMode = settings.notesLayout,
             sortOrder = sort,
             filterType = filter,
-            selectedIds = selected.intersect(notes.map { it.id }.toSet()),
+            selectedIds = selected.intersect(visibleNotes.map { it.id }.toSet()),
             activeTagName = tagNameFilter,
             isLoading = false
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000L),
-        initialValue = NotesOverviewUiState(activeTagName = tagNameFilter)
+        initialValue = NotesOverviewUiState(
+            layoutMode = settingsRepository.currentSnapshot.notesLayout,
+            activeTagName = tagNameFilter
+        )
     )
 
     fun setSortOrder(order: NoteSortOrder) {

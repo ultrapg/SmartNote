@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.work.Configuration
 import io.github.ultrapg.smartnote.di.AppContainer
 import io.github.ultrapg.smartnote.worker.MaintenanceCleanupWorker
+import kotlinx.coroutines.launch
 
 class SmartNoteApplication : Application(), Configuration.Provider {
 
@@ -20,5 +21,9 @@ class SmartNoteApplication : Application(), Configuration.Provider {
         super.onCreate()
         container.reminderNotificationBuilder.ensureChannel()
         runCatching { MaintenanceCleanupWorker.schedulePeriodic(this) }
+        val launchMs = System.currentTimeMillis()
+        container.applicationScope.launch {
+            runCatching { container.noteRepository.pruneBlankUntouchedNotes(olderThanOrEqualMs = launchMs) }
+        }
     }
 }

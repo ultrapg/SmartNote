@@ -85,6 +85,22 @@ class LargeDatasetAndUiTest {
             app.container.settingsRepository.setNotesLayout(NotesLayoutMode.STAGGERED_CARDS)
         }
 
+        // Opening New note and backing out untouched must NOT create an empty ghost bar
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Capture anything, offline").assertIsDisplayed()
+        assertTrue(
+            runBlocking {
+                app.container.noteRepository.getAllSummariesSnapshot().isEmpty()
+            }
+        )
+
         // Create a note via prominent FAB
         composeRule.onNodeWithContentDescription("New note").performClick()
         composeRule.waitUntil(3_000L) {

@@ -10,7 +10,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteTheme
 import io.github.ultrapg.smartnote.ui.navigation.SmartNoteApp
 
@@ -33,11 +32,14 @@ class MainActivity : ComponentActivity() {
 
         val container = (applicationContext as SmartNoteApplication).container
         setContent {
-            val settings by container.settingsRepository.settingsFlow.collectAsState(initial = AppSettings())
+            val settings by container.settingsRepository.settingsFlow.collectAsState(
+                initial = container.settingsRepository.currentSnapshot
+            )
             SmartNoteTheme(
                 palette = settings.themePalette,
                 darkModeConfig = settings.darkModeConfig,
-                reducedMotionPreference = settings.reducedMotion
+                reducedMotionPreference = settings.reducedMotion,
+                syncWindowBackground = true
             ) {
                 SmartNoteApp(
                     container = container,

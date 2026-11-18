@@ -78,6 +78,7 @@ import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -95,6 +96,7 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -192,7 +194,9 @@ fun AppearanceSettingsScreen(
                 FilterChip(
                     selected = settings.themePalette == palette,
                     onClick = { scope.launch { settingsRepository.setThemePalette(palette) } },
-                    label = { Text(label) }
+                    label = { Text(label) },
+                    border = null,
+                    colors = smartNoteTonalFilterChipColors()
                 )
             }
         }
@@ -208,7 +212,9 @@ fun AppearanceSettingsScreen(
                 FilterChip(
                     selected = settings.darkModeConfig == mode,
                     onClick = { scope.launch { settingsRepository.setDarkModeConfig(mode) } },
-                    label = { Text(label) }
+                    label = { Text(label) },
+                    border = null,
+                    colors = smartNoteTonalFilterChipColors()
                 )
             }
         }
@@ -218,12 +224,16 @@ fun AppearanceSettingsScreen(
             FilterChip(
                 selected = settings.notesLayout == NotesLayoutMode.STAGGERED_CARDS,
                 onClick = { scope.launch { settingsRepository.setNotesLayout(NotesLayoutMode.STAGGERED_CARDS) } },
-                label = { Text("Card Layout (Staggered)") }
+                label = { Text("Card Layout (Staggered)") },
+                border = null,
+                colors = smartNoteTonalFilterChipColors()
             )
             FilterChip(
                 selected = settings.notesLayout == NotesLayoutMode.COMPACT_LIST,
                 onClick = { scope.launch { settingsRepository.setNotesLayout(NotesLayoutMode.COMPACT_LIST) } },
-                label = { Text("Compact List") }
+                label = { Text("Compact List") },
+                border = null,
+                colors = smartNoteTonalFilterChipColors()
             )
         }
 
@@ -513,7 +523,9 @@ fun ReminderSettingsScreen(
                 FilterChip(
                     selected = settings.defaultSnoozeMinutes == mins,
                     onClick = { scope.launch { settingsRepository.setDefaultSnoozeMinutes(mins) } },
-                    label = { Text("${mins}m") }
+                    label = { Text("${mins}m") },
+                    border = null,
+                    colors = smartNoteTonalFilterChipColors()
                 )
             }
         }
@@ -597,6 +609,7 @@ fun DataSettingsScreen(
     }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             @OptIn(ExperimentalMaterial3Api::class)
@@ -805,6 +818,7 @@ private fun SettingsSubScaffold(
     content: @Composable () -> Unit
 ) {
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text(title) },

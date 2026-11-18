@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <style name="Theme.SmartNote" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#13121A</item>
+    </style>
+
     <style name="Theme.SmartNote.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#13121A</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>

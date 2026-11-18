@@ -1,6 +1,5 @@
 package io.github.ultrapg.smartnote.ui.search
 
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +39,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,6 +62,8 @@ import io.github.ultrapg.smartnote.search.SearchMatchField
 import io.github.ultrapg.smartnote.search.SmartSearchResultItem
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
+import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import java.util.Locale
 
@@ -88,9 +90,11 @@ fun SmartSearchScreen(
 ) {
     val density = LocalDensity.current
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
+    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        containerColor = MaterialTheme.colorScheme.background,
         bottomBar = bottomBar,
         topBar = {
             Column(
@@ -121,6 +125,12 @@ fun SmartSearchScreen(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { onSubmitSearch() }),
                     shape = RoundedCornerShape(26.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -133,7 +143,9 @@ fun SmartSearchScreen(
                             selected = uiState.filter.pinnedOnly,
                             onClick = onTogglePinnedFilter,
                             label = { Text("Pinned") },
-                            leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     item(key = "f_ocr") {
@@ -141,7 +153,9 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasOcrOnly,
                             onClick = onToggleOcrFilter,
                             label = { Text("Has OCR") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     item(key = "f_image") {
@@ -149,14 +163,18 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasImageOnly,
                             onClick = onToggleImageFilter,
                             label = { Text("Images") },
-                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     item(key = "f_checklist") {
                         FilterChip(
                             selected = uiState.filter.hasChecklistOnly,
                             onClick = onToggleChecklistFilter,
-                            label = { Text("Checklists") }
+                            label = { Text("Checklists") },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     item(key = "f_link") {
@@ -164,7 +182,9 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasLinkOnly,
                             onClick = onToggleLinkFilter,
                             label = { Text("Links") },
-                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     items(SearchDateFilter.entries.filter { it != SearchDateFilter.ANY }, key = { it.name }) { df ->
@@ -179,14 +199,18 @@ fun SmartSearchScreen(
                             onClick = {
                                 onSelectDateFilter(if (uiState.filter.dateFilter == df) SearchDateFilter.ANY else df)
                             },
-                            label = { Text(label) }
+                            label = { Text(label) },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                     items(uiState.availableTags.take(10), key = { "tag_${it.id}" }) { tag ->
                         FilterChip(
                             selected = tag.name in uiState.filter.tagNames,
                             onClick = { onToggleTagFilter(tag.name) },
-                            label = { Text("#${tag.name}") }
+                            label = { Text("#${tag.name}") },
+                            border = null,
+                            colors = smartNoteTonalFilterChipColors()
                         )
                     }
                 }
@@ -289,9 +313,9 @@ fun SmartSearchScreen(
                     item = item,
                     onClick = { onOpenNote(item.note.id) },
                     modifier = Modifier.animateItem(
-                        fadeInSpec = tween(160),
-                        placementSpec = SmartNoteMotion.softPlacementSpring(),
-                        fadeOutSpec = tween(140)
+                        fadeInSpec = null,
+                        placementSpec = if (reducedMotion) null else SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = null
                     )
                 )
             }
