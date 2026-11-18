@@ -4,6 +4,21 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-11-18
+
+### Fixed
+- **SmartSearch Header Overlap & Scroll Clipping (`SmartSearchScreen.kt`)**:
+  - Added an explicit opaque `MaterialTheme.colorScheme.background` behind `SmartSearchScreen`'s `Scaffold` `topBar` (search field + filter chips strip + status bar) and hard-clipped the results `LazyColumn` below `innerPadding.calculateTopPadding()` (`Modifier.padding(top = innerPadding.calculateTopPadding())` with `contentPadding(top = 4.dp)`), eliminating `"Did you mean"` banners and result cards bleeding visibly behind filter chips when scrolled or when the soft keyboard opens.
+  - Added `rememberLazyListState()` and `LaunchedEffect(uiState.query, uiState.filter, uiState.didYouMeanSuggestion)` resetting scroll to index `0` so Compose `LazyColumn` key-anchoring no longer shifts prepended `"Did you mean"` banners and result-count rows above the fold when transitioning from an empty query to a typed query.
+  - Moved horizontal `16.dp` padding off `topBar`'s outer `Column` onto `OutlinedTextField` and gave the filter-chip `LazyRow` `contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)` so chips align at `16.dp` while scrolling smoothly edge-to-edge without getting cut off `16.dp` inset from the right screen margin.
+- **App-Wide `Scaffold` Top-Bar Clipping Hardening**:
+  - Added explicit `MaterialTheme.colorScheme.background` to `NotesOverviewScreen`'s custom `topBar` `Box`, clipped `NoteEditorScreen`'s `BoxWithConstraints` + `VerticalLazyScrollbar` cleanly below `innerPadding.calculateTopPadding()`, and hard-clipped `LazyColumn` viewports below `innerPadding.calculateTopPadding()` in `ArchiveAndTrashScreens.kt` and `SettingsScreens.kt`.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 26 tests passed, 0 failures, 0 errors, 0 skipped** (including new `smartSearchHeaderClipsScrolledResultsAndEdgeToEdgeChips` Compose UI layout regression test).
+- `testReleaseUnitTest`: **10 suites, 26 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,032,370` bytes (`54.39 MiB`), `SHA-256: 8f5a5c2573063cfc8b068f396d89824e673cf6c209fc598c3f4206599dee8836`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.5] - 2026-11-18
 
 ### Added

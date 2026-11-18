@@ -109,11 +109,13 @@ fun SettingsScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = innerPadding.calculateTopPadding() + 12.dp,
+                top = 12.dp,
                 bottom = innerPadding.calculateBottomPadding() + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -624,11 +626,13 @@ fun DataSettingsScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = innerPadding.calculateTopPadding() + 12.dp,
+                top = 12.dp,
                 bottom = innerPadding.calculateBottomPadding() + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -831,11 +835,13 @@ private fun SettingsSubScaffold(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
-                top = innerPadding.calculateTopPadding() + 12.dp,
+                top = 12.dp,
                 bottom = innerPadding.calculateBottomPadding() + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)

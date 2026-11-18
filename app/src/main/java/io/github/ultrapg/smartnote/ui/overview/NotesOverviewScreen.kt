@@ -234,6 +234,7 @@ fun NotesOverviewScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background)
                         .statusBarsPadding()
                         .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
                 ) {

@@ -2,12 +2,21 @@ package io.github.ultrapg.smartnote.ui
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.MainActivity
 import io.github.ultrapg.smartnote.SmartNoteApplication
@@ -228,5 +237,140 @@ class LargeDatasetAndUiTest {
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Long Scrollable Note").fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    @Test
+    fun smartSearchHeaderClipsScrolledResultsAndEdgeToEdgeChips() {
+        val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
+        runBlocking {
+            val db = app.container.database
+            val now = System.currentTimeMillis()
+            val notes = (1..20).map { i ->
+                io.github.ultrapg.smartnote.data.local.NoteEntity(
+                    id = "search_clip_$i",
+                    title = "Desert Research Lab #$i",
+                    plainTextPreview = "Offline desert and labs field notes entry $i",
+                    fullPlainText = "Offline desert and labs field notes entry $i",
+                    wordCount = 8,
+                    isPinned = false,
+                    isArchived = false,
+                    isDeleted = false,
+                    createdAtMs = now - i,
+                    updatedAtMs = now - i
+                )
+            }
+            val blocks = (1..20).map { i ->
+                io.github.ultrapg.smartnote.data.local.NoteBlockEntity(
+                    id = "search_clip_blk_$i",
+                    noteId = "search_clip_$i",
+                    position = 0,
+                    blockType = NoteBlockType.TEXT.name,
+                    textContent = "Offline desert and labs field notes entry $i"
+                )
+            }
+            db.noteDao().upsertNotes(notes)
+            db.noteBlockDao().insertBlocks(blocks)
+            app.container.searchIndexer.rebuildAll()
+        }
+
+        composeRule.onNodeWithText("SmartSearch").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("SmartSearch titles, OCR text, #tags, URLs...").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.onNodeWithText("SmartSearch titles, OCR text, #tags, URLs...")
+            .performTextInput("dersert and labs")
+
+        composeRule.waitUntil(5_000L) {
+            composeRule.onAllNodesWithText("Did you mean: desert and labs?").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Desert Research Lab #", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+
+        val rootBounds = composeRule.onRoot().getBoundsInRoot()
+        val chipRowNode = composeRule.onNode(
+            hasScrollToIndexAction() and hasAnyDescendant(hasText("Pinned"))
+        )
+        val chipRowBounds = chipRowNode.getBoundsInRoot()
+        val pinnedChipBounds = composeRule.onNodeWithText("Pinned").getBoundsInRoot()
+        val didYouMeanBounds = composeRule.onNodeWithText("Did you mean: desert and labs?").getBoundsInRoot()
+        val resultsListNode = composeRule.onNode(
+            hasScrollToIndexAction() and hasAnyDescendant(hasText("Desert Research Lab #", substring = true))
+        )
+        val resultsListBounds = resultsListNode.getBoundsInRoot()
+
+        assertTrue(
+            "Filter chip row should span flush to the left screen edge (was ${chipRowBounds.left})",
+            chipRowBounds.left <= 1.dp
+        )
+        assertTrue(
+            "Filter chip row should span flush to the right screen edge (was ${chipRowBounds.right} vs ${rootBounds.right})",
+            chipRowBounds.right >= rootBounds.right - 1.dp
+        )
+        assertTrue(
+            "First filter chip should still have 16dp content padding (was ${pinnedChipBounds.left})",
+            pinnedChipBounds.left >= 15.dp
+        )
+        assertTrue(
+            "SmartSearch results list (${resultsListBounds.top}) must be clipped below filter chips (${pinnedChipBounds.bottom})",
+            resultsListBounds.top >= pinnedChipBounds.bottom
+        )
+        assertTrue(
+            "Did-you-mean banner (${didYouMeanBounds.top}..${didYouMeanBounds.bottom}) must be visible below filter chips (${pinnedChipBounds.bottom})",
+            (didYouMeanBounds.bottom - didYouMeanBounds.top) > 0.dp &&
+                didYouMeanBounds.top >= pinnedChipBounds.bottom
+        )
+
+        // Partial scroll: simulates scrolling under the filter chips when keyboard opens / user nudges list
+        resultsListNode.performTouchInput { swipeUp(startY = centerY, endY = centerY - 50f) }
+        composeRule.waitForIdle()
+
+        val pinnedStillBounds = composeRule.onNodeWithText("Pinned").getBoundsInRoot()
+        if (composeRule.onAllNodesWithText("Did you mean: desert and labs?").fetchSemanticsNodes().isNotEmpty()) {
+            val partialBannerBounds = composeRule.onNodeWithText("Did you mean: desert and labs?").getBoundsInRoot()
+            if ((partialBannerBounds.bottom - partialBannerBounds.top) > 0.dp) {
+                assertTrue(
+                    "Partially scrolled banner (${partialBannerBounds.top}) must not overlap filter chips (${pinnedStillBounds.bottom})",
+                    partialBannerBounds.top >= pinnedStillBounds.bottom
+                )
+            }
+        }
+
+        // Deep scroll: scrolls past index 0 and verifies visible result cards remain strictly clipped below topBar
+        resultsListNode.performScrollToIndex(6)
+        composeRule.waitForIdle()
+
+        val scrolledResultsListBounds = resultsListNode.getBoundsInRoot()
+        val pinnedAfterDeepScroll = composeRule.onNodeWithText("Pinned").getBoundsInRoot()
+        assertTrue(
+            "Scrolled SmartSearch list (${scrolledResultsListBounds.top}) must remain below filter chips (${pinnedAfterDeepScroll.bottom})",
+            scrolledResultsListBounds.top >= pinnedAfterDeepScroll.bottom
+        )
+        if (composeRule.onAllNodesWithText("Did you mean: desert and labs?").fetchSemanticsNodes().isNotEmpty()) {
+            val deepBannerBounds = composeRule.onNodeWithText("Did you mean: desert and labs?").getBoundsInRoot()
+            if ((deepBannerBounds.bottom - deepBannerBounds.top) > 0.dp) {
+                assertTrue(
+                    "Deeply scrolled banner (${deepBannerBounds.top}) must not overlap filter chips (${pinnedAfterDeepScroll.bottom})",
+                    deepBannerBounds.top >= pinnedAfterDeepScroll.bottom
+                )
+            }
+        }
+        val visibleLabNodes = composeRule.onAllNodesWithText("Desert Research Lab #", substring = true)
+        val visibleCount = visibleLabNodes.fetchSemanticsNodes().size
+        var positiveHeightVisibleCards = 0
+        for (idx in 0 until visibleCount) {
+            val cardBounds = visibleLabNodes[idx].getBoundsInRoot()
+            if ((cardBounds.bottom - cardBounds.top) > 0.dp) {
+                positiveHeightVisibleCards++
+                assertTrue(
+                    "Visible card #$idx (${cardBounds.top}) must be clipped below filter chips (${pinnedAfterDeepScroll.bottom})",
+                    cardBounds.top >= pinnedAfterDeepScroll.bottom
+                )
+            }
+        }
+        assertTrue(
+            "Expected at least one visible search result card after scrolling",
+            positiveHeightVisibleCards > 0
+        )
     }
 }

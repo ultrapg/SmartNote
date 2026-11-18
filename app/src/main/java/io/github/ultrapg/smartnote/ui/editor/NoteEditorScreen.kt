@@ -441,7 +441,7 @@ fun NoteEditorScreen(
             }
         }
     ) { innerPadding ->
-        val topContentPad = innerPadding.calculateTopPadding() + 8.dp
+        val topContentPad = 8.dp
         val bottomContentPad = innerPadding.calculateBottomPadding() + 24.dp
         val isSingleCleanTextBlock = uiState.blocks.size == 1 &&
             uiState.blocks.first().type == NoteBlockType.TEXT &&
@@ -453,6 +453,7 @@ fun NoteEditorScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding())
                 .pointerInput(Unit) {
                     detectTapGestures { focusBottomEditor() }
                 }
@@ -789,7 +790,7 @@ fun NoteEditorScreen(
 
             VerticalLazyScrollbar(
                 listState = listState,
-                topPadding = innerPadding.calculateTopPadding() + 6.dp,
+                topPadding = 6.dp,
                 bottomPadding = innerPadding.calculateBottomPadding() + 6.dp
             )
         }
