@@ -381,7 +381,8 @@ fun SmartNoteApp(
                         onOpenDuplicateNote = { otherId ->
                             navController.navigate(NoteEditorRoute(noteId = otherId))
                         },
-                        onFlushAutosave = vm::flushAutosaveAsync,
+                        onFlushAutosave = vm::flushPendingEditsOnly,
+                        onExitEditor = vm::finishEditorSession,
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

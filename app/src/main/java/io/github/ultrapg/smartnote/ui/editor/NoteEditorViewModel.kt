@@ -18,6 +18,7 @@ import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
 import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.NoteDetail
 import io.github.ultrapg.smartnote.domain.model.NoteSourceType
 import io.github.ultrapg.smartnote.domain.model.NoteTag
 import io.github.ultrapg.smartnote.domain.model.ReminderInfo
@@ -25,6 +26,7 @@ import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
 import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 
 @Immutable
 data class NoteEditorUiState(
@@ -49,7 +52,7 @@ data class NoteEditorUiState(
     val duplicateMatches: List<DuplicatePairInfo> = emptyList(),
     val autosaveStatus: AutosaveStatus = AutosaveStatus.IDLE,
     val suggestedTitle: String? = null,
-    val autoTitleEnabled: Boolean = true,
+    val autoTitleEnabled: Boolean = false,
     val updatedAtMs: Long = System.currentTimeMillis(),
     val isLoaded: Boolean = false
 )
@@ -85,6 +88,7 @@ class NoteEditorViewModel(
         if (fromQuickTile) NoteSourceType.QUICK_TILE else NoteSourceType.MANUAL
     private var persistedInDb: Boolean = (initialNoteId != null)
     private var hasDiscardedBlankDraft: Boolean = false
+    private val activeImportsCount = AtomicInteger(0)
 
     private val _uiState = MutableStateFlow(buildInitialUiState())
     val uiState: StateFlow<NoteEditorUiState> = _uiState.asStateFlow()
@@ -178,70 +182,97 @@ class NoteEditorViewModel(
                     lastDupeEnabled = true
                 }
                 val dupes = cachedDupes
-                val attMap = detail.attachments.associateBy { it.id }
                 _uiState.update { cur ->
-                    // Preserve active local typing buffer while only refreshing metadata/OCR/tags/links
-                    if (hasUserEditedLocally && cur.isLoaded && saveStatus == AutosaveStatus.PENDING) {
-                        val candidateTitle = computeSuggestedTitle(
-                            enabled = autoTitleActive,
-                            title = cur.title,
-                            blocks = cur.blocks,
-                            attachments = attMap.values.toList(),
-                            links = detail.links
-                        )
-                        cur.copy(
-                            isPinned = detail.isPinned,
-                            isArchived = detail.isArchived,
-                            isDeleted = detail.isDeleted,
-                            tags = detail.tags,
-                            attachments = attMap,
-                            links = detail.links,
-                            reminder = detail.reminder,
-                            duplicateMatches = dupes,
-                            autosaveStatus = saveStatus,
-                            suggestedTitle = candidateTitle,
-                            autoTitleEnabled = autoTitleActive
-                        )
-                    } else {
-                        val resolvedTitle = if (hasUserEditedLocally) cur.title else detail.title
-                        val resolvedBlocks = if (hasUserEditedLocally) cur.blocks else detail.blocks.ifEmpty {
-                            listOf(
-                                NoteBlock(
-                                    id = UUID.randomUUID().toString(),
-                                    noteId = detail.id,
-                                    position = 0,
-                                    type = NoteBlockType.TEXT
-                                )
-                            )
-                        }
-                        val candidateTitle = computeSuggestedTitle(
-                            enabled = autoTitleActive,
-                            title = resolvedTitle,
-                            blocks = resolvedBlocks,
-                            attachments = attMap.values.toList(),
-                            links = detail.links
-                        )
-                        NoteEditorUiState(
-                            noteId = detail.id,
-                            title = resolvedTitle,
-                            blocks = resolvedBlocks,
-                            isPinned = detail.isPinned,
-                            isArchived = detail.isArchived,
-                            isDeleted = detail.isDeleted,
-                            tags = detail.tags,
-                            attachments = attMap,
-                            links = detail.links,
-                            reminder = detail.reminder,
-                            duplicateMatches = dupes,
-                            autosaveStatus = saveStatus,
-                            suggestedTitle = candidateTitle,
-                            autoTitleEnabled = autoTitleActive,
-                            updatedAtMs = detail.updatedAtMs,
-                            isLoaded = true
-                        )
-                    }
+                    cur.withDetailSnapshot(
+                        detail = detail,
+                        dupes = dupes,
+                        saveStatus = saveStatus,
+                        autoTitleActive = autoTitleActive
+                    )
                 }
             }
+        }
+    }
+
+    private fun NoteEditorUiState.withDetailSnapshot(
+        detail: NoteDetail,
+        dupes: List<DuplicatePairInfo>,
+        saveStatus: AutosaveStatus,
+        autoTitleActive: Boolean
+    ): NoteEditorUiState {
+        val attMap = detail.attachments.associateBy { it.id }
+        // Preserve active local typing buffer while only refreshing metadata/OCR/tags/links
+        if (hasUserEditedLocally && isLoaded && saveStatus == AutosaveStatus.PENDING) {
+            val candidateTitle = computeSuggestedTitle(
+                enabled = autoTitleActive,
+                title = title,
+                blocks = blocks,
+                attachments = attMap.values.toList(),
+                links = detail.links
+            )
+            return copy(
+                isPinned = detail.isPinned,
+                isArchived = detail.isArchived,
+                isDeleted = detail.isDeleted,
+                tags = detail.tags,
+                attachments = attMap,
+                links = detail.links,
+                reminder = detail.reminder,
+                duplicateMatches = dupes,
+                autosaveStatus = saveStatus,
+                suggestedTitle = candidateTitle,
+                autoTitleEnabled = autoTitleActive
+            )
+        }
+        val resolvedTitle = if (hasUserEditedLocally) title else detail.title
+        val resolvedBlocks = if (hasUserEditedLocally) blocks else detail.blocks.ifEmpty {
+            listOf(
+                NoteBlock(
+                    id = UUID.randomUUID().toString(),
+                    noteId = detail.id,
+                    position = 0,
+                    type = NoteBlockType.TEXT
+                )
+            )
+        }
+        val candidateTitle = computeSuggestedTitle(
+            enabled = autoTitleActive,
+            title = resolvedTitle,
+            blocks = resolvedBlocks,
+            attachments = attMap.values.toList(),
+            links = detail.links
+        )
+        return NoteEditorUiState(
+            noteId = detail.id,
+            title = resolvedTitle,
+            blocks = resolvedBlocks,
+            isPinned = detail.isPinned,
+            isArchived = detail.isArchived,
+            isDeleted = detail.isDeleted,
+            tags = detail.tags,
+            attachments = attMap,
+            links = detail.links,
+            reminder = detail.reminder,
+            duplicateMatches = dupes,
+            autosaveStatus = saveStatus,
+            suggestedTitle = candidateTitle,
+            autoTitleEnabled = autoTitleActive,
+            updatedAtMs = detail.updatedAtMs,
+            isLoaded = true
+        )
+    }
+
+    private suspend fun refreshUiFromDetailSnapshot() {
+        val detail = noteRepository.getNoteDetail(activeNoteId) ?: return
+        persistedInDb = true
+        hasDiscardedBlankDraft = false
+        _uiState.update { cur ->
+            cur.withDetailSnapshot(
+                detail = detail,
+                dupes = cachedDupes,
+                saveStatus = autosaveCoordinator.statusFlow.value,
+                autoTitleActive = autoTitleEnabledCache
+            )
         }
     }
 
@@ -459,14 +490,29 @@ class NoteEditorViewModel(
 
     fun importImages(uris: List<Uri>) {
         if (uris.isEmpty()) return
+        activeImportsCount.incrementAndGet()
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
-            for (uri in uris) {
-                val att = attachmentImporter.importUriDirectlyToNote(activeNoteId, uri) ?: continue
-                noteRepository.addAttachmentToNote(activeNoteId, att, insertImageBlock = true)
+            try {
+                withContext(NonCancellable) {
+                    runCatching {
+                        prepareNoteForForeignMutation()
+                        hasUserEditedLocally = false
+                        var importedAny = false
+                        for (uri in uris) {
+                            val att = attachmentImporter.importUriDirectlyToNote(activeNoteId, uri) ?: continue
+                            noteRepository.addAttachmentToNote(activeNoteId, att, insertImageBlock = true)
+                            importedAny = true
+                        }
+                        if (importedAny) {
+                            persistedInDb = true
+                            hasDiscardedBlankDraft = false
+                        }
+                        refreshUiFromDetailSnapshot()
+                    }
+                }
+            } finally {
+                activeImportsCount.decrementAndGet()
             }
-            hasUserEditedLocally = false
         }
     }
 
@@ -482,8 +528,7 @@ class NoteEditorViewModel(
         val next = !_uiState.value.isPinned
         _uiState.update { it.copy(isPinned = next) }
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             noteRepository.setPinned(activeNoteId, next)
         }
     }
@@ -491,16 +536,14 @@ class NoteEditorViewModel(
     fun toggleArchive() {
         val next = !_uiState.value.isArchived
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             noteRepository.setArchived(activeNoteId, next)
         }
     }
 
     fun duplicateCurrentNote(onDuplicated: (String) -> Unit) {
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             val copyId = noteRepository.duplicateNote(activeNoteId)
             if (copyId != null) onDuplicated(copyId)
         }
@@ -518,8 +561,7 @@ class NoteEditorViewModel(
 
     fun shareCurrentNote() {
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             noteRepository.getNoteDetail(activeNoteId)?.let { detail ->
                 noteShareExporter.shareNote(detail)
             }
@@ -528,8 +570,7 @@ class NoteEditorViewModel(
 
     fun addUserTag(rawName: String) {
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             tagRepository.addUserTagToNote(activeNoteId, rawName)
         }
     }
@@ -548,8 +589,7 @@ class NoteEditorViewModel(
 
     fun saveReminder(triggerAtMs: Long, repeatRule: RepeatRule, useLiveUpdate: Boolean) {
         viewModelScope.launch {
-            ensureNotePersisted()
-            flushAutosaveNow()
+            prepareNoteForForeignMutation()
             reminderScheduler.scheduleOrUpdateReminder(activeNoteId, triggerAtMs, repeatRule, useLiveUpdate)
         }
     }
@@ -569,7 +609,22 @@ class NoteEditorViewModel(
         }
     }
 
+    fun flushPendingEditsOnly() {
+        val state = _uiState.value
+        if (isUiStateCompletelyBlank(state)) {
+            autosaveCoordinator.discardPending(activeNoteId)
+            return
+        }
+        hasDiscardedBlankDraft = false
+        applyAutoTitleBeforeFlushIfNeeded()
+        autosaveCoordinator.flushAsync(activeNoteId)
+    }
+
     fun flushAutosaveAsync() {
+        flushPendingEditsOnly()
+    }
+
+    fun finishEditorSession() {
         val state = _uiState.value
         if (isUiStateCompletelyBlank(state)) {
             if (persistedInDb && !hasDiscardedBlankDraft) {
@@ -602,23 +657,34 @@ class NoteEditorViewModel(
         persistedInDb = true
     }
 
-    private suspend fun ensureNotePersisted() {
-        if (persistedInDb && noteRepository.getNoteDetail(activeNoteId) != null) return
+    private suspend fun prepareNoteForForeignMutation() {
         val state = _uiState.value
-        noteRepository.createNote(
-            id = activeNoteId,
-            title = state.title,
-            blocks = state.blocks,
-            isPinned = state.isPinned,
-            sourceType = defaultSourceType,
-            scheduleBackgroundWork = false
-        )
-        persistedInDb = true
-        hasDiscardedBlankDraft = false
+        if (!isUiStateCompletelyBlank(state)) {
+            hasDiscardedBlankDraft = false
+            applyAutoTitleBeforeFlushIfNeeded()
+            autosaveCoordinator.flushNow(activeNoteId)
+            persistedInDb = true
+        } else {
+            autosaveCoordinator.discardPending(activeNoteId)
+        }
+        if (!persistedInDb || noteRepository.getNoteDetail(activeNoteId) == null) {
+            val latest = _uiState.value
+            noteRepository.createNote(
+                id = activeNoteId,
+                title = latest.title,
+                blocks = latest.blocks,
+                isPinned = latest.isPinned,
+                sourceType = defaultSourceType,
+                scheduleBackgroundWork = false
+            )
+            persistedInDb = true
+            hasDiscardedBlankDraft = false
+        }
     }
 
-    private fun isUiStateCompletelyBlank(state: NoteEditorUiState): Boolean =
-        !state.isPinned &&
+    private fun isUiStateCompletelyBlank(state: NoteEditorUiState): Boolean {
+        if (activeImportsCount.get() > 0) return false
+        return !state.isPinned &&
             !state.isArchived &&
             !state.isDeleted &&
             state.title.isBlank() &&
@@ -629,6 +695,7 @@ class NoteEditorViewModel(
             state.links.isEmpty() &&
             state.tags.isEmpty() &&
             state.reminder == null
+    }
 
     private fun applyAutoTitleBeforeFlushIfNeeded() {
         val state = _uiState.value
@@ -701,7 +768,7 @@ class NoteEditorViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        flushAutosaveAsync()
+        finishEditorSession()
     }
 
     companion object {

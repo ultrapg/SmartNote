@@ -100,7 +100,7 @@ data class AppSettings(
     val reducedMotion: Boolean = false,
     val aiFeaturesEnabled: Boolean = true,
     val smartTagsEnabled: Boolean = true,
-    val autoTitleEnabled: Boolean = true,
+    val autoTitleEnabled: Boolean = false,
     val ocrEnabled: Boolean = true,
     val duplicateDetectionEnabled: Boolean = true,
     val fetchLinkPreviews: Boolean = false,

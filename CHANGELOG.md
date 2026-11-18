@@ -4,6 +4,25 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-11-18
+
+### Changed
+- **Auto-Title Generation Disabled by Default**:
+  - Changed `AppSettings.autoTitleEnabled`, `NoteEditorUiState.autoTitleEnabled`, and `SettingsRepository` DataStore/boot-cache defaults (`auto_title_enabled_v2`) to `false` so untitled notes remain untitled unless users opt in under **Settings → AI & Smart Features → Auto-Title Generation**.
+
+### Fixed
+- **Eliminated Image Attachment Crashes Across Editor, Coil, & Offline OCR**:
+  - Fixed a deterministic `SQLiteConstraintException` (`FOREIGN KEY constraint failed`) when adding images to a blank note: separated `NoteEditorViewModel.flushPendingEditsOnly()` (`ON_STOP` / Photo Picker lifecycle) from `finishEditorSession()` (Back exit), introduced `prepareNoteForForeignMutation()` and `activeImportsCount` + `NonCancellable` guards, and added defensive parent-note insertion inside `NoteRepository.addAttachmentToNote(...)`.
+  - Fixed text/image concurrency races by preserving active database attachments inside `NoteRepository.saveNoteContent(...)`, deleting attachment files/rows prior to block cleanup in `removeAttachmentBlock(...)`, and refreshing UI state snapshots immediately after import (`refreshUiFromDetailSnapshot()`).
+  - Eliminated huge-bitmap UI / Canvas crashes (`RecordingCanvas` / GPU OOM) by implementing `coil.ImageLoaderFactory` (`allowHardware(false)`, `allowRgb565(true)`) on `SmartNoteApplication`, adding `rememberBoundedImageRequest(...)`, sizing `ImageBlockCard` explicitly (`220.dp`, capped at `1280px`) and overview/capture thumbnails (`512px`) / fullscreen viewer (`2048px`).
+  - Eliminated full-resolution `OutOfMemoryError` crashes in `MlKitBundledOcrEngine` by replacing direct `InputImage.fromFilePath(...)` decoding with `SafeOcrBitmapLoader.decodeDownsampledBitmap(...)` (`<= 2048px`) + EXIF orientation metadata, and guarding `BitmapRegionDecoder` with clean fallback.
+  - Added EXIF orientation normalization in `AttachmentStorage.generateThumbnail(...)` / `readImageDimensions(...)` and `runCatching` guards around third-party `ContentResolver` queries and MIME lookups in `AttachmentImporter` (plus HEIC/HEIF/AVIF/GIF/BMP mappings).
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 23 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 23 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,015,980` bytes (`54.37 MiB`), `SHA-256: b2735258df390b9959b1475b618d97c8fbd6dafa4389a8286ac48c24078d0281`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.3] - 2026-11-18
 
 ### Fixed

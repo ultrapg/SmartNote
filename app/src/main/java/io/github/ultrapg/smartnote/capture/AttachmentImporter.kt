@@ -49,10 +49,14 @@ class AttachmentImporter(
     ): AttachmentEntity? = withContext(Dispatchers.IO) {
         val sessionId = "direct_${UUID.randomUUID()}"
         val sessionDir = File(attachmentStorage.incomingSharesDir, sessionId).apply { mkdirs() }
-        val staged = stageSingleUri(sessionDir, uri) ?: return@withContext null
-        val persisted = commitStagedAttachments(noteId, listOf(staged)).firstOrNull()
-        sessionDir.deleteRecursively()
-        persisted
+        try {
+            runCatching {
+                val staged = stageSingleUri(sessionDir, uri) ?: return@withContext null
+                commitStagedAttachments(noteId, listOf(staged)).firstOrNull()
+            }.getOrNull()
+        } finally {
+            runCatching { sessionDir.deleteRecursively() }
+        }
     }
 
     suspend fun commitStagedAttachments(
@@ -99,60 +103,62 @@ class AttachmentImporter(
     }
 
     private fun stageSingleUri(sessionDir: File, uri: Uri): StagedAttachment? {
-        if (!isSafeUri(uri)) return null
-        val mime = resolveMimeType(uri) ?: return null
-        if (!mime.startsWith("image/", ignoreCase = true)) return null
+        return runCatching {
+            if (!isSafeUri(uri)) return@runCatching null
+            val mime = resolveMimeType(uri) ?: return@runCatching null
+            if (!mime.startsWith("image/", ignoreCase = true)) return@runCatching null
 
-        val displayName = resolveDisplayName(uri) ?: "image_${System.currentTimeMillis()}"
-        val id = UUID.randomUUID().toString()
-        val ext = extensionForMime(mime, displayName)
-        val tempFile = File(sessionDir, "$id.$ext")
+            val displayName = resolveDisplayName(uri) ?: "image_${System.currentTimeMillis()}"
+            val id = UUID.randomUUID().toString()
+            val ext = extensionForMime(mime, displayName)
+            val tempFile = File(sessionDir, "$id.$ext")
 
-        var copiedBytes = 0L
-        val buffer = ByteArray(64 * 1024)
-        val success = runCatching {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        copiedBytes += read
-                        if (copiedBytes > MAX_FILE_BYTES) {
-                            throw IllegalStateException("Shared file exceeds 50 MiB limit")
+            var copiedBytes = 0L
+            val buffer = ByteArray(64 * 1024)
+            val success = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            copiedBytes += read
+                            if (copiedBytes > MAX_FILE_BYTES) {
+                                throw IllegalStateException("Shared file exceeds 50 MiB limit")
+                            }
+                            output.write(buffer, 0, read)
                         }
-                        output.write(buffer, 0, read)
                     }
-                }
-            } != null
-        }.getOrDefault(false)
+                } != null
+            }.getOrDefault(false)
 
-        if (!success || !tempFile.exists() || copiedBytes <= 0L) {
-            tempFile.delete()
-            return null
-        }
+            if (!success || !tempFile.exists() || copiedBytes <= 0L) {
+                tempFile.delete()
+                return@runCatching null
+            }
 
-        val (width, height) = attachmentStorage.readImageDimensions(tempFile)
-        if (width <= 0 || height <= 0) {
-            tempFile.delete()
-            return null
-        }
+            val (width, height) = attachmentStorage.readImageDimensions(tempFile)
+            if (width <= 0 || height <= 0) {
+                tempFile.delete()
+                return@runCatching null
+            }
 
-        val sha256 = TextHashing.sha256Hex(tempFile)
-        val thumbRel = attachmentStorage.generateThumbnail(tempFile, id)
-        val looksLikeScreenshot = detectScreenshotHeuristic(displayName, mime, width, height)
+            val sha256 = TextHashing.sha256Hex(tempFile)
+            val thumbRel = attachmentStorage.generateThumbnail(tempFile, id)
+            val looksLikeScreenshot = detectScreenshotHeuristic(displayName, mime, width, height)
 
-        return StagedAttachment(
-            id = id,
-            stagedFile = tempFile,
-            thumbnailRelativePath = thumbRel,
-            mimeType = mime,
-            originalDisplayName = displayName,
-            byteSize = copiedBytes,
-            widthPx = width,
-            heightPx = height,
-            sha256 = sha256,
-            isScreenshot = looksLikeScreenshot
-        )
+            StagedAttachment(
+                id = id,
+                stagedFile = tempFile,
+                thumbnailRelativePath = thumbRel,
+                mimeType = mime,
+                originalDisplayName = displayName,
+                byteSize = copiedBytes,
+                widthPx = width,
+                heightPx = height,
+                sha256 = sha256,
+                isScreenshot = looksLikeScreenshot
+            )
+        }.getOrNull()
     }
 
     internal fun isSafeUri(uri: Uri): Boolean {
@@ -174,14 +180,19 @@ class AttachmentImporter(
     }
 
     private fun resolveMimeType(uri: Uri): String? {
-        val direct = context.contentResolver.getType(uri)
+        val direct = runCatching { context.contentResolver.getType(uri) }.getOrNull()
         if (!direct.isNullOrBlank() && direct != "*/*") return direct
         val ext = MimeTypeMap.getFileExtensionFromUrl(uri.toString()).lowercase(Locale.ROOT)
         return when (ext) {
             "png" -> "image/png"
             "jpg", "jpeg" -> "image/jpeg"
             "webp" -> "image/webp"
-            else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+            "heic" -> "image/heic"
+            "heif" -> "image/heif"
+            "avif" -> "image/avif"
+            "gif" -> "image/gif"
+            "bmp" -> "image/bmp"
+            else -> runCatching { MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) }.getOrNull()
         }
     }
 
@@ -203,6 +214,11 @@ class AttachmentImporter(
             "image/png" -> "png"
             "image/webp" -> "webp"
             "image/jpeg", "image/jpg" -> "jpg"
+            "image/heic" -> "heic"
+            "image/heif" -> "heif"
+            "image/avif" -> "avif"
+            "image/gif" -> "gif"
+            "image/bmp" -> "bmp"
             else -> displayName.substringAfterLast('.', "").takeIf { it.length in 2..5 } ?: "png"
         }
     }

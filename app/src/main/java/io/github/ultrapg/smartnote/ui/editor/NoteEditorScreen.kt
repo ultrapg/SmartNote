@@ -127,6 +127,7 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
 import io.github.ultrapg.smartnote.domain.model.TagSource
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
@@ -168,7 +169,8 @@ fun NoteEditorScreen(
     onOpenDuplicateNote: (String) -> Unit,
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onExitEditor: () -> Unit = onFlushAutosave
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -206,7 +208,7 @@ fun NoteEditorScreen(
     }
 
     BackHandler {
-        onFlushAutosave()
+        onExitEditor()
         onNavigateBack()
     }
 
@@ -248,7 +250,7 @@ fun NoteEditorScreen(
                 navigationIcon = {
                     IconButton(
                         onClick = {
-                            onFlushAutosave()
+                            onExitEditor()
                             onNavigateBack()
                         }
                     ) {
@@ -736,7 +738,10 @@ fun NoteEditorScreen(
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = File(context.filesDir, att.relativeFilePath),
+                    model = rememberBoundedImageRequest(
+                        file = File(context.filesDir, att.relativeFilePath),
+                        maxDimensionPx = 2048
+                    ),
                     contentDescription = att.originalDisplayName,
                     contentScale = ContentScale.Fit,
                     modifier = Modifier.fillMaxSize()
@@ -911,13 +916,20 @@ private fun ImageBlockCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {
+            val imageFile = attachment.thumbnailRelativePath?.let { rel ->
+                File(filesDir, rel).takeIf { it.exists() }
+            } ?: File(filesDir, attachment.relativeFilePath)
             AsyncImage(
-                model = File(filesDir, attachment.relativeFilePath),
+                model = rememberBoundedImageRequest(
+                    file = imageFile,
+                    maxDimensionPx = 1280
+                ),
                 contentDescription = attachment.originalDisplayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 160.dp, max = 280.dp)
+                    .height(220.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                     .clickable(onClick = onOpenFullScreen)
             )

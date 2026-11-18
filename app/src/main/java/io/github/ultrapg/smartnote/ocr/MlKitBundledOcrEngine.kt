@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
-import android.net.Uri
 import android.os.Build
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -13,9 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.max
 
 class MlKitBundledOcrEngine(
+    @Suppress("unused")
     private val context: Context
 ) : OcrEngine {
 
@@ -47,62 +46,78 @@ class MlKitBundledOcrEngine(
                 )
             }
 
+            val rotationDegrees = SafeOcrBitmapLoader.readExifRotationDegrees(file)
             val bands = SafeOcrBitmapLoader.computeBandRects(width, height)
-            if (bands.size <= 1) {
-                val inputImage = InputImage.fromFilePath(context, Uri.fromFile(file))
+            if (bands.size > 1) {
+                val decoder = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        BitmapRegionDecoder.newInstance(file.absolutePath)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        BitmapRegionDecoder.newInstance(file.absolutePath, false)
+                    }
+                }.getOrNull()
+
+                if (decoder != null) {
+                    val bandTexts = mutableListOf<String>()
+                    val confidences = mutableListOf<Float>()
+                    try {
+                        var sampleSize = 1
+                        while (width / (sampleSize * 2) >= SafeOcrBitmapLoader.MAX_STANDARD_DIM_PX) {
+                            sampleSize *= 2
+                        }
+                        val opts = BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                        }
+                        for (rect in bands) {
+                            val slice = decoder.decodeRegion(rect, opts) ?: continue
+                            try {
+                                val visionText = recognizer.process(InputImage.fromBitmap(slice, 0)).await()
+                                val text = visionText.text.trim()
+                                if (text.isNotEmpty()) {
+                                    bandTexts += text
+                                    confidences += averageBlockConfidence(visionText)
+                                }
+                            } finally {
+                                slice.recycle()
+                            }
+                        }
+                    } finally {
+                        decoder.recycle()
+                    }
+
+                    val merged = SafeOcrBitmapLoader.mergeTiledOcrTexts(bandTexts)
+                    val meanConf = if (confidences.isEmpty()) 0f else confidences.average().toFloat()
+                    return@withContext OcrOutcome(
+                        text = merged,
+                        confidence = meanConf,
+                        succeeded = true
+                    )
+                }
+            }
+
+            // Standard or fallback: decode downsampled bitmap capped at MAX_STANDARD_DIM_PX
+            val bitmap = SafeOcrBitmapLoader.decodeDownsampledBitmap(file)
+                ?: return@withContext OcrOutcome(
+                    text = "",
+                    confidence = 0f,
+                    succeeded = false,
+                    errorMessage = "Unable to decode bitmap safely for OCR"
+                )
+            try {
+                val inputImage = InputImage.fromBitmap(bitmap, rotationDegrees)
                 val visionText = recognizer.process(inputImage).await()
                 val text = visionText.text.trim()
                 val avgConf = averageBlockConfidence(visionText)
-                return@withContext OcrOutcome(
+                OcrOutcome(
                     text = text,
                     confidence = avgConf,
                     succeeded = true
                 )
-            }
-
-            // Tall scrolling screenshot: decode and recognize sequential overlapping bands
-            val decoder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                BitmapRegionDecoder.newInstance(file.absolutePath)
-            } else {
-                @Suppress("DEPRECATION")
-                BitmapRegionDecoder.newInstance(file.absolutePath, false)
-            }
-
-            val bandTexts = mutableListOf<String>()
-            val confidences = mutableListOf<Float>()
-            try {
-                var sampleSize = 1
-                while (width / (sampleSize * 2) >= SafeOcrBitmapLoader.MAX_STANDARD_DIM_PX) {
-                    sampleSize *= 2
-                }
-                val opts = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                }
-                for (rect in bands) {
-                    val slice = decoder.decodeRegion(rect, opts) ?: continue
-                    try {
-                        val visionText = recognizer.process(InputImage.fromBitmap(slice, 0)).await()
-                        val text = visionText.text.trim()
-                        if (text.isNotEmpty()) {
-                            bandTexts += text
-                            confidences += averageBlockConfidence(visionText)
-                        }
-                    } finally {
-                        slice.recycle()
-                    }
-                }
             } finally {
-                decoder.recycle()
+                bitmap.recycle()
             }
-
-            val merged = SafeOcrBitmapLoader.mergeTiledOcrTexts(bandTexts)
-            val meanConf = if (confidences.isEmpty()) 0f else confidences.average().toFloat()
-            OcrOutcome(
-                text = merged,
-                confidence = meanConf,
-                succeeded = true
-            )
         }.getOrElse { throwable ->
             OcrOutcome(
                 text = "",

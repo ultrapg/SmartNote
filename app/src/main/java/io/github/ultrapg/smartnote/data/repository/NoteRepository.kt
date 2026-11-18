@@ -255,7 +255,25 @@ class NoteRepository(
     ) {
         val existing = noteDao.getNoteById(noteId)
         val now = System.currentTimeMillis()
-        val ordered = blocks.mapIndexed { idx, b -> b.copy(noteId = noteId, position = idx) }
+        val activeAttachmentIds = attachmentDao.getAttachmentsForNote(noteId).map { it.id }
+        val referencedAttachmentIds = blocks
+            .filter { it.type == NoteBlockType.IMAGE }
+            .mapNotNull { it.attachmentId }
+            .toHashSet()
+        val preservedImageBlocks = activeAttachmentIds
+            .filterNot { it in referencedAttachmentIds }
+            .map { attId ->
+                NoteBlock(
+                    id = UUID.randomUUID().toString(),
+                    noteId = noteId,
+                    position = blocks.size,
+                    type = NoteBlockType.IMAGE,
+                    attachmentId = attId
+                )
+            }
+        val ordered = (blocks + preservedImageBlocks).mapIndexed { idx, b ->
+            b.copy(noteId = noteId, position = idx)
+        }
         val resolvedPinned = isPinned ?: existing?.isPinned ?: false
         val createdAt = existing?.createdAtMs ?: now
         val nextRev = (existing?.contentRevision ?: 0L) + 1L
@@ -446,12 +464,43 @@ class NoteRepository(
         attachment: AttachmentEntity,
         insertImageBlock: Boolean = true
     ) {
+        val normalizedAttachment = attachment.copy(noteId = noteId)
         val now = System.currentTimeMillis()
         database.inWriteTransaction {
-            attachmentDao.upsertAttachment(attachment)
+            val existing = noteDao.getNoteById(noteId)
+            if (existing == null) {
+                noteDao.upsertNote(
+                    NoteEntity(
+                        id = noteId,
+                        title = "",
+                        plainTextPreview = "",
+                        fullPlainText = "",
+                        wordCount = 0,
+                        isPinned = false,
+                        isArchived = false,
+                        isDeleted = false,
+                        deletedAtMs = null,
+                        createdAtMs = now,
+                        updatedAtMs = now,
+                        contentRevision = 1L,
+                        primaryAttachmentId = normalizedAttachment.id
+                    )
+                )
+            } else {
+                noteDao.upsertNote(
+                    existing.copy(
+                        isDeleted = false,
+                        deletedAtMs = null,
+                        primaryAttachmentId = existing.primaryAttachmentId ?: normalizedAttachment.id,
+                        updatedAtMs = now,
+                        contentRevision = existing.contentRevision + 1L
+                    )
+                )
+            }
+            attachmentDao.upsertAttachment(normalizedAttachment)
             attachmentDao.upsertOcrResult(
                 OcrResultEntity(
-                    attachmentId = attachment.id,
+                    attachmentId = normalizedAttachment.id,
                     recognizedText = "",
                     status = OcrStatus.PENDING.name,
                     processedAtMs = now
@@ -464,19 +513,9 @@ class NoteRepository(
                     noteId = noteId,
                     position = existingBlocks.size,
                     blockType = NoteBlockType.IMAGE.name,
-                    attachmentId = attachment.id
+                    attachmentId = normalizedAttachment.id
                 )
                 blockDao.insertBlocks(listOf(newBlock))
-            }
-            val existing = noteDao.getNoteById(noteId)
-            if (existing != null) {
-                noteDao.upsertNote(
-                    existing.copy(
-                        primaryAttachmentId = existing.primaryAttachmentId ?: attachment.id,
-                        updatedAtMs = now,
-                        contentRevision = existing.contentRevision + 1L
-                    )
-                )
             }
         }
         searchIndexer.indexNote(noteId)
@@ -486,8 +525,6 @@ class NoteRepository(
 
     suspend fun removeAttachmentBlock(noteId: String, blockId: String, attachmentId: String?) {
         val detail = getNoteDetail(noteId) ?: return
-        val remainingBlocks = detail.blocks.filterNot { it.id == blockId }
-        saveNoteContent(noteId, detail.title, remainingBlocks, scheduleBackgroundWork = false)
         if (attachmentId != null) {
             val att = attachmentDao.getAttachmentById(attachmentId)
             attachmentDao.deleteAttachment(attachmentId)
@@ -495,8 +532,14 @@ class NoteRepository(
                 attachmentStorage.deleteRelativeFileQuietly(att.relativeFilePath)
                 attachmentStorage.deleteRelativeFileQuietly(att.thumbnailRelativePath)
             }
-            val stillHasPrimary = remainingBlocks.firstOrNull { it.type == NoteBlockType.IMAGE }?.attachmentId
-            noteDao.getNoteById(noteId)?.let { note ->
+        }
+        val remainingBlocks = detail.blocks.filterNot {
+            it.id == blockId || (attachmentId != null && it.attachmentId == attachmentId)
+        }
+        saveNoteContent(noteId, detail.title, remainingBlocks, scheduleBackgroundWork = false)
+        val stillHasPrimary = remainingBlocks.firstOrNull { it.type == NoteBlockType.IMAGE }?.attachmentId
+        noteDao.getNoteById(noteId)?.let { note ->
+            if (note.primaryAttachmentId != stillHasPrimary) {
                 noteDao.upsertNote(note.copy(primaryAttachmentId = stillHasPrimary))
             }
         }

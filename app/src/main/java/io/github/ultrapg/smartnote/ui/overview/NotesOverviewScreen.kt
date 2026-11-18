@@ -102,6 +102,7 @@ import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveBadgeShapeKind
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveShapeBadge
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
@@ -662,7 +663,10 @@ private fun NoteStaggeredCard(
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     AsyncImage(
-                        model = thumbFile,
+                        model = rememberBoundedImageRequest(
+                            file = thumbFile,
+                            maxDimensionPx = 512
+                        ),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
@@ -1032,7 +1036,10 @@ private fun SwipeableCompactNoteRow(
                 }
                 if (!note.primaryThumbnailPath.isNullOrBlank()) {
                     AsyncImage(
-                        model = File(filesDir, note.primaryThumbnailPath),
+                        model = rememberBoundedImageRequest(
+                            file = File(filesDir, note.primaryThumbnailPath),
+                            maxDimensionPx = 512
+                        ),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier

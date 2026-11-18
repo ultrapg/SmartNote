@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
 import android.graphics.Rect
+import android.media.ExifInterface
 import android.os.Build
 import java.io.File
 import kotlin.math.max
@@ -24,7 +25,65 @@ object SafeOcrBitmapLoader {
     const val TALL_THRESHOLD_PX = 3200
     const val BAND_HEIGHT_PX = 2800
     const val BAND_OVERLAP_PX = 160
-    const val MAX_STANDARD_DIM_PX = 2400
+    const val MAX_STANDARD_DIM_PX = 2048
+
+    fun readExifRotationDegrees(file: File): Int = runCatching {
+        val exif = ExifInterface(file.absolutePath)
+        when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }.getOrDefault(0)
+
+    fun decodeDownsampledBitmap(file: File, maxDimPx: Int = MAX_STANDARD_DIM_PX): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val width = bounds.outWidth
+            val height = bounds.outHeight
+            if (width <= 0 || height <= 0) return null
+
+            var sampleSize = 1
+            val longest = max(width, height)
+            while (longest / sampleSize > maxDimPx) {
+                sampleSize *= 2
+            }
+
+            var attemptSample = sampleSize
+            repeat(3) {
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = attemptSample
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                }
+                val decoded = try {
+                    BitmapFactory.decodeFile(file.absolutePath, opts)
+                } catch (_: OutOfMemoryError) {
+                    attemptSample *= 2
+                    null
+                }
+                if (decoded != null) {
+                    val curLongest = max(decoded.width, decoded.height)
+                    if (curLongest <= maxDimPx) return decoded
+                    val scale = maxDimPx.toFloat() / curLongest.toFloat()
+                    val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
+                    val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
+                    return try {
+                        Bitmap.createScaledBitmap(decoded, targetW, targetH, true).also { scaled ->
+                            if (scaled !== decoded) decoded.recycle()
+                        }
+                    } catch (_: OutOfMemoryError) {
+                        decoded.recycle()
+                        null
+                    }
+                }
+            }
+            null
+        } catch (_: Throwable) {
+            null
+        }
+    }
 
     fun computeBandRects(width: Int, height: Int): List<Rect> {
         if (width <= 0 || height <= 0) return emptyList()

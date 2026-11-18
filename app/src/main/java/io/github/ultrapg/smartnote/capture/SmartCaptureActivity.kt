@@ -72,6 +72,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -88,6 +89,7 @@ import io.github.ultrapg.smartnote.links.DetectedLink
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveLoading
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveSplitSaveButton
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteTheme
 import kotlinx.coroutines.flow.first
@@ -530,9 +532,12 @@ private fun SmartCaptureSheetContent(
                 }
 
                 if (stagedImages.isNotEmpty()) {
+                    val appFilesDir = LocalContext.current.filesDir
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(stagedImages, key = { it.id }) { img ->
-                            val previewFile: File = img.stagedFile
+                            val previewFile: File = img.thumbnailRelativePath?.let { rel ->
+                                runCatching { File(appFilesDir, rel).takeIf { it.exists() } }.getOrNull()
+                            } ?: img.stagedFile
                             Box(
                                 modifier = Modifier
                                     .size(width = 132.dp, height = 104.dp)
@@ -540,7 +545,10 @@ private fun SmartCaptureSheetContent(
                                     .background(MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 AsyncImage(
-                                    model = previewFile,
+                                    model = rememberBoundedImageRequest(
+                                        file = previewFile,
+                                        maxDimensionPx = 512
+                                    ),
                                     contentDescription = img.originalDisplayName,
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

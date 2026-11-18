@@ -55,8 +55,8 @@ class SettingsRepositoryTest {
         assertEquals(DarkModeConfig.SYSTEM, defaults.darkModeConfig)
         assertEquals(NotesLayoutMode.STAGGERED_CARDS, defaults.notesLayout)
         assertTrue(defaults.aiFeaturesEnabled)
-        assertTrue(defaults.autoTitleEnabled)
-        assertTrue(defaults.effectiveAutoTitleEnabled)
+        assertFalse(defaults.autoTitleEnabled)
+        assertFalse(defaults.effectiveAutoTitleEnabled)
         assertTrue(defaults.effectiveSmartTagsEnabled)
         assertTrue(defaults.effectiveOcrEnabled)
         assertTrue(defaults.effectiveDuplicateDetectionEnabled)
@@ -71,6 +71,7 @@ class SettingsRepositoryTest {
         repo.setAiBackendPreference(AiBackendPreference.PREFER_NPU)
         repo.setDefaultSnoozeMinutes(15)
         repo.setSemanticRerankEnabled(true)
+        repo.setAutoTitleEnabled(true)
         repo.setAiFeaturesEnabled(false)
 
         val masterOff = repo.settingsFlow.first()
@@ -88,6 +89,10 @@ class SettingsRepositoryTest {
         assertFalse(masterOff.effectiveSemanticRerankEnabled)
 
         repo.setAiFeaturesEnabled(true)
+        val enabledAgain = repo.settingsFlow.first()
+        assertTrue(enabledAgain.autoTitleEnabled)
+        assertTrue(enabledAgain.effectiveAutoTitleEnabled)
+
         repo.setAutoTitleEnabled(false)
         val restored = repo.settingsFlow.first()
         assertTrue(restored.aiFeaturesEnabled)

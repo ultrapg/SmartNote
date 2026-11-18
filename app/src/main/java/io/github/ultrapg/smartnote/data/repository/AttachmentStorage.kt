@@ -3,8 +3,10 @@ package io.github.ultrapg.smartnote.data.repository
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.os.Build
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
+import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.max
@@ -61,6 +63,16 @@ class AttachmentStorage(
                 sampled
             }
 
+            val rotationDegrees = readExifRotationDegrees(sourceFile)
+            val oriented = if (rotationDegrees != 0) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                Bitmap.createBitmap(scaled, 0, 0, scaled.width, scaled.height, matrix, true).also {
+                    if (it !== scaled) scaled.recycle()
+                }
+            } else {
+                scaled
+            }
+
             val relativePath = "thumbnails/${attachmentId}_thumb.webp"
             val destFile = resolvePrivateFile(relativePath)
             destFile.parentFile?.mkdirs()
@@ -71,18 +83,27 @@ class AttachmentStorage(
                 Bitmap.CompressFormat.WEBP
             }
             FileOutputStream(destFile).use { out ->
-                scaled.compress(format, 82, out)
+                oriented.compress(format, 82, out)
             }
-            scaled.recycle()
+            oriented.recycle()
             relativePath
         }.getOrNull()
     }
 
-    fun readImageDimensions(file: File): Pair<Int, Int> {
+    fun readExifRotationDegrees(file: File): Int = SafeOcrBitmapLoader.readExifRotationDegrees(file)
+
+    fun readImageDimensions(file: File): Pair<Int, Int> = runCatching {
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, opts)
-        return opts.outWidth.coerceAtLeast(0) to opts.outHeight.coerceAtLeast(0)
-    }
+        val rawW = opts.outWidth.coerceAtLeast(0)
+        val rawH = opts.outHeight.coerceAtLeast(0)
+        val rotation = readExifRotationDegrees(file)
+        if (rotation == 90 || rotation == 270) {
+            rawH to rawW
+        } else {
+            rawW to rawH
+        }
+    }.getOrDefault(0 to 0)
 
     fun deleteRelativeFileQuietly(relativePath: String?) {
         if (relativePath.isNullOrBlank()) return

@@ -213,7 +213,14 @@ class OperationsApiAndAiEngineTest {
         assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle("Link from github.com"))
         assertFalse(SmartTitleGenerator.isPlaceholderOrBlankTitle("Sprint Planning Notes"))
 
-        // 6. Operations API auto-titles untitled createNote when enabled & respects per-feature and master AI toggles
+        // 6. Operations API keeps title blank by default and auto-titles untitled notes when opt-in is enabled & respects master AI toggle
+        val untitledDefault = operationsApi.createNote(
+            title = "",
+            content = "Body remains untitled when auto-title toggle is off by default."
+        )
+        assertEquals("", untitledDefault.title)
+
+        settingsRepo.setAutoTitleEnabled(true)
         val autoTitled = operationsApi.createNote(
             title = "",
             content = "Architecture review for local FTS5 search index.",
@@ -221,14 +228,6 @@ class OperationsApiAndAiEngineTest {
         )
         assertTrue(autoTitled.title.contains("Architecture review", ignoreCase = true))
 
-        settingsRepo.setAutoTitleEnabled(false)
-        val untitledDisabled = operationsApi.createNote(
-            title = "",
-            content = "Body remains untitled when auto-title toggle is off."
-        )
-        assertEquals("", untitledDisabled.title)
-
-        settingsRepo.setAutoTitleEnabled(true)
         settingsRepo.setAiFeaturesEnabled(false)
         val masterOffNote = operationsApi.createNote(
             title = "",
@@ -236,22 +235,23 @@ class OperationsApiAndAiEngineTest {
         )
         assertEquals("", masterOffNote.title)
         settingsRepo.setAiFeaturesEnabled(true)
+        settingsRepo.setAutoTitleEnabled(false)
 
         // 7. Atomic repository update guards against stale revisions
         val staleRejected = noteRepository.applyGeneratedTitleIfUnmodified(
-            noteId = untitledDisabled.id,
+            noteId = untitledDefault.id,
             expectedRevision = 999L,
             generatedTitle = "Should Not Apply"
         )
         assertFalse(staleRejected)
 
-        val currentDetail = noteRepository.getNoteDetail(untitledDisabled.id)!!
+        val currentDetail = noteRepository.getNoteDetail(untitledDefault.id)!!
         val applied = noteRepository.applyGeneratedTitleIfUnmodified(
-            noteId = untitledDisabled.id,
+            noteId = untitledDefault.id,
             expectedRevision = currentDetail.contentRevision,
             generatedTitle = "FTS5 Search Benchmarks"
         )
         assertTrue(applied)
-        assertEquals("FTS5 Search Benchmarks", noteRepository.getNoteDetail(untitledDisabled.id)!!.title)
+        assertEquals("FTS5 Search Benchmarks", noteRepository.getNoteDetail(untitledDefault.id)!!.title)
     }
 }

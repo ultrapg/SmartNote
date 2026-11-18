@@ -50,13 +50,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.graphics.shapes.Morph
+import coil.request.ImageRequest
+import coil.size.Precision
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
+import java.io.File
 
 fun Modifier.expressivePressable(
     interactionSource: MutableInteractionSource,
@@ -92,6 +96,25 @@ fun smartNoteTonalFilterChipColors(): SelectableChipColors =
         selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
         selectedLeadingIconColor = MaterialTheme.colorScheme.onSecondaryContainer
     )
+
+@Composable
+fun rememberBoundedImageRequest(
+    file: File,
+    maxDimensionPx: Int
+): ImageRequest {
+    val context = LocalContext.current
+    val lastModified = if (file.exists()) file.lastModified() else 0L
+    return remember(file.absolutePath, lastModified, maxDimensionPx) {
+        ImageRequest.Builder(context)
+            .data(file)
+            .size(maxDimensionPx, maxDimensionPx)
+            .precision(Precision.INEXACT)
+            .allowHardware(false)
+            .allowRgb565(true)
+            .crossfade(false)
+            .build()
+    }
+}
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable

@@ -119,7 +119,29 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithContentDescription("Switch between card and compact list layout").performClick()
         composeRule.onNodeWithText("Compose UI Test Note").assertIsDisplayed()
 
-        // Create an untitled note and verify auto-title generation on editor exit
+        // By default auto-title is OFF: creating an untitled note keeps title blank
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Start writing", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Start writing", substring = true)
+            .performTextInput("Quick offline note without automatic title")
+        composeRule.waitForIdle()
+        assertTrue(
+            composeRule.onAllNodesWithText("Auto-title:", substring = true).fetchSemanticsNodes().isEmpty()
+        )
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(5_000L) {
+            runBlocking {
+                app.container.noteRepository.getAllSummariesSnapshot()
+                    .any { it.previewText.contains("Quick offline note without automatic title") && it.title.isEmpty() }
+            }
+        }
+
+        // Enable auto-title explicitly and verify opt-in auto-title generation on editor exit
+        runBlocking {
+            app.container.settingsRepository.setAutoTitleEnabled(true)
+        }
         composeRule.onNodeWithContentDescription("New note").performClick()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Start writing", substring = true).fetchSemanticsNodes().isNotEmpty()

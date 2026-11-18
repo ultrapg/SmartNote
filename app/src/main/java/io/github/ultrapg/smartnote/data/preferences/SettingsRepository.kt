@@ -52,7 +52,7 @@ class SettingsRepository(
             notesLayout = enumOrDefault(prefs.getString("notes_layout", null), NotesLayoutMode.STAGGERED_CARDS),
             reducedMotion = prefs.getBoolean("reduced_motion", false),
             aiFeaturesEnabled = prefs.getBoolean("ai_features_enabled", true),
-            autoTitleEnabled = prefs.getBoolean("auto_title_enabled", true)
+            autoTitleEnabled = prefs.getBoolean("auto_title_enabled_v2", false)
         )
     }
 
@@ -63,7 +63,7 @@ class SettingsRepository(
             ?.putString("notes_layout", snapshot.notesLayout.name)
             ?.putBoolean("reduced_motion", snapshot.reducedMotion)
             ?.putBoolean("ai_features_enabled", snapshot.aiFeaturesEnabled)
-            ?.putBoolean("auto_title_enabled", snapshot.autoTitleEnabled)
+            ?.putBoolean("auto_title_enabled_v2", snapshot.autoTitleEnabled)
             ?.apply()
     }
 
@@ -76,7 +76,7 @@ class SettingsRepository(
                 reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false,
                 aiFeaturesEnabled = prefs[Keys.AI_FEATURES_ENABLED] ?: true,
                 smartTagsEnabled = prefs[Keys.SMART_TAGS_ENABLED] ?: true,
-                autoTitleEnabled = prefs[Keys.AUTO_TITLE_ENABLED] ?: true,
+                autoTitleEnabled = prefs[Keys.AUTO_TITLE_ENABLED] ?: false,
                 ocrEnabled = prefs[Keys.OCR_ENABLED] ?: true,
                 duplicateDetectionEnabled = prefs[Keys.DUPLICATE_DETECTION_ENABLED] ?: true,
                 fetchLinkPreviews = prefs[Keys.FETCH_LINK_PREVIEWS] ?: false,

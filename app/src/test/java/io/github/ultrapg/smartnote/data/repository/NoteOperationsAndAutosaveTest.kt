@@ -1,13 +1,24 @@
 package io.github.ultrapg.smartnote.data.repository
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.capture.AttachmentImporter
+import io.github.ultrapg.smartnote.capture.NoteShareExporter
 import io.github.ultrapg.smartnote.data.local.AttachmentEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
+import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
+import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
+import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
+import io.github.ultrapg.smartnote.ui.editor.NoteEditorViewModel
 import io.github.ultrapg.smartnote.ui.editor.PendingNoteDraft
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +26,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -26,7 +38,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.shadows.ShadowLooper
 import java.io.File
+import java.io.FileOutputStream
 import java.util.UUID
 
 @RunWith(RobolectricTestRunner::class)
@@ -221,5 +235,113 @@ class NoteOperationsAndAutosaveTest {
         )
         assertTrue(noteRepository.discardIfCompletelyBlank(contentNoteId))
         assertNull(noteRepository.getNoteDetail(contentNoteId))
+    }
+
+    private fun createEditorHarness(
+        dsFile: File,
+        debounceMs: Long = 150L
+    ): NoteEditorViewModel {
+        val settingsRepo = SettingsRepository(
+            PreferenceDataStoreFactory.create(scope = scope, produceFile = { dsFile })
+        )
+        val coordinator = NoteAutosaveCoordinator(noteRepository, scope, debounceMs = debounceMs)
+        return NoteEditorViewModel(
+            initialNoteId = null,
+            startChecklist = false,
+            fromQuickTile = false,
+            savedStateHandle = SavedStateHandle(),
+            noteRepository = noteRepository,
+            tagRepository = tagRepository,
+            autosaveCoordinator = coordinator,
+            attachmentImporter = AttachmentImporter(context, storage),
+            noteShareExporter = NoteShareExporter(context, storage),
+            reminderScheduler = ReminderScheduler(
+                context,
+                database,
+                ReminderNotificationBuilder(context, settingsRepo)
+            ),
+            duplicateDetector = SmartDuplicateDetector(database, noteRepository),
+            settingsRepository = settingsRepo
+        )
+    }
+
+    @Test
+    fun addingImageToBlankNewNoteInEditorPersistsWithoutForeignKeyCrash() = runBlocking {
+        val dsFile = File(context.cacheDir, "editor_img_test_${System.nanoTime()}.preferences_pb")
+        val samplePng = File.createTempFile("picker_blank_", ".png")
+        try {
+            val bmp = Bitmap.createBitmap(200, 150, Bitmap.Config.ARGB_8888)
+            FileOutputStream(samplePng).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bmp.recycle()
+
+            val vm = createEditorHarness(dsFile, debounceMs = 150L)
+            ShadowLooper.idleMainLooper()
+
+            // Simulate Photo Picker opening -> Activity ON_STOP calls flushPendingEditsOnly()
+            vm.flushPendingEditsOnly()
+            ShadowLooper.idleMainLooper()
+
+            // Pick an image on an untouched blank note (previously caused FOREIGN KEY constraint crash)
+            vm.importImages(listOf(Uri.fromFile(samplePng)))
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.uiState.value.attachments.isEmpty() && System.currentTimeMillis() < deadline) {
+                ShadowLooper.idleMainLooper()
+                delay(20L)
+            }
+            assertEquals(1, vm.uiState.value.attachments.size)
+            assertTrue(vm.uiState.value.blocks.any { it.type == NoteBlockType.IMAGE })
+
+            vm.finishEditorSession()
+            ShadowLooper.idleMainLooper()
+            delay(100L)
+
+            val noteId = vm.uiState.value.noteId
+            val persisted = noteRepository.getNoteDetail(noteId)
+            assertNotNull(persisted)
+            assertEquals(1, persisted!!.attachments.size)
+            assertTrue(persisted.blocks.any { it.type == NoteBlockType.IMAGE })
+        } finally {
+            dsFile.delete()
+            samplePng.delete()
+        }
+    }
+
+    @Test
+    fun addingImageWhileLocalTextPendingPreservesBothTextAndImage() = runBlocking {
+        val dsFile = File(context.cacheDir, "editor_img_text_${System.nanoTime()}.preferences_pb")
+        val samplePng = File.createTempFile("picker_text_", ".png")
+        try {
+            val bmp = Bitmap.createBitmap(180, 120, Bitmap.Config.ARGB_8888)
+            FileOutputStream(samplePng).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bmp.recycle()
+
+            val vm = createEditorHarness(dsFile, debounceMs = 400L)
+            ShadowLooper.idleMainLooper()
+
+            val firstBlockId = vm.uiState.value.blocks.first().id
+            vm.updateBlockText(firstBlockId, "Photo notes before picker")
+            vm.flushPendingEditsOnly()
+            ShadowLooper.idleMainLooper()
+
+            vm.importImages(listOf(Uri.fromFile(samplePng)))
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.uiState.value.attachments.isEmpty() && System.currentTimeMillis() < deadline) {
+                ShadowLooper.idleMainLooper()
+                delay(20L)
+            }
+
+            vm.finishEditorSession()
+            ShadowLooper.idleMainLooper()
+            delay(100L)
+
+            val persisted = noteRepository.getNoteDetail(vm.uiState.value.noteId)
+            assertNotNull(persisted)
+            assertEquals(1, persisted!!.attachments.size)
+            assertTrue(persisted.blocks.any { it.type == NoteBlockType.TEXT && it.textContent.contains("Photo notes before picker") })
+            assertTrue(persisted.blocks.any { it.type == NoteBlockType.IMAGE })
+        } finally {
+            dsFile.delete()
+            samplePng.delete()
+        }
     }
 }

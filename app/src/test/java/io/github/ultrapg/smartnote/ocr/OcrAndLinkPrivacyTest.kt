@@ -1,6 +1,7 @@
 package io.github.ultrapg.smartnote.ocr
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
@@ -18,6 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.io.FileOutputStream
 
 @RunWith(RobolectricTestRunner::class)
 class OcrAndLinkPrivacyTest {
@@ -39,6 +41,21 @@ class OcrAndLinkPrivacyTest {
             )
         )
         assertEquals("Line 1\nLine 2\nOverlap A\nOverlap B\nLine 5\nLine 6", merged)
+
+        val largePng = File.createTempFile("ocr_large_", ".png")
+        try {
+            val largeBmp = Bitmap.createBitmap(4200, 3000, Bitmap.Config.ARGB_8888)
+            FileOutputStream(largePng).use { largeBmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            largeBmp.recycle()
+
+            val decoded = SafeOcrBitmapLoader.decodeDownsampledBitmap(largePng)
+            assertTrue(decoded != null)
+            assertTrue(decoded!!.width <= SafeOcrBitmapLoader.MAX_STANDARD_DIM_PX)
+            assertTrue(decoded.height <= SafeOcrBitmapLoader.MAX_STANDARD_DIM_PX)
+            decoded.recycle()
+        } finally {
+            largePng.delete()
+        }
     }
 
     @Test
