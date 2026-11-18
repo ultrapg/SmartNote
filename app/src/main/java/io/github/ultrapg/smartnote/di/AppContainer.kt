@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.ultrapg.smartnote.ai.AndroidLiteRtRuntimeBridge
 import io.github.ultrapg.smartnote.ai.SmartNoteAiEngine
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.capture.AttachmentImporter
 import io.github.ultrapg.smartnote.capture.NoteShareExporter
@@ -75,6 +76,10 @@ class AppContainer(
             runtimeBridge = AndroidLiteRtRuntimeBridge(context),
             applicationScope = applicationScope
         )
+    }
+
+    val smartTitleGenerator: SmartTitleGenerator by lazy {
+        SmartTitleGenerator(aiEngine)
     }
 
     val appShortcutsManager: AppShortcutsManager by lazy {
@@ -155,7 +160,8 @@ class AppContainer(
             tagRepository = tagRepository,
             searchEngine = searchEngine,
             reminderScheduler = reminderScheduler,
-            settingsRepository = settingsRepository
+            settingsRepository = settingsRepository,
+            titleGenerator = smartTitleGenerator
         )
     }
 

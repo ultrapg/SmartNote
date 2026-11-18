@@ -1,6 +1,8 @@
 package io.github.ultrapg.smartnote.ui.tags
 
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,14 +17,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,7 +47,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.TagInfo
+import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveGooeyFab
+import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -135,19 +140,16 @@ fun TagsScreen(
             TopAppBar(title = { Text("Tags") })
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExpressiveGooeyFab(
                 onClick = { showCreateDialog = true },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = "Create tag")
-            }
+                contentDescription = "Create tag"
+            )
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(top = innerPadding.calculateTopPadding())
                 .padding(horizontal = 16.dp)
         ) {
             OutlinedTextField(
@@ -172,7 +174,7 @@ fun TagsScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(24.dp),
+                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = innerPadding.calculateBottomPadding() + 72.dp),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -189,17 +191,33 @@ fun TagsScreen(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding() + 96.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(uiState.tags, key = { it.id }) { tag ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val tagShape = rememberGooeyRoundedShape(
+                            interactionSource = interactionSource,
+                            baseRadius = 18.dp,
+                            pressedRadius = 28.dp
+                        )
                         Surface(
-                            shape = RoundedCornerShape(18.dp),
+                            shape = tagShape,
                             color = MaterialTheme.colorScheme.surfaceContainerLow,
                             border = smartNoteCardBorder(),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onOpenTagNotes(tag) }
+                                .animateItem(
+                                    fadeInSpec = spring(stiffness = 280f),
+                                    placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
+                                    fadeOutSpec = spring(stiffness = 320f)
+                                )
+                                .expressivePressable(interactionSource)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = ripple(),
+                                    onClick = { onOpenTagNotes(tag) }
+                                )
                         ) {
                             Row(
                                 modifier = Modifier

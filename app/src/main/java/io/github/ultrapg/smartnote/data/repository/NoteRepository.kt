@@ -1,5 +1,6 @@
 package io.github.ultrapg.smartnote.data.repository
 
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.data.local.AttachmentEntity
 import io.github.ultrapg.smartnote.data.local.AttachmentWithOcrRow
 import io.github.ultrapg.smartnote.data.local.LinkPreviewEntity
@@ -276,6 +277,47 @@ class NoteRepository(
         if (scheduleBackgroundWork) {
             onNoteChangedForBackground(noteId)
         }
+    }
+
+    /**
+     * Atomically applies an offline-generated title if and only if the note has not moved
+     * past [expectedRevision] and still has a blank or generic placeholder title.
+     */
+    suspend fun applyGeneratedTitleIfUnmodified(
+        noteId: String,
+        expectedRevision: Long,
+        generatedTitle: String
+    ): Boolean {
+        val cleaned = SmartTitleGenerator.formatTitle(generatedTitle)
+        if (cleaned.isBlank()) return false
+
+        val applied = database.inWriteTransaction {
+            val existing = noteDao.getNoteById(noteId) ?: return@inWriteTransaction false
+            if (existing.isDeleted || existing.contentRevision != expectedRevision) {
+                return@inWriteTransaction false
+            }
+            if (!SmartTitleGenerator.isPlaceholderOrBlankTitle(existing.title)) {
+                return@inWriteTransaction false
+            }
+            val normalizedForHash = TextHashing.normalizeForHash(cleaned, existing.fullPlainText)
+            val sha256 = if (normalizedForHash.isBlank()) "" else TextHashing.sha256Hex(normalizedForHash)
+            val simHash = TextHashing.computeSimHash64(normalizedForHash)
+            val wordCount = TextHashing.tokenizeWords("$cleaned ${existing.fullPlainText}").size
+
+            noteDao.upsertNote(
+                existing.copy(
+                    title = cleaned,
+                    wordCount = wordCount,
+                    contentSha256 = sha256,
+                    simhash64 = simHash
+                )
+            )
+            true
+        }
+        if (applied) {
+            onNotesUiMutated()
+        }
+        return applied
     }
 
     private suspend fun upsertNoteInternal(

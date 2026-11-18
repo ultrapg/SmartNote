@@ -24,6 +24,7 @@ class SettingsRepository(
         val NOTES_LAYOUT = stringPreferencesKey("notes_layout")
         val REDUCED_MOTION = booleanPreferencesKey("reduced_motion")
         val SMART_TAGS_ENABLED = booleanPreferencesKey("smart_tags_enabled")
+        val AUTO_TITLE_ENABLED = booleanPreferencesKey("auto_title_enabled")
         val OCR_ENABLED = booleanPreferencesKey("ocr_enabled")
         val DUPLICATE_DETECTION_ENABLED = booleanPreferencesKey("duplicate_detection_enabled")
         val FETCH_LINK_PREVIEWS = booleanPreferencesKey("fetch_link_previews")
@@ -45,6 +46,7 @@ class SettingsRepository(
                 notesLayout = enumOrDefault(prefs[Keys.NOTES_LAYOUT], NotesLayoutMode.STAGGERED_CARDS),
                 reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false,
                 smartTagsEnabled = prefs[Keys.SMART_TAGS_ENABLED] ?: true,
+                autoTitleEnabled = prefs[Keys.AUTO_TITLE_ENABLED] ?: true,
                 ocrEnabled = prefs[Keys.OCR_ENABLED] ?: true,
                 duplicateDetectionEnabled = prefs[Keys.DUPLICATE_DETECTION_ENABLED] ?: true,
                 fetchLinkPreviews = prefs[Keys.FETCH_LINK_PREVIEWS] ?: false,
@@ -82,6 +84,10 @@ class SettingsRepository(
 
     suspend fun setSmartTagsEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.SMART_TAGS_ENABLED] = enabled }
+    }
+
+    suspend fun setAutoTitleEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.AUTO_TITLE_ENABLED] = enabled }
     }
 
     suspend fun setOcrEnabled(enabled: Boolean) {

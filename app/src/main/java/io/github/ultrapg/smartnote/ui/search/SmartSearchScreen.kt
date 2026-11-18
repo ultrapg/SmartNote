@@ -1,6 +1,9 @@
 package io.github.ultrapg.smartnote.ui.search
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -11,8 +14,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -53,7 +58,10 @@ import androidx.compose.ui.unit.dp
 import io.github.ultrapg.smartnote.search.SearchDateFilter
 import io.github.ultrapg.smartnote.search.SearchMatchField
 import io.github.ultrapg.smartnote.search.SmartSearchResultItem
+import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -77,193 +85,219 @@ fun SmartSearchScreen(
     modifier: Modifier = Modifier
 ) {
     Scaffold(
-        modifier = modifier.fillMaxSize()
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-        ) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedTextField(
-                value = uiState.query,
-                onValueChange = onQueryChange,
-                placeholder = { Text("SmartSearch titles, OCR text, #tags, URLs...") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Rounded.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                trailingIcon = {
-                    if (uiState.query.isNotEmpty()) {
-                        IconButton(onClick = { onQueryChange("") }) {
-                            Icon(Icons.Rounded.Close, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { onSubmitSearch() }),
-                shape = RoundedCornerShape(26.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            LazyRow(
-                contentPadding = PaddingValues(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        modifier = modifier.fillMaxSize(),
+        topBar = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp)
             ) {
-                item(key = "f_pinned") {
-                    FilterChip(
-                        selected = uiState.filter.pinnedOnly,
-                        onClick = onTogglePinnedFilter,
-                        label = { Text("Pinned") },
-                        leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    )
-                }
-                item(key = "f_ocr") {
-                    FilterChip(
-                        selected = uiState.filter.hasOcrOnly,
-                        onClick = onToggleOcrFilter,
-                        label = { Text("Has OCR") },
-                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    )
-                }
-                item(key = "f_image") {
-                    FilterChip(
-                        selected = uiState.filter.hasImageOnly,
-                        onClick = onToggleImageFilter,
-                        label = { Text("Images") },
-                        leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    )
-                }
-                item(key = "f_checklist") {
-                    FilterChip(
-                        selected = uiState.filter.hasChecklistOnly,
-                        onClick = onToggleChecklistFilter,
-                        label = { Text("Checklists") }
-                    )
-                }
-                item(key = "f_link") {
-                    FilterChip(
-                        selected = uiState.filter.hasLinkOnly,
-                        onClick = onToggleLinkFilter,
-                        label = { Text("Links") },
-                        leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                    )
-                }
-                items(SearchDateFilter.entries.filter { it != SearchDateFilter.ANY }, key = { it.name }) { df ->
-                    val label = when (df) {
-                        SearchDateFilter.TODAY -> "Today"
-                        SearchDateFilter.LAST_7_DAYS -> "Last 7 days"
-                        SearchDateFilter.LAST_30_DAYS -> "Last 30 days"
-                        SearchDateFilter.ANY -> ""
+                OutlinedTextField(
+                    value = uiState.query,
+                    onValueChange = onQueryChange,
+                    placeholder = { Text("SmartSearch titles, OCR text, #tags, URLs...") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Rounded.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        if (uiState.query.isNotEmpty()) {
+                            IconButton(onClick = { onQueryChange("") }) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSubmitSearch() }),
+                    shape = RoundedCornerShape(26.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                val chipAnimModifier = Modifier.animateContentSize(SmartNoteMotion.gooeySizeSpring())
+                LazyRow(
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item(key = "f_pinned") {
+                        FilterChip(
+                            selected = uiState.filter.pinnedOnly,
+                            onClick = onTogglePinnedFilter,
+                            label = { Text("Pinned") },
+                            leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = chipAnimModifier
+                        )
                     }
-                    FilterChip(
-                        selected = uiState.filter.dateFilter == df,
-                        onClick = {
-                            onSelectDateFilter(if (uiState.filter.dateFilter == df) SearchDateFilter.ANY else df)
-                        },
-                        label = { Text(label) }
-                    )
-                }
-                items(uiState.availableTags.take(10), key = { "tag_${it.id}" }) { tag ->
-                    FilterChip(
-                        selected = tag.name in uiState.filter.tagNames,
-                        onClick = { onToggleTagFilter(tag.name) },
-                        label = { Text("#${tag.name}") }
-                    )
+                    item(key = "f_ocr") {
+                        FilterChip(
+                            selected = uiState.filter.hasOcrOnly,
+                            onClick = onToggleOcrFilter,
+                            label = { Text("Has OCR") },
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = chipAnimModifier
+                        )
+                    }
+                    item(key = "f_image") {
+                        FilterChip(
+                            selected = uiState.filter.hasImageOnly,
+                            onClick = onToggleImageFilter,
+                            label = { Text("Images") },
+                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = chipAnimModifier
+                        )
+                    }
+                    item(key = "f_checklist") {
+                        FilterChip(
+                            selected = uiState.filter.hasChecklistOnly,
+                            onClick = onToggleChecklistFilter,
+                            label = { Text("Checklists") },
+                            modifier = chipAnimModifier
+                        )
+                    }
+                    item(key = "f_link") {
+                        FilterChip(
+                            selected = uiState.filter.hasLinkOnly,
+                            onClick = onToggleLinkFilter,
+                            label = { Text("Links") },
+                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                            modifier = chipAnimModifier
+                        )
+                    }
+                    items(SearchDateFilter.entries.filter { it != SearchDateFilter.ANY }, key = { it.name }) { df ->
+                        val label = when (df) {
+                            SearchDateFilter.TODAY -> "Today"
+                            SearchDateFilter.LAST_7_DAYS -> "Last 7 days"
+                            SearchDateFilter.LAST_30_DAYS -> "Last 30 days"
+                            SearchDateFilter.ANY -> ""
+                        }
+                        FilterChip(
+                            selected = uiState.filter.dateFilter == df,
+                            onClick = {
+                                onSelectDateFilter(if (uiState.filter.dateFilter == df) SearchDateFilter.ANY else df)
+                            },
+                            label = { Text(label) },
+                            modifier = chipAnimModifier
+                        )
+                    }
+                    items(uiState.availableTags.take(10), key = { "tag_${it.id}" }) { tag ->
+                        FilterChip(
+                            selected = tag.name in uiState.filter.tagNames,
+                            onClick = { onToggleTagFilter(tag.name) },
+                            label = { Text("#${tag.name}") },
+                            modifier = chipAnimModifier
+                        )
+                    }
                 }
             }
-
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 4.dp,
+                bottom = innerPadding.calculateBottomPadding() + 96.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
             if (uiState.didYouMeanSuggestion != null) {
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .clickable { onApplyDidYouMean(uiState.didYouMeanSuggestion) }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                item(key = "did_you_mean") {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onApplyDidYouMean(uiState.didYouMeanSuggestion) }
                     ) {
-                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text(
-                            text = "Did you mean: ${uiState.didYouMeanSuggestion}?",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Did you mean: ${uiState.didYouMeanSuggestion}?",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
 
             if (uiState.query.isBlank() && uiState.recentSearchesEnabled && uiState.recentSearches.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Recent searches",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    TextButton(onClick = onClearRecentSearches) {
-                        Text("Clear")
-                    }
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.padding(bottom = 10.dp)
-                ) {
-                    uiState.recentSearches.forEach { recent ->
-                        InputChip(
-                            selected = false,
-                            onClick = { onApplyRecentSearch(recent) },
-                            label = { Text(recent) },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(16.dp))
-                            },
-                            trailingIcon = {
-                                Icon(
-                                    Icons.Rounded.Close,
-                                    contentDescription = "Remove recent $recent",
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .clickable { onDeleteRecentSearch(recent) }
+                item(key = "recent_searches") {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Recent searches",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(onClick = onClearRecentSearches) {
+                                Text("Clear")
+                            }
+                        }
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        ) {
+                            uiState.recentSearches.forEach { recent ->
+                                InputChip(
+                                    selected = false,
+                                    onClick = { onApplyRecentSearch(recent) },
+                                    label = { Text(recent) },
+                                    leadingIcon = {
+                                        Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    },
+                                    trailingIcon = {
+                                        Icon(
+                                            Icons.Rounded.Close,
+                                            contentDescription = "Remove recent $recent",
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { onDeleteRecentSearch(recent) }
+                                        )
+                                    }
                                 )
                             }
-                        )
+                        }
                     }
                 }
             }
 
             if (uiState.query.isNotBlank()) {
-                Text(
-                    text = "${uiState.results.size} result${if (uiState.results.size == 1) "" else "s"} (${uiState.durationMs} ms)",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-            }
-
-            LazyColumn(
-                contentPadding = PaddingValues(bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(uiState.results, key = { it.note.id }) { item ->
-                    SearchResultCard(
-                        item = item,
-                        onClick = { onOpenNote(item.note.id) }
+                item(key = "result_count") {
+                    Text(
+                        text = "${uiState.results.size} result${if (uiState.results.size == 1) "" else "s"} (${uiState.durationMs} ms)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+
+            items(uiState.results, key = { it.note.id }) { item ->
+                SearchResultCard(
+                    item = item,
+                    onClick = { onOpenNote(item.note.id) },
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = spring(stiffness = 280f),
+                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
+                        fadeOutSpec = spring(stiffness = 320f)
+                    )
+                )
             }
         }
     }
@@ -272,18 +306,26 @@ fun SmartSearchScreen(
 @Composable
 private fun SearchResultCard(
     item: SmartSearchResultItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val highlightBg = MaterialTheme.colorScheme.primaryContainer
     val highlightFg = MaterialTheme.colorScheme.onPrimaryContainer
+    val interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() }
+    val cardShape = rememberGooeyRoundedShape(
+        interactionSource = interactionSource,
+        baseRadius = 18.dp,
+        pressedRadius = 28.dp
+    )
 
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = cardShape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = smartNoteCardBorder(),
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .expressivePressable(interactionSource)
+            .clickable(interactionSource = interactionSource, indication = androidx.compose.material3.ripple(), onClick = onClick)
     ) {
         Column(
             modifier = Modifier.padding(14.dp),

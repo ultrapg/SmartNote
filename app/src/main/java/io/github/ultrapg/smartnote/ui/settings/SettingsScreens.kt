@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -51,6 +52,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -75,6 +77,8 @@ import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
+import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -105,10 +109,13 @@ fun SettingsScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 12.dp,
+                bottom = innerPadding.calculateBottomPadding() + 28.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
@@ -245,6 +252,12 @@ fun SmartFeaturesSettingsScreen(
             subtitle = "Suggest tags automatically using local rules, TF-IDF, and your personal tag vocabulary",
             checked = settings.smartTagsEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
+        )
+        SettingsSwitchRow(
+            title = "Auto-Title Generation",
+            subtitle = "Generate concise offline titles for untitled notes and shared screenshots",
+            checked = settings.autoTitleEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Offline OCR",
@@ -595,10 +608,13 @@ fun DataSettingsScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 12.dp,
+                bottom = innerPadding.calculateBottomPadding() + 28.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -798,10 +814,13 @@ private fun SettingsSubScaffold(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp,
+                end = 16.dp,
+                top = innerPadding.calculateTopPadding() + 12.dp,
+                bottom = innerPadding.calculateBottomPadding() + 28.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -820,13 +839,16 @@ private fun SettingsCategoryCard(
     subtitle: String,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val shape = rememberGooeyRoundedShape(interactionSource, baseRadius = 18.dp, pressedRadius = 28.dp)
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = smartNoteCardBorder(),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .expressivePressable(interactionSource)
+            .clickable(interactionSource = interactionSource, indication = ripple(), onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),

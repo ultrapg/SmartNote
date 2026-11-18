@@ -100,6 +100,7 @@ data class AppSettings(
     val notesLayout: NotesLayoutMode = NotesLayoutMode.STAGGERED_CARDS,
     val reducedMotion: Boolean = false,
     val smartTagsEnabled: Boolean = true,
+    val autoTitleEnabled: Boolean = true,
     val ocrEnabled: Boolean = true,
     val duplicateDetectionEnabled: Boolean = true,
     val fetchLinkPreviews: Boolean = false,

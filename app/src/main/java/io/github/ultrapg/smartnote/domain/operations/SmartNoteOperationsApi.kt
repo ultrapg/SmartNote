@@ -1,5 +1,6 @@
 package io.github.ultrapg.smartnote.domain.operations
 
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
@@ -65,7 +66,8 @@ class SmartNoteOperationsApi(
     private val tagRepository: TagRepository,
     private val searchEngine: SmartSearchEngine,
     private val reminderScheduler: ReminderScheduler,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val titleGenerator: SmartTitleGenerator = SmartTitleGenerator()
 ) {
     private suspend fun requireAgentIntegrationEnabled() {
         val enabled = settingsRepository.settingsFlow.first().geminiIntegrationEnabled
@@ -119,9 +121,14 @@ class SmartNoteOperationsApi(
                 )
             }
         }
+        val resolvedTitle = if (safeTitle.isBlank() && settingsRepository.settingsFlow.first().autoTitleEnabled) {
+            titleGenerator.generateFastTitle(blocks = blocks).take(MAX_TITLE_CHARS)
+        } else {
+            safeTitle
+        }
         noteRepository.createNote(
             id = noteId,
-            title = safeTitle,
+            title = resolvedTitle,
             blocks = blocks,
             initialTags = tags.map { it.trim() }.filter { it.isNotBlank() }.take(10),
             isPinned = isPinned,

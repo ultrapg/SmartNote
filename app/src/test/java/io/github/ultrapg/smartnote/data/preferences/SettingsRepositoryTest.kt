@@ -54,6 +54,7 @@ class SettingsRepositoryTest {
         assertEquals(ThemePalette.DYNAMIC, defaults.themePalette)
         assertEquals(DarkModeConfig.SYSTEM, defaults.darkModeConfig)
         assertEquals(NotesLayoutMode.STAGGERED_CARDS, defaults.notesLayout)
+        assertTrue(defaults.autoTitleEnabled)
         assertFalse(defaults.fetchLinkPreviews)
         assertFalse(defaults.semanticRerankEnabled)
         assertEquals(AiBackendPreference.AUTO, defaults.aiBackendPreference)
@@ -64,6 +65,7 @@ class SettingsRepositoryTest {
         repo.setReducedMotion(true)
         repo.setAiBackendPreference(AiBackendPreference.PREFER_NPU)
         repo.setDefaultSnoozeMinutes(15)
+        repo.setAutoTitleEnabled(false)
 
         val updated = repo.settingsFlow.first()
         assertEquals(ThemePalette.AMOLED, updated.themePalette)
@@ -72,5 +74,6 @@ class SettingsRepositoryTest {
         assertTrue(updated.reducedMotion)
         assertEquals(AiBackendPreference.PREFER_NPU, updated.aiBackendPreference)
         assertEquals(15, updated.defaultSnoozeMinutes)
+        assertFalse(updated.autoTitleEnabled)
     }
 }

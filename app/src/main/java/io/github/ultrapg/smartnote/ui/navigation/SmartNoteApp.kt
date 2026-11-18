@@ -1,7 +1,14 @@
 package io.github.ultrapg.smartnote.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
@@ -10,6 +17,8 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldValue
+import androidx.compose.material3.adaptive.navigationsuite.rememberNavigationSuiteScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,6 +43,7 @@ import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.ui.archive.ArchiveScreen
 import io.github.ultrapg.smartnote.ui.archive.DuplicateReviewScreen
 import io.github.ultrapg.smartnote.ui.archive.RecycleBinScreen
+import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.editor.NoteEditorScreen
 import io.github.ultrapg.smartnote.ui.editor.NoteEditorViewModel
 import io.github.ultrapg.smartnote.ui.overview.NotesOverviewScreen
@@ -103,12 +113,126 @@ fun SmartNoteApp(
         currentDest.hasRoute<SmartSearchRoute>() ||
         currentDest.hasRoute<TagsRoute>()
 
-    val navContent: @Composable () -> Unit = {
+    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
+    val navSuiteState = rememberNavigationSuiteScaffoldState(
+        initialValue = if (isTopLevel) NavigationSuiteScaffoldValue.Visible else NavigationSuiteScaffoldValue.Hidden
+    )
+    LaunchedEffect(isTopLevel, reducedMotion) {
+        val target = if (isTopLevel) {
+            NavigationSuiteScaffoldValue.Visible
+        } else {
+            NavigationSuiteScaffoldValue.Hidden
+        }
+        if (reducedMotion) {
+            navSuiteState.snapTo(target)
+        } else if (isTopLevel) {
+            navSuiteState.show()
+        } else {
+            navSuiteState.hide()
+        }
+    }
+
+    NavigationSuiteScaffold(
+        state = navSuiteState,
+        modifier = modifier,
+        navigationSuiteItems = {
+            item(
+                selected = currentDest?.hasRoute<NotesOverviewRoute>() == true,
+                onClick = {
+                    navController.navigate(NotesOverviewRoute) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                icon = { Icon(Icons.Rounded.Description, contentDescription = "Notes") },
+                label = { Text("Notes") }
+            )
+            item(
+                selected = currentDest?.hasRoute<SmartSearchRoute>() == true,
+                onClick = {
+                    navController.navigate(SmartSearchRoute) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                icon = { Icon(Icons.Rounded.Search, contentDescription = "SmartSearch") },
+                label = { Text("SmartSearch") }
+            )
+            item(
+                selected = currentDest?.hasRoute<TagsRoute>() == true,
+                onClick = {
+                    navController.navigate(TagsRoute) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+                icon = { Icon(Icons.AutoMirrored.Rounded.Label, contentDescription = "Tags") },
+                label = { Text("Tags") }
+            )
+        }
+    ) {
         SharedTransitionLayout {
             NavHost(
                 navController = navController,
                 startDestination = NotesOverviewRoute,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                enterTransition = {
+                    if (reducedMotion) {
+                        fadeIn(tween(90))
+                    } else {
+                        fadeIn(spring(stiffness = 300f)) +
+                            scaleIn(
+                                initialScale = 0.93f,
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 200f)
+                            ) +
+                            slideIntoContainer(
+                                towards = AnimatedContentTransitionScope.SlideDirection.Up,
+                                animationSpec = spring(dampingRatio = 0.64f, stiffness = 200f),
+                                initialOffset = { it / 12 }
+                            )
+                    }
+                },
+                exitTransition = {
+                    if (reducedMotion) {
+                        fadeOut(tween(90))
+                    } else {
+                        fadeOut(spring(stiffness = 340f)) +
+                            scaleOut(
+                                targetScale = 0.95f,
+                                animationSpec = spring(dampingRatio = 0.70f, stiffness = 220f)
+                            )
+                    }
+                },
+                popEnterTransition = {
+                    if (reducedMotion) {
+                        fadeIn(tween(90))
+                    } else {
+                        fadeIn(spring(stiffness = 300f)) +
+                            scaleIn(
+                                initialScale = 0.95f,
+                                animationSpec = spring(dampingRatio = 0.64f, stiffness = 200f)
+                            )
+                    }
+                },
+                popExitTransition = {
+                    if (reducedMotion) {
+                        fadeOut(tween(90))
+                    } else {
+                        fadeOut(spring(stiffness = 340f)) +
+                            scaleOut(
+                                targetScale = 0.91f,
+                                animationSpec = spring(dampingRatio = 0.66f, stiffness = 210f)
+                            ) +
+                            slideOutOfContainer(
+                                towards = AnimatedContentTransitionScope.SlideDirection.Down,
+                                animationSpec = spring(dampingRatio = 0.68f, stiffness = 210f),
+                                targetOffset = { it / 10 }
+                            )
+                    }
+                }
             ) {
                 composable<NotesOverviewRoute> {
                     val vm: NotesOverviewViewModel = viewModel(
@@ -253,13 +377,17 @@ fun SmartNoteApp(
                             attachmentImporter = container.attachmentImporter,
                             noteShareExporter = container.noteShareExporter,
                             reminderScheduler = container.reminderScheduler,
-                            duplicateDetector = container.duplicateDetector
+                            duplicateDetector = container.duplicateDetector,
+                            settingsRepository = container.settingsRepository,
+                            smartTitleGenerator = container.smartTitleGenerator
                         )
                     )
                     val uiState by vm.uiState.collectAsState()
                     NoteEditorScreen(
                         uiState = uiState,
                         onTitleChange = vm::updateTitle,
+                        onGenerateSmartTitle = vm::generateSmartTitleNow,
+                        onApplySuggestedTitle = vm::applySuggestedTitle,
                         onBlockTextChange = vm::updateBlockText,
                         onToggleChecklistChecked = vm::toggleChecklistChecked,
                         onAddChecklistItemAfter = vm::insertChecklistItemAfter,
@@ -289,6 +417,7 @@ fun SmartNoteApp(
                         },
                         onFlushAutosave = vm::flushAutosaveAsync,
                         onNavigateBack = { navController.popBackStack() },
+                        sharedTransitionKey = route.noteId?.let { "note_card_$it" } ?: "new_note_fab",
                         sharedTransitionScope = this@SharedTransitionLayout,
                         animatedVisibilityScope = this@composable
                     )
@@ -425,53 +554,5 @@ fun SmartNoteApp(
                 }
             }
         }
-    }
-
-    if (isTopLevel) {
-        NavigationSuiteScaffold(
-            modifier = modifier,
-            navigationSuiteItems = {
-                item(
-                    selected = currentDest?.hasRoute<NotesOverviewRoute>() == true,
-                    onClick = {
-                        navController.navigate(NotesOverviewRoute) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Rounded.Description, contentDescription = "Notes") },
-                    label = { Text("Notes") }
-                )
-                item(
-                    selected = currentDest?.hasRoute<SmartSearchRoute>() == true,
-                    onClick = {
-                        navController.navigate(SmartSearchRoute) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.Rounded.Search, contentDescription = "SmartSearch") },
-                    label = { Text("SmartSearch") }
-                )
-                item(
-                    selected = currentDest?.hasRoute<TagsRoute>() == true,
-                    onClick = {
-                        navController.navigate(TagsRoute) {
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    },
-                    icon = { Icon(Icons.AutoMirrored.Rounded.Label, contentDescription = "Tags") },
-                    label = { Text("Tags") }
-                )
-            }
-        ) {
-            navContent()
-        }
-    } else {
-        navContent()
     }
 }

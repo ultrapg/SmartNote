@@ -3,10 +3,20 @@ package io.github.ultrapg.smartnote.ui.designsystem.theme
 import android.app.Activity
 import android.content.Context
 import android.database.ContentObserver
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -18,17 +28,64 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.core.view.WindowCompat
 import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+object SmartNoteGooeyMotionScheme : MotionScheme {
+    private val defaultSpatial = spring<Any>(dampingRatio = 0.60f, stiffness = 210f)
+    private val fastSpatial = spring<Any>(dampingRatio = 0.54f, stiffness = 290f)
+    private val slowSpatial = spring<Any>(dampingRatio = 0.66f, stiffness = 135f)
+    private val defaultEffects = spring<Any>(dampingRatio = 0.86f, stiffness = 360f)
+    private val fastEffects = spring<Any>(dampingRatio = 0.86f, stiffness = 540f)
+    private val slowEffects = spring<Any>(dampingRatio = 0.90f, stiffness = 210f)
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> = defaultSpatial as FiniteAnimationSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = fastSpatial as FiniteAnimationSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = slowSpatial as FiniteAnimationSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = defaultEffects as FiniteAnimationSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = fastEffects as FiniteAnimationSpec<T>
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = slowEffects as FiniteAnimationSpec<T>
+}
+
+object SmartNoteMotion {
+    fun <T> gooeySpatialSpring(): SpringSpec<T> = spring(dampingRatio = 0.58f, stiffness = 210f)
+    fun <T> gooeyPlacementSpring(): SpringSpec<T> = spring(dampingRatio = 0.62f, stiffness = 230f)
+    fun <T> gooeySizeSpring(): SpringSpec<T> = spring(dampingRatio = 0.60f, stiffness = 220f)
+    fun gooeyCornerSpring(): SpringSpec<Dp> = spring(dampingRatio = 0.52f, stiffness = 230f)
+    fun gooeyPressSpringX(): SpringSpec<Float> = spring(dampingRatio = 0.50f, stiffness = 250f)
+    fun gooeyPressSpringY(): SpringSpec<Float> = spring(dampingRatio = 0.54f, stiffness = 290f)
+
+    @OptIn(ExperimentalSharedTransitionApi::class)
+    val gooeyBoundsTransform = BoundsTransform { _, _ ->
+        spring(
+            dampingRatio = 0.60f,
+            stiffness = 210f,
+            visibilityThreshold = Rect.VisibilityThreshold
+        )
+    }
+}
 
 @Immutable
 data class SmartNoteThemeMeta(
@@ -67,19 +124,37 @@ fun SmartNoteTheme(
     val motionScheme = if (effectiveReducedMotion) {
         MotionScheme.standard()
     } else {
-        MotionScheme.expressive()
+        SmartNoteGooeyMotionScheme
     }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
-        SideEffect {
-            val window = (view.context as? Activity)?.window
+        DisposableEffect(view, useDarkTheme) {
+            val activity = view.context as? Activity
+            val window = activity?.window
+            if (activity is ComponentActivity) {
+                val barStyle = if (useDarkTheme) {
+                    SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+                } else {
+                    SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT)
+                }
+                runCatching {
+                    activity.enableEdgeToEdge(
+                        statusBarStyle = barStyle,
+                        navigationBarStyle = barStyle
+                    )
+                }
+            }
             if (window != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    runCatching { window.isNavigationBarContrastEnforced = false }
+                }
                 WindowCompat.getInsetsController(window, view).apply {
                     isAppearanceLightStatusBars = !useDarkTheme
                     isAppearanceLightNavigationBars = !useDarkTheme
                 }
             }
+            onDispose {}
         }
     }
 

@@ -6,8 +6,10 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.printToString
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.MainActivity
 import io.github.ultrapg.smartnote.SmartNoteApplication
@@ -101,6 +103,30 @@ class LargeDatasetAndUiTest {
         // Switch Staggered Cards <-> Compact List
         composeRule.onNodeWithContentDescription("Switch between card and compact list layout").performClick()
         composeRule.onNodeWithText("Compose UI Test Note").assertIsDisplayed()
+
+        // Create an untitled note and verify auto-title generation on editor exit
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Start writing", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Start writing", substring = true)
+            .performTextInput("Quarterly architecture planning session.\nReview FTS5 benchmarks.")
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Auto-title:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(5_000L) {
+            runBlocking {
+                app.container.noteRepository.getAllSummariesSnapshot()
+                    .any { it.title == "Quarterly architecture planning session" }
+            }
+        }
+        assertTrue(
+            runBlocking {
+                app.container.noteRepository.getAllSummariesSnapshot()
+                    .any { it.title == "Quarterly architecture planning session" }
+            }
+        )
 
         // Navigate to Tags tab & SmartSearch tab
         composeRule.onNodeWithText("Tags").performClick()

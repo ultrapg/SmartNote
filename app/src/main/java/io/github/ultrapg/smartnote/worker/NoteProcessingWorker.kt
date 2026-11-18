@@ -8,6 +8,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.ultrapg.smartnote.SmartNoteApplication
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
 import io.github.ultrapg.smartnote.data.local.ProcessingJobEntity
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
@@ -121,7 +122,25 @@ class NoteProcessingWorker(
                 }
             }
 
-            // 3. SmartTags suggestion update (respecting user tags & dismissed tags)
+            // 3. Auto-title generation after OCR / optional link metadata when blank or generic share placeholder
+            if (settings.autoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
+                val refreshedLinks = container.noteRepository.getNoteDetail(noteId)?.links ?: detail.links
+                val generatedTitle = container.smartTitleGenerator.generateSmartTitle(
+                    blocks = detail.blocks,
+                    ocrTexts = ocrTexts,
+                    links = refreshedLinks
+                )
+                if (generatedTitle.isNotBlank()) {
+                    container.noteRepository.applyGeneratedTitleIfUnmodified(
+                        noteId = noteId,
+                        expectedRevision = targetRevision,
+                        generatedTitle = generatedTitle
+                    )
+                }
+            }
+
+            // 4. SmartTags suggestion update (respecting user tags & dismissed tags)
+            val currentTitleForTags = container.database.noteDao().getNoteById(noteId)?.title ?: detail.title
             val detectedLinks = buildList {
                 detail.blocks.forEach { block ->
                     when (block.type) {
@@ -135,7 +154,7 @@ class NoteProcessingWorker(
             if (settings.smartTagsEnabled) {
                 val existingUserVocab = container.tagRepository.getAllTagsSnapshot().map { it.name }
                 val suggestions = container.smartTagsEngine.suggestTags(
-                    title = detail.title,
+                    title = currentTitleForTags,
                     blocks = detail.blocks,
                     ocrTexts = ocrTexts,
                     links = detectedLinks,
@@ -148,13 +167,13 @@ class NoteProcessingWorker(
                 )
             }
 
-            // 4. Full FTS5 + trigram + vocab refresh (including OCR text, tags, link titles)
+            // 5. Full FTS5 + trigram + vocab refresh (including OCR text, generated title, tags, link titles)
             container.searchIndexer.indexNote(noteId)
 
-            // 5. Optional neural embedding update when semantic re-ranking is enabled
+            // 6. Optional neural embedding update when semantic re-ranking is enabled
             if (settings.semanticRerankEnabled) {
                 val combined = buildString {
-                    append(detail.title).append('\n')
+                    append(currentTitleForTags).append('\n')
                     detail.blocks.forEach { append(it.textContent).append('\n') }
                     ocrTexts.forEach { append(it).append('\n') }
                 }

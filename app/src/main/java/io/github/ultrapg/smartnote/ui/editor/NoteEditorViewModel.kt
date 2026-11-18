@@ -7,8 +7,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.capture.AttachmentImporter
 import io.github.ultrapg.smartnote.capture.NoteShareExporter
+import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AttachmentInfo
@@ -44,6 +46,8 @@ data class NoteEditorUiState(
     val reminder: ReminderInfo? = null,
     val duplicateMatches: List<DuplicatePairInfo> = emptyList(),
     val autosaveStatus: AutosaveStatus = AutosaveStatus.IDLE,
+    val suggestedTitle: String? = null,
+    val autoTitleEnabled: Boolean = true,
     val updatedAtMs: Long = System.currentTimeMillis(),
     val isLoaded: Boolean = false
 )
@@ -59,7 +63,9 @@ class NoteEditorViewModel(
     private val attachmentImporter: AttachmentImporter,
     private val noteShareExporter: NoteShareExporter,
     private val reminderScheduler: ReminderScheduler,
-    private val duplicateDetector: SmartDuplicateDetector
+    private val duplicateDetector: SmartDuplicateDetector,
+    private val settingsRepository: SettingsRepository,
+    private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator()
 ) : ViewModel() {
 
     private val activeNoteId: String = savedStateHandle.get<String>(KEY_NOTE_ID)
@@ -68,6 +74,8 @@ class NoteEditorViewModel(
 
     private var editRevision = 0L
     private var hasUserEditedLocally = false
+    private var userManuallyClearedTitle = false
+    private var autoTitleEnabledCache = true
     private var isNewNotePendingCreation = (initialNoteId == null && savedStateHandle.get<String>(KEY_NOTE_ID) == null)
 
     private val _uiState = MutableStateFlow(NoteEditorUiState(noteId = activeNoteId))
@@ -102,49 +110,72 @@ class NoteEditorViewModel(
 
             combine(
                 noteRepository.observeNoteDetail(activeNoteId),
-                autosaveCoordinator.statusFlow
-            ) { detail, saveStatus ->
-                detail to saveStatus
-            }.collect { (detail, saveStatus) ->
+                autosaveCoordinator.statusFlow,
+                settingsRepository.settingsFlow
+            ) { detail, saveStatus, settings ->
+                Triple(detail, saveStatus, settings)
+            }.collect { (detail, saveStatus, settings) ->
                 if (detail == null) return@collect
+                autoTitleEnabledCache = settings.autoTitleEnabled
                 val dupes = runCatching { duplicateDetector.findDuplicatesForNote(activeNoteId) }.getOrDefault(emptyList())
+                val attMap = detail.attachments.associateBy { it.id }
                 _uiState.update { cur ->
                     // Preserve active local typing buffer while only refreshing metadata/OCR/tags/links
                     if (hasUserEditedLocally && cur.isLoaded && saveStatus == AutosaveStatus.PENDING) {
+                        val candidateTitle = computeSuggestedTitle(
+                            enabled = settings.autoTitleEnabled,
+                            title = cur.title,
+                            blocks = cur.blocks,
+                            attachments = attMap.values.toList(),
+                            links = detail.links
+                        )
                         cur.copy(
                             isPinned = detail.isPinned,
                             isArchived = detail.isArchived,
                             isDeleted = detail.isDeleted,
                             tags = detail.tags,
-                            attachments = detail.attachments.associateBy { it.id },
-                            links = detail.links,
-                            reminder = detail.reminder,
-                            duplicateMatches = dupes,
-                            autosaveStatus = saveStatus
-                        )
-                    } else {
-                        NoteEditorUiState(
-                            noteId = detail.id,
-                            title = if (hasUserEditedLocally) cur.title else detail.title,
-                            blocks = if (hasUserEditedLocally) cur.blocks else detail.blocks.ifEmpty {
-                                listOf(
-                                    NoteBlock(
-                                        id = UUID.randomUUID().toString(),
-                                        noteId = detail.id,
-                                        position = 0,
-                                        type = NoteBlockType.TEXT
-                                    )
-                                )
-                            },
-                            isPinned = detail.isPinned,
-                            isArchived = detail.isArchived,
-                            isDeleted = detail.isDeleted,
-                            tags = detail.tags,
-                            attachments = detail.attachments.associateBy { it.id },
+                            attachments = attMap,
                             links = detail.links,
                             reminder = detail.reminder,
                             duplicateMatches = dupes,
                             autosaveStatus = saveStatus,
+                            suggestedTitle = candidateTitle,
+                            autoTitleEnabled = settings.autoTitleEnabled
+                        )
+                    } else {
+                        val resolvedTitle = if (hasUserEditedLocally) cur.title else detail.title
+                        val resolvedBlocks = if (hasUserEditedLocally) cur.blocks else detail.blocks.ifEmpty {
+                            listOf(
+                                NoteBlock(
+                                    id = UUID.randomUUID().toString(),
+                                    noteId = detail.id,
+                                    position = 0,
+                                    type = NoteBlockType.TEXT
+                                )
+                            )
+                        }
+                        val candidateTitle = computeSuggestedTitle(
+                            enabled = settings.autoTitleEnabled,
+                            title = resolvedTitle,
+                            blocks = resolvedBlocks,
+                            attachments = attMap.values.toList(),
+                            links = detail.links
+                        )
+                        NoteEditorUiState(
+                            noteId = detail.id,
+                            title = resolvedTitle,
+                            blocks = resolvedBlocks,
+                            isPinned = detail.isPinned,
+                            isArchived = detail.isArchived,
+                            isDeleted = detail.isDeleted,
+                            tags = detail.tags,
+                            attachments = attMap,
+                            links = detail.links,
+                            reminder = detail.reminder,
+                            duplicateMatches = dupes,
+                            autosaveStatus = saveStatus,
+                            suggestedTitle = candidateTitle,
+                            autoTitleEnabled = settings.autoTitleEnabled,
                             updatedAtMs = detail.updatedAtMs,
                             isLoaded = true
                         )
@@ -155,10 +186,47 @@ class NoteEditorViewModel(
     }
 
     fun updateTitle(newTitle: String) {
+        val prevTitle = _uiState.value.title
+        if (prevTitle.isNotBlank() && newTitle.isBlank()) {
+            userManuallyClearedTitle = true
+        } else if (newTitle.isNotBlank()) {
+            userManuallyClearedTitle = false
+        }
         hasUserEditedLocally = true
         savedStateHandle[KEY_DRAFT_TITLE] = newTitle
-        _uiState.update { it.copy(title = newTitle) }
+        _uiState.update { state ->
+            val suggestion = computeSuggestedTitle(
+                enabled = state.autoTitleEnabled,
+                title = newTitle,
+                blocks = state.blocks,
+                attachments = state.attachments.values.toList(),
+                links = state.links
+            )
+            state.copy(title = newTitle, suggestedTitle = suggestion)
+        }
         enqueueAutosave()
+    }
+
+    fun applySuggestedTitle() {
+        val candidate = _uiState.value.suggestedTitle?.takeIf { it.isNotBlank() } ?: return
+        userManuallyClearedTitle = false
+        updateTitle(candidate)
+    }
+
+    fun generateSmartTitleNow() {
+        val state = _uiState.value
+        viewModelScope.launch {
+            val ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
+            val generated = smartTitleGenerator.generateSmartTitle(
+                blocks = state.blocks,
+                ocrTexts = ocrTexts,
+                links = state.links
+            )
+            if (generated.isNotBlank()) {
+                userManuallyClearedTitle = false
+                updateTitle(generated)
+            }
+        }
     }
 
     fun updateBlockText(blockId: String, newText: String) {
@@ -170,7 +238,14 @@ class NoteEditorViewModel(
             updated.firstOrNull { it.type == NoteBlockType.TEXT }?.let {
                 savedStateHandle[KEY_DRAFT_FIRST_TEXT] = it.textContent
             }
-            state.copy(blocks = updated)
+            val suggestion = computeSuggestedTitle(
+                enabled = state.autoTitleEnabled,
+                title = state.title,
+                blocks = updated,
+                attachments = state.attachments.values.toList(),
+                links = state.links
+            )
+            state.copy(blocks = updated, suggestedTitle = suggestion)
         }
         enqueueAutosave()
     }
@@ -424,11 +499,58 @@ class NoteEditorViewModel(
     }
 
     fun flushAutosaveAsync() {
+        applyAutoTitleBeforeFlushIfNeeded()
         autosaveCoordinator.flushAsync(activeNoteId)
     }
 
     suspend fun flushAutosaveNow() {
+        applyAutoTitleBeforeFlushIfNeeded()
         autosaveCoordinator.flushNow(activeNoteId)
+    }
+
+    private fun applyAutoTitleBeforeFlushIfNeeded() {
+        val state = _uiState.value
+        if (!autoTitleEnabledCache || userManuallyClearedTitle || state.title.isNotBlank()) return
+        val hasContent = state.blocks.any { it.textContent.isNotBlank() || !it.linkUrl.isNullOrBlank() } ||
+            state.attachments.values.any { !it.ocrText.isNullOrBlank() }
+        if (!hasContent) return
+
+        val candidate = smartTitleGenerator.generateFastTitle(
+            blocks = state.blocks,
+            ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) },
+            links = state.links
+        )
+        if (candidate.isBlank()) return
+
+        hasUserEditedLocally = true
+        savedStateHandle[KEY_DRAFT_TITLE] = candidate
+        _uiState.update { it.copy(title = candidate, suggestedTitle = null) }
+        editRevision++
+        autosaveCoordinator.scheduleSave(
+            PendingNoteDraft(
+                noteId = activeNoteId,
+                title = candidate,
+                blocks = state.blocks,
+                isPinned = state.isPinned,
+                revisionToken = editRevision
+            )
+        )
+    }
+
+    private fun computeSuggestedTitle(
+        enabled: Boolean,
+        title: String,
+        blocks: List<NoteBlock>,
+        attachments: List<AttachmentInfo>,
+        links: List<LinkPreviewInfo>
+    ): String? {
+        if (!enabled || title.isNotBlank()) return null
+        val candidate = smartTitleGenerator.generateFastTitle(
+            blocks = blocks,
+            ocrTexts = attachments.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) },
+            links = links
+        )
+        return candidate.takeIf { it.isNotBlank() }
     }
 
     private fun enqueueAutosave() {
@@ -450,7 +572,7 @@ class NoteEditorViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        autosaveCoordinator.flushAsync(activeNoteId)
+        flushAutosaveAsync()
     }
 
     companion object {
@@ -469,7 +591,9 @@ class NoteEditorViewModel(
         private val attachmentImporter: AttachmentImporter,
         private val noteShareExporter: NoteShareExporter,
         private val reminderScheduler: ReminderScheduler,
-        private val duplicateDetector: SmartDuplicateDetector
+        private val duplicateDetector: SmartDuplicateDetector,
+        private val settingsRepository: SettingsRepository,
+        private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator()
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(
@@ -488,7 +612,9 @@ class NoteEditorViewModel(
                 attachmentImporter = attachmentImporter,
                 noteShareExporter = noteShareExporter,
                 reminderScheduler = reminderScheduler,
-                duplicateDetector = duplicateDetector
+                duplicateDetector = duplicateDetector,
+                settingsRepository = settingsRepository,
+                smartTitleGenerator = smartTitleGenerator
             ) as T
         }
     }

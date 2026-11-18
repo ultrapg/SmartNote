@@ -8,6 +8,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,15 +20,19 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -64,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,7 +78,10 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import io.github.ultrapg.smartnote.MainActivity
 import io.github.ultrapg.smartnote.SmartNoteApplication
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
 import io.github.ultrapg.smartnote.domain.model.AppSettings
+import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
+import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.NoteSourceType
@@ -79,6 +89,7 @@ import io.github.ultrapg.smartnote.links.DetectedLink
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveLoading
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveSplitSaveButton
+import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteTheme
 import kotlinx.coroutines.launch
 import java.io.File
@@ -115,12 +126,16 @@ class SmartCaptureActivity : ComponentActivity() {
             var stagedImages by remember { mutableStateOf<List<StagedAttachment>>(emptyList()) }
             var titleText by remember {
                 mutableStateOf(
-                    suggestInitialTitle(
-                        subject = payload.subject,
-                        text = payload.sharedText,
-                        links = payload.detectedLinks,
-                        imageCount = payload.imageUris.size
-                    )
+                    if (settings.autoTitleEnabled) {
+                        suggestInitialTitle(
+                            subject = payload.subject,
+                            text = payload.sharedText,
+                            links = payload.detectedLinks,
+                            imageCount = payload.imageUris.size
+                        )
+                    } else {
+                        payload.subject.take(100)
+                    }
                 )
             }
             var bodyText by remember { mutableStateOf(payload.sharedText) }
@@ -347,18 +362,36 @@ class SmartCaptureActivity : ComponentActivity() {
             links: List<DetectedLink>,
             imageCount: Int
         ): String {
-            if (subject.isNotBlank() && !subject.startsWith("http", ignoreCase = true)) {
-                return subject.take(100)
+            val blocks = if (text.isNotBlank()) {
+                listOf(
+                    NoteBlock(
+                        id = "preview",
+                        noteId = "preview",
+                        position = 0,
+                        type = NoteBlockType.TEXT,
+                        textContent = text
+                    )
+                )
+            } else {
+                emptyList()
             }
-            val firstNonUrlLine = text.lines()
-                .map { it.trim() }
-                .firstOrNull { it.isNotBlank() && !it.startsWith("http", ignoreCase = true) }
-            if (!firstNonUrlLine.isNullOrBlank()) {
-                return firstNonUrlLine.take(80)
+            val linkPreviews = links.mapIndexed { idx, l ->
+                LinkPreviewInfo(
+                    id = "l$idx",
+                    noteId = "preview",
+                    rawUrl = l.rawUrl,
+                    canonicalUrl = l.canonicalUrl,
+                    domain = l.domain,
+                    fetchStatus = LinkFetchStatus.LOCAL_ONLY,
+                    updatedAtMs = 0L
+                )
             }
-            if (links.isNotEmpty()) {
-                return "Link from ${links.first().domain}"
-            }
+            val smart = SmartTitleGenerator().generateFastTitle(
+                blocks = blocks,
+                links = linkPreviews,
+                rawSubject = subject
+            )
+            if (smart.isNotBlank()) return smart
             if (imageCount == 1) return "Shared image"
             if (imageCount > 1) return "$imageCount shared images"
             return ""
@@ -389,11 +422,21 @@ private fun SmartCaptureSheetContent(
 ) {
     var customTagDraft by remember { mutableStateOf("") }
     var showSaveMenu by remember { mutableStateOf(false) }
+    var entered by remember { mutableStateOf(false) }
+    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
+    LaunchedEffect(Unit) { entered = true }
+    val revealProgress by animateFloatAsState(
+        targetValue = if (entered || reducedMotion) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 210f),
+        label = "capture_sheet_reveal"
+    )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.4f))
+            .background(Color.Black.copy(alpha = 0.4f * revealProgress.coerceIn(0f, 1f)))
+            .statusBarsPadding()
+            .padding(top = 24.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -405,8 +448,15 @@ private fun SmartCaptureSheetContent(
             modifier = Modifier
                 .widthIn(max = 580.dp)
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                .graphicsLayer {
+                    val progress = revealProgress
+                    translationY = (1f - progress) * 140f
+                    val s = 0.94f + (0.06f * progress)
+                    scaleX = s
+                    scaleY = s
+                    alpha = progress.coerceIn(0f, 1f)
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

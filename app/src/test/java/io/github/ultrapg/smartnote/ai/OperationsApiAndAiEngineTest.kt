@@ -10,6 +10,10 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
 import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
+import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
+import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
+import io.github.ultrapg.smartnote.domain.model.NoteBlock
+import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationException
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationsApi
 import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
@@ -163,5 +167,92 @@ class OperationsApiAndAiEngineTest {
         assertEquals(listOf(AiHardwareBackend.CPU), initializedList)
         assertEquals(AiHardwareBackend.CPU, engine.diagnosticsFlow.value.activeNeuralBackend)
         assertFalse(engine.diagnosticsFlow.value.activeNeuralBackend == AiHardwareBackend.NPU)
+    }
+
+    @Test
+    fun smartTitleGeneratorSynthesizesMarkdownChecklistOcrUrlAndRespectsToggle() = runTest {
+        val generator = SmartTitleGenerator()
+
+        // 1. Markdown heading takes precedence
+        val mdTitle = generator.generateFastTitle(
+            blocks = listOf(
+                NoteBlock("b1", "n1", 0, NoteBlockType.TEXT, "## **Offline Migration Checklist**\nDetailed steps follow.")
+            )
+        )
+        assertEquals("Offline Migration Checklist", mdTitle)
+
+        // 2. Checklist grocery domain synthesis
+        val groceryTitle = generator.generateFastTitle(
+            blocks = listOf(
+                NoteBlock("c1", "n2", 0, NoteBlockType.CHECKLIST, "Oat milk"),
+                NoteBlock("c2", "n2", 1, NoteBlockType.CHECKLIST, "Coffee beans"),
+                NoteBlock("c3", "n2", 2, NoteBlockType.CHECKLIST, "Eggs")
+            )
+        )
+        assertEquals("Shopping: Oat milk, Coffee beans (+1)", groceryTitle)
+
+        // 3. Screenshot OCR skips noise (time, %, short symbols) and picks meaningful line
+        val ocrTitle = generator.generateSmartTitle(
+            blocks = emptyList(),
+            ocrTexts = listOf("15:06\n79%\n5G\nNullPointerException in NoteProcessingWorker\nstack frame at line 42")
+        )
+        assertEquals("NullPointerException in NoteProcessingWorker", ocrTitle)
+
+        // 4. URL slug + domain extraction when no prose exists
+        val urlTitle = generator.generateFastTitle(
+            blocks = emptyList(),
+            links = listOf(
+                LinkPreviewInfo(
+                    id = "l1",
+                    noteId = "n3",
+                    rawUrl = "https://developer.android.com/develop/ui/compose/animation",
+                    canonicalUrl = "https://developer.android.com/develop/ui/compose/animation",
+                    domain = "developer.android.com",
+                    fetchStatus = LinkFetchStatus.LOCAL_ONLY,
+                    updatedAtMs = 0L
+                )
+            )
+        )
+        assertTrue(urlTitle.contains("Compose Animation"))
+        assertTrue(urlTitle.contains("developer.android.com"))
+
+        // 5. Generic placeholders recognized for background upgrade
+        assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle(""))
+        assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle("Shared image"))
+        assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle("3 shared images"))
+        assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle("Link from github.com"))
+        assertFalse(SmartTitleGenerator.isPlaceholderOrBlankTitle("Sprint Planning Notes"))
+
+        // 6. Operations API auto-titles untitled createNote when enabled & respects toggle when disabled
+        val autoTitled = operationsApi.createNote(
+            title = "",
+            content = "Architecture review for local FTS5 search index.",
+            tags = listOf("Android")
+        )
+        assertTrue(autoTitled.title.contains("Architecture review", ignoreCase = true))
+
+        settingsRepo.setAutoTitleEnabled(false)
+        val untitledDisabled = operationsApi.createNote(
+            title = "",
+            content = "Body remains untitled when auto-title toggle is off."
+        )
+        assertEquals("", untitledDisabled.title)
+
+        // 7. Atomic repository update guards against stale revisions
+        val staleRejected = noteRepository.applyGeneratedTitleIfUnmodified(
+            noteId = untitledDisabled.id,
+            expectedRevision = 999L,
+            generatedTitle = "Should Not Apply"
+        )
+        assertFalse(staleRejected)
+
+        val currentDetail = noteRepository.getNoteDetail(untitledDisabled.id)!!
+        val applied = noteRepository.applyGeneratedTitleIfUnmodified(
+            noteId = untitledDisabled.id,
+            expectedRevision = currentDetail.contentRevision,
+            generatedTitle = "FTS5 Search Benchmarks"
+        )
+        assertTrue(applied)
+        assertEquals("FTS5 Search Benchmarks", noteRepository.getNoteDetail(untitledDisabled.id)!!.title)
     }
 }

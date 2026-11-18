@@ -4,6 +4,31 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-11-18
+
+### Added
+- **Offline Auto-Title Generation** (`SmartTitleGenerator`):
+  - Synthesizes concise, readable titles completely offline from Markdown `#` headings, grocery/packing/task checklists, OCR screenshot text (filtering noisy mobile status-bar timestamps and carrier headers), URL slugs/domains, and `SmartNoteAiEngine` semantic sentence scoring.
+  - Added a ✨ **Generate smart title** button and animated `Auto-title:` suggestion `AssistChip` in `NoteEditorScreen`.
+  - Automatically populates blank untitled notes when flushing/saving or exiting the editor (respecting manual title clears and Settings toggles), during blank-title `SmartNoteOperationsApi.createNote` calls, and after background `NoteProcessingWorker` OCR/link extraction completes.
+  - Added an **Auto-Title Generation** toggle in **Settings → Smart Features** (`autoTitleEnabled`, default enabled).
+
+### Changed
+- **Softer Gooey / Flexible Motion Physics**:
+  - Replaced crisp snap springs with `SmartNoteGooeyMotionScheme` (underdamped, low-stiffness spatial springs) and `SmartNoteMotion` gooey placement/size/corner/bounds helpers.
+  - Added anisotropic `expressivePressable` squash-and-stretch feedback, `rememberGooeyRoundedShape` corner morphing, GPU-rendered `ExpressiveGooeyFab` (`Cookie4Sided` ↔ `Cookie9Sided` morphing on press/expand), interactive morphed `ExpressiveShapeBadge`, persistent `NavigationSuiteScaffold` show/hide motion, elastic `NavHost` + `gooeyBoundsTransform` shared transitions, and `Modifier.animateItem` list/grid item physics.
+
+### Fixed
+- **Edge-to-Edge Status Bar, Navigation Bar & IME Insets**:
+  - Added reactive `ComponentActivity.enableEdgeToEdge` bar style updates and `window.isNavigationBarContrastEnforced = false` inside `SmartNoteTheme` so status bar and navigation bar icons contrast properly in Light, Dark, and AMOLED themes without translucent system scrims.
+  - Added `.statusBarsPadding()` around custom floating top search pills in `NotesOverviewScreen`, `SmartSearchScreen`, and `TagsScreen` so top-bar content never overlaps status-bar clocks or icons.
+  - Fixed `NoteEditorScreen` bottom `HorizontalFloatingToolbar` insets with `WindowInsets.navigationBars.union(WindowInsets.ime)` to eliminate double bottom padding when the keyboard is open, added `.navigationBarsPadding()` to modal bottom sheets, added `.systemBarsPadding()` to the fullscreen image viewer and `SmartCaptureActivity`, and made `EmptyNotesPlaceholder` vertically scrollable on compact/split-screen viewports.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 20 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 20 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,474,433` bytes (`54.81 MiB`), `SHA-256: 0a033c86efcf19b3cd0982a07839d549f303ccdf0d49e27be6d95fc610c7a80e`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.0] - 2026-11-18
 
 ### Added

@@ -13,8 +13,16 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,15 +31,20 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -122,6 +135,7 @@ import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveFloatingEditorToolbar
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
+import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.DateFormat
@@ -136,6 +150,8 @@ import java.util.Date
 fun NoteEditorScreen(
     uiState: NoteEditorUiState,
     onTitleChange: (String) -> Unit,
+    onGenerateSmartTitle: () -> Unit = {},
+    onApplySuggestedTitle: () -> Unit = {},
     onBlockTextChange: (String, String) -> Unit,
     onToggleChecklistChecked: (String) -> Unit,
     onAddChecklistItemAfter: (String?) -> Unit,
@@ -159,6 +175,7 @@ fun NoteEditorScreen(
     onOpenDuplicateNote: (String) -> Unit,
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
+    sharedTransitionKey: String? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
@@ -204,11 +221,18 @@ fun NoteEditorScreen(
     }
 
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
-    val sharedModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && !reducedMotion && uiState.noteId.isNotBlank()) {
+    val effectiveSharedKey = sharedTransitionKey ?: uiState.noteId.takeIf { it.isNotBlank() }?.let { "note_card_$it" }
+    val sharedModifier = if (
+        sharedTransitionScope != null &&
+        animatedVisibilityScope != null &&
+        !reducedMotion &&
+        effectiveSharedKey != null
+    ) {
         with(sharedTransitionScope) {
             Modifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "note_card_${uiState.noteId}"),
-                animatedVisibilityScope = animatedVisibilityScope
+                sharedContentState = rememberSharedContentState(key = effectiveSharedKey),
+                animatedVisibilityScope = animatedVisibilityScope,
+                boundsTransform = SmartNoteMotion.gooeyBoundsTransform
             )
         }
     } else {
@@ -335,8 +359,7 @@ fun NoteEditorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .imePadding()
-                    .navigationBarsPadding()
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -376,39 +399,84 @@ fun NoteEditorScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 96.dp),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 18.dp,
+                end = 18.dp,
+                top = innerPadding.calculateTopPadding() + 8.dp,
+                bottom = innerPadding.calculateBottomPadding() + 36.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "editor_title") {
-                BasicTextField(
-                    value = uiState.title,
-                    onValueChange = onTitleChange,
-                    textStyle = MaterialTheme.typography.headlineSmall.copy(
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { innerTextField ->
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            if (uiState.title.isEmpty()) {
-                                Text(
-                                    text = "Title",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        BasicTextField(
+                            value = uiState.title,
+                            onValueChange = onTitleChange,
+                            textStyle = MaterialTheme.typography.headlineSmall.copy(
+                                color = MaterialTheme.colorScheme.onSurface
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.weight(1f),
+                            decorationBox = { innerTextField ->
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    if (uiState.title.isEmpty()) {
+                                        Text(
+                                            text = "Title",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        )
+                        if (uiState.autoTitleEnabled) {
+                            IconButton(onClick = onGenerateSmartTitle) {
+                                Icon(
+                                    imageVector = Icons.Rounded.AutoAwesome,
+                                    contentDescription = "Generate smart title",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
-                            innerTextField()
                         }
                     }
-                )
+
+                    AnimatedVisibility(
+                        visible = uiState.autoTitleEnabled && uiState.title.isBlank() && !uiState.suggestedTitle.isNullOrBlank(),
+                        enter = if (reducedMotion) {
+                            fadeIn(tween(90))
+                        } else {
+                            fadeIn(spring(stiffness = 280f)) +
+                                scaleIn(spring(dampingRatio = 0.62f, stiffness = 220f), initialScale = 0.92f)
+                        },
+                        exit = fadeOut(spring(stiffness = 320f)) + scaleOut(targetScale = 0.92f)
+                    ) {
+                        AssistChip(
+                            onClick = onApplySuggestedTitle,
+                            label = { Text("Auto-title: ${uiState.suggestedTitle.orEmpty()}") },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Rounded.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
+                }
             }
 
             if (uiState.tags.isNotEmpty() || uiState.reminder != null) {
                 item(key = "editor_meta_chips") {
                     FlowRow(
+                        modifier = Modifier.animateContentSize(SmartNoteMotion.gooeySizeSpring()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -532,58 +600,66 @@ fun NoteEditorScreen(
                 key = { it.id },
                 contentType = { it.type }
             ) { block ->
-                when (block.type) {
-                    NoteBlockType.TEXT -> {
-                        TextBlockEditorRow(
-                            block = block,
-                            visualTransformation = markdownTransformation,
-                            onTextChange = { onBlockTextChange(block.id, it) }
-                        )
-                    }
-
-                    NoteBlockType.CHECKLIST -> {
-                        val requester = checklistFocusRequesters.getOrPut(block.id) { FocusRequester() }
-                        ChecklistBlockEditorRow(
-                            block = block,
-                            focusRequester = requester,
-                            onToggleChecked = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onToggleChecklistChecked(block.id)
-                            },
-                            onTextChange = { onBlockTextChange(block.id, it) },
-                            onEnterNext = { onAddChecklistItemAfter(block.id) },
-                            onDelete = { onDeleteChecklistItem(block.id) },
-                            onMoveUp = { onMoveChecklistItem(block.id, -1) },
-                            onMoveDown = { onMoveChecklistItem(block.id, +1) }
-                        )
-                    }
-
-                    NoteBlockType.IMAGE -> {
-                        val att = block.attachmentId?.let { uiState.attachments[it] }
-                        if (att != null) {
-                            ImageBlockCard(
-                                attachment = att,
-                                filesDir = context.filesDir,
-                                onOpenFullScreen = { fullscreenAttachment = att },
-                                onOpenOcrText = { ocrViewerAttachment = att },
-                                onRemove = { onRemoveImageBlock(block.id, att.id) }
+                Box(
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = spring(stiffness = 280f),
+                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
+                        fadeOutSpec = spring(stiffness = 320f)
+                    )
+                ) {
+                    when (block.type) {
+                        NoteBlockType.TEXT -> {
+                            TextBlockEditorRow(
+                                block = block,
+                                visualTransformation = markdownTransformation,
+                                onTextChange = { onBlockTextChange(block.id, it) }
                             )
                         }
-                    }
 
-                    NoteBlockType.LINK -> {
-                        val matchingLink = uiState.links.firstOrNull { it.rawUrl == block.linkUrl }
-                        LinkBlockCard(
-                            url = block.linkUrl.orEmpty(),
-                            preview = matchingLink,
-                            onOpenUrl = { rawUrl ->
-                                runCatching {
-                                    context.startActivity(
-                                        Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl))
-                                    )
-                                }
+                        NoteBlockType.CHECKLIST -> {
+                            val requester = checklistFocusRequesters.getOrPut(block.id) { FocusRequester() }
+                            ChecklistBlockEditorRow(
+                                block = block,
+                                focusRequester = requester,
+                                onToggleChecked = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onToggleChecklistChecked(block.id)
+                                },
+                                onTextChange = { onBlockTextChange(block.id, it) },
+                                onEnterNext = { onAddChecklistItemAfter(block.id) },
+                                onDelete = { onDeleteChecklistItem(block.id) },
+                                onMoveUp = { onMoveChecklistItem(block.id, -1) },
+                                onMoveDown = { onMoveChecklistItem(block.id, +1) }
+                            )
+                        }
+
+                        NoteBlockType.IMAGE -> {
+                            val att = block.attachmentId?.let { uiState.attachments[it] }
+                            if (att != null) {
+                                ImageBlockCard(
+                                    attachment = att,
+                                    filesDir = context.filesDir,
+                                    onOpenFullScreen = { fullscreenAttachment = att },
+                                    onOpenOcrText = { ocrViewerAttachment = att },
+                                    onRemove = { onRemoveImageBlock(block.id, att.id) }
+                                )
                             }
-                        )
+                        }
+
+                        NoteBlockType.LINK -> {
+                            val matchingLink = uiState.links.firstOrNull { it.rawUrl == block.linkUrl }
+                            LinkBlockCard(
+                                url = block.linkUrl.orEmpty(),
+                                preview = matchingLink,
+                                onOpenUrl = { rawUrl ->
+                                    runCatching {
+                                        context.startActivity(
+                                            Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl))
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -598,15 +674,23 @@ fun NoteEditorScreen(
                 items = inlineLinks,
                 key = { "inline_link_${it.id}" }
             ) { link ->
-                LinkBlockCard(
-                    url = link.rawUrl,
-                    preview = link,
-                    onOpenUrl = { rawUrl ->
-                        runCatching {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)))
+                Box(
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = spring(stiffness = 280f),
+                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
+                        fadeOutSpec = spring(stiffness = 320f)
+                    )
+                ) {
+                    LinkBlockCard(
+                        url = link.rawUrl,
+                        preview = link,
+                        onOpenUrl = { rawUrl ->
+                            runCatching {
+                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)))
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -676,6 +760,7 @@ fun NoteEditorScreen(
                     onClick = { fullscreenAttachment = null },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
+                        .systemBarsPadding()
                         .padding(16.dp)
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "Close viewer", tint = Color.White)
@@ -689,6 +774,7 @@ fun NoteEditorScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .navigationBarsPadding()
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)

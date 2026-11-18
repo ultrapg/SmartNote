@@ -1,6 +1,8 @@
 package io.github.ultrapg.smartnote.ui.archive
 
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -32,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,7 +47,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
+import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
+import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
+import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlin.math.max
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -79,20 +85,35 @@ fun ArchiveScreen(
             )
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 12.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 28.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(archivedNotes, key = { it.id }) { note ->
+                    val interactionSource = remember { MutableInteractionSource() }
+                    val shape = rememberGooeyRoundedShape(interactionSource, baseRadius = 18.dp, pressedRadius = 28.dp)
                     Surface(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = shape,
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
                         border = smartNoteCardBorder(),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onOpenNote(note.id) }
+                            .animateItem(
+                                fadeInSpec = spring(stiffness = 280f),
+                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
+                                fadeOutSpec = spring(stiffness = 320f)
+                            )
+                            .expressivePressable(interactionSource)
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = ripple(),
+                                onClick = { onOpenNote(note.id) }
+                            )
                     ) {
                         Row(
                             modifier = Modifier.padding(14.dp),
@@ -172,10 +193,13 @@ fun RecycleBinScreen(
             )
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 12.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 28.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "trash_retention_banner") {
@@ -306,10 +330,13 @@ fun DuplicateReviewScreen(
             )
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentPadding = PaddingValues(16.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = innerPadding.calculateTopPadding() + 12.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 28.dp
+                ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(duplicates, key = { it.pairKey }) { pair ->
