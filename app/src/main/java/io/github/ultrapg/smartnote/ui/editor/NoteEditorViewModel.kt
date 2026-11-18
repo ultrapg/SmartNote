@@ -633,9 +633,17 @@ class NoteEditorViewModel(
     }
 
     fun saveReminder(triggerAtMs: Long, repeatRule: RepeatRule, useLiveUpdate: Boolean) {
+        activeImportsCount.incrementAndGet()
         viewModelScope.launch {
-            prepareNoteForForeignMutation()
-            reminderScheduler.scheduleOrUpdateReminder(activeNoteId, triggerAtMs, repeatRule, useLiveUpdate)
+            try {
+                withContext(NonCancellable) {
+                    prepareNoteForForeignMutation()
+                    reminderScheduler.scheduleOrUpdateReminder(activeNoteId, triggerAtMs, repeatRule, useLiveUpdate)
+                    refreshUiFromDetailSnapshot()
+                }
+            } finally {
+                activeImportsCount.decrementAndGet()
+            }
         }
     }
 

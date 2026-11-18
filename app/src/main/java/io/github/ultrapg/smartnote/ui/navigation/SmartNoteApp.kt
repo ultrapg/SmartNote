@@ -57,6 +57,7 @@ import androidx.navigation.toRoute
 import io.github.ultrapg.smartnote.LaunchDeepLink
 import io.github.ultrapg.smartnote.di.AppContainer
 import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
+import io.github.ultrapg.smartnote.domain.model.NoteCreationOption
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.ui.archive.ArchiveScreen
 import io.github.ultrapg.smartnote.ui.archive.DuplicateReviewScreen
@@ -204,8 +205,15 @@ fun SmartNoteApp(
                     NotesOverviewScreen(
                         uiState = uiState,
                         onOpenNote = { id -> navController.navigate(NoteEditorRoute(noteId = id)) },
-                        onCreateNewNote = { checklist ->
-                            navController.navigate(NoteEditorRoute(noteId = null, startChecklist = checklist))
+                        onCreateNewNote = { option ->
+                            navController.navigate(
+                                NoteEditorRoute(
+                                    noteId = null,
+                                    startChecklist = option == NoteCreationOption.CHECKLIST,
+                                    autoPickImage = option == NoteCreationOption.IMAGE,
+                                    autoOpenReminder = option == NoteCreationOption.REMINDER
+                                )
+                            )
                         },
                         onOpenSearch = {
                             navigateTopLevelTab(navController, SmartSearchRoute)
@@ -305,8 +313,15 @@ fun SmartNoteApp(
                     NotesOverviewScreen(
                         uiState = uiState,
                         onOpenNote = { id -> navController.navigate(NoteEditorRoute(noteId = id)) },
-                        onCreateNewNote = { checklist ->
-                            navController.navigate(NoteEditorRoute(noteId = null, startChecklist = checklist))
+                        onCreateNewNote = { option ->
+                            navController.navigate(
+                                NoteEditorRoute(
+                                    noteId = null,
+                                    startChecklist = option == NoteCreationOption.CHECKLIST,
+                                    autoPickImage = option == NoteCreationOption.IMAGE,
+                                    autoOpenReminder = option == NoteCreationOption.REMINDER
+                                )
+                            )
                         },
                         onOpenSearch = { navigateTopLevelTab(navController, SmartSearchRoute) },
                         onOpenArchive = { navController.navigate(ArchiveRoute) },
@@ -383,6 +398,8 @@ fun SmartNoteApp(
                         },
                         onFlushAutosave = vm::flushPendingEditsOnly,
                         onExitEditor = vm::finishEditorSession,
+                        initialPickImage = route.autoPickImage,
+                        initialOpenReminder = route.autoOpenReminder,
                         onEnsureTrailingEditableBlock = vm::ensureTrailingEditableBlock,
                         onNavigateBack = { navController.popBackStack() }
                     )

@@ -4,6 +4,22 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.7] - 2026-11-18
+
+### Added
+- **Upward-Morphing Pill `+` Creation Menu (`NotesOverviewScreen.kt`, `SmartNoteRoutes.kt`, `SmartNoteApp.kt`, `NoteEditorScreen.kt`)**:
+  - Replaced the static `+` FAB with `ExpressiveMorphingCreateFab`: tapping `+` smoothly morphs the `56.dp` (`16.dp` corner) button upward into a `176.dp`-wide vertical pill container (`28.dp` corner radius) using calm critically damped `SmartNoteMotion.softSizeSpring()` physics (with automatic reduced-motion fallback), rotating `+` by `45°` into a bottom-anchored `Close` control while rolling out **Reminder**, **Image** (launches Android Photo Picker + offline OCR, cancelling cleanly with zero ghost draft if dismissed untouched), **Checklist**, and **Note** (`NoteCreationOption`) directly above the thumb.
+  - Added outside-tap dismissal overlay, `BackHandler`, and automatic collapse on selection mode, plus atomic `saveReminder` hardening (`activeImportsCount` + `NonCancellable` + snapshot refresh) in `NoteEditorViewModel`.
+
+### Removed
+- **Empty-State Action Chips (`NotesOverviewScreen.kt`)**:
+  - Removed the redundant `+ New note` and `New checklist` chips below `"Capture anything, offline"` in `EmptyNotesPlaceholder` so empty overview screens stay clean and uncluttered.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 27 tests passed, 0 failures, 0 errors, 0 skipped** (including new `morphingCreatePillMenuRollsOutUpwardAndLaunchesOptions` Compose UI test).
+- `testReleaseUnitTest`: **10 suites, 27 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,032,365` bytes (`54.39 MiB`), `SHA-256: 6e5688f2a2bcd5ccf23883741c1e28759f3ed27835a8bcfbc4ee271f9706ece9`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.6] - 2026-11-18
 
 ### Fixed

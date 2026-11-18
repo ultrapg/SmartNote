@@ -104,6 +104,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -185,6 +186,8 @@ fun NoteEditorScreen(
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
+    initialPickImage: Boolean = false,
+    initialOpenReminder: Boolean = false,
     onExitEditor: () -> Unit = onFlushAutosave,
     onEnsureTrailingEditableBlock: () -> String = { uiState.blocks.lastOrNull()?.id.orEmpty() }
 ) {
@@ -200,6 +203,9 @@ fun NoteEditorScreen(
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
     var showReminderSheet by remember { mutableStateOf(false) }
+    var didAutoLaunchImagePicker by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
+    var awaitingInitialImagePick by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
+    var didAutoOpenReminder by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
     var fullscreenAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
     var ocrViewerAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
     val textFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -239,8 +245,33 @@ fun NoteEditorScreen(
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(8)
     ) { uris ->
+        val wasInitialAutoPick = awaitingInitialImagePick
+        awaitingInitialImagePick = false
         if (uris.isNotEmpty()) {
             onImportImages(uris)
+        } else if (wasInitialAutoPick && uiState.title.isBlank() && uiState.attachments.isEmpty() &&
+            uiState.blocks.all { it.textContent.isBlank() }
+        ) {
+            onExitEditor()
+            onNavigateBack()
+        }
+    }
+
+    LaunchedEffect(initialPickImage, initialOpenReminder) {
+        if (initialPickImage && !didAutoLaunchImagePicker) {
+            didAutoLaunchImagePicker = true
+            awaitingInitialImagePick = true
+            runCatching {
+                imagePickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                )
+            }.onFailure {
+                awaitingInitialImagePick = false
+            }
+        }
+        if (initialOpenReminder && !didAutoOpenReminder) {
+            didAutoOpenReminder = true
+            showReminderSheet = true
         }
     }
 

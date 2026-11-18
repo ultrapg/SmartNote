@@ -21,6 +21,8 @@ data class TagNotesRoute(
 data class NoteEditorRoute(
     val noteId: String? = null,
     val startChecklist: Boolean = false,
+    val autoPickImage: Boolean = false,
+    val autoOpenReminder: Boolean = false,
     val sourceQuickTile: Boolean = false
 )
 

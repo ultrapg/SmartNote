@@ -7,6 +7,7 @@ import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -94,8 +95,8 @@ class LargeDatasetAndUiTest {
             app.container.settingsRepository.setNotesLayout(NotesLayoutMode.STAGGERED_CARDS)
         }
 
-        // Opening New note and backing out untouched must NOT create an empty ghost bar
-        composeRule.onNodeWithContentDescription("New note").performClick()
+        // Opening New note via morphing pill and backing out untouched must NOT create an empty ghost bar
+        openNewTextNoteFromPill()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
         }
@@ -110,8 +111,8 @@ class LargeDatasetAndUiTest {
             }
         )
 
-        // Create a note via prominent FAB
-        composeRule.onNodeWithContentDescription("New note").performClick()
+        // Create a note via morphing FAB pill -> Note
+        openNewTextNoteFromPill()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
         }
@@ -129,7 +130,7 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Compose UI Test Note").assertIsDisplayed()
 
         // By default auto-title is OFF: creating an untitled note keeps title blank
-        composeRule.onNodeWithContentDescription("New note").performClick()
+        openNewTextNoteFromPill()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Start writing", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
@@ -151,7 +152,7 @@ class LargeDatasetAndUiTest {
         runBlocking {
             app.container.settingsRepository.setAutoTitleEnabled(true)
         }
-        composeRule.onNodeWithContentDescription("New note").performClick()
+        openNewTextNoteFromPill()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Start writing", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
@@ -372,5 +373,78 @@ class LargeDatasetAndUiTest {
             "Expected at least one visible search result card after scrolling",
             positiveHeightVisibleCards > 0
         )
+    }
+
+    @Test
+    fun morphingCreatePillMenuRollsOutUpwardAndLaunchesOptions() {
+        val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
+
+        composeRule.onNodeWithText("Capture anything, offline").assertIsDisplayed()
+        assertTrue(
+            "Empty-state New checklist action chip should be removed",
+            composeRule.onAllNodesWithText("New checklist").fetchSemanticsNodes().isEmpty()
+        )
+
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Close create menu").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Reminder").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Image").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Note").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+
+        val closeBounds = composeRule.onNodeWithContentDescription("Close create menu").getBoundsInRoot()
+        listOf("Reminder", "Image", "Checklist", "Note").forEach { optionLabel ->
+            composeRule.onNodeWithText(optionLabel).assertIsDisplayed()
+            val optionBounds = composeRule.onNodeWithText(optionLabel).getBoundsInRoot()
+            assertTrue(
+                "$optionLabel (${optionBounds.bottom}) must roll out above bottom toggle (${closeBounds.top})",
+                optionBounds.bottom <= closeBounds.top + 2.dp
+            )
+        }
+
+        // Choosing Checklist opens the editor directly in checklist mode
+        composeRule.onNodeWithText("Checklist").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Checklist item").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Checklist item").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // Choosing Reminder opens the editor with the Note Reminder sheet open
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Reminder").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Reminder").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Note Reminder").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Note Reminder").assertIsDisplayed()
+        composeRule.onNodeWithText("Cancel").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Back and save").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(
+            "Cancelling untouched checklist/reminder creation must not leave ghost notes",
+            runBlocking { app.container.noteRepository.getAllSummariesSnapshot().isEmpty() }
+        )
+    }
+
+    private fun openNewTextNoteFromPill() {
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Note").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Note").performClick()
     }
 }

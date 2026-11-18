@@ -58,6 +58,13 @@ enum class NoteFilterType {
     LINKS
 }
 
+enum class NoteCreationOption {
+    TEXT_NOTE,
+    CHECKLIST,
+    IMAGE,
+    REMINDER
+}
+
 enum class ThemePalette {
     DYNAMIC,
     VIOLET,

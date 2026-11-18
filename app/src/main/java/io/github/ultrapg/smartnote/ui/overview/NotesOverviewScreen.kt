@@ -1,5 +1,14 @@
 package io.github.ultrapg.smartnote.ui.overview
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -31,6 +40,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -47,6 +57,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
@@ -56,7 +67,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -77,10 +87,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -94,6 +107,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import io.github.ultrapg.smartnote.domain.model.NoteCreationOption
 import io.github.ultrapg.smartnote.domain.model.NoteFilterType
 import io.github.ultrapg.smartnote.domain.model.NoteSortOrder
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
@@ -117,7 +131,7 @@ import java.util.Date
 fun NotesOverviewScreen(
     uiState: NotesOverviewUiState,
     onOpenNote: (String) -> Unit,
-    onCreateNewNote: (Boolean) -> Unit,
+    onCreateNewNote: (NoteCreationOption) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenArchive: () -> Unit,
     onOpenRecycleBin: () -> Unit,
@@ -146,10 +160,21 @@ fun NotesOverviewScreen(
     val context = LocalContext.current
     var showSortMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
+    var isCreateMenuExpanded by rememberSaveable { mutableStateOf(false) }
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
 
     val inSelectionMode = uiState.selectedIds.isNotEmpty()
     val allDisplayedNotes = uiState.pinnedNotes + uiState.otherNotes
+
+    BackHandler(enabled = isCreateMenuExpanded) {
+        isCreateMenuExpanded = false
+    }
+
+    LaunchedEffect(inSelectionMode) {
+        if (inSelectionMode) {
+            isCreateMenuExpanded = false
+        }
+    }
 
     fun archiveWithUndo(noteId: String) {
         onArchiveNote(noteId)
@@ -357,21 +382,24 @@ fun NotesOverviewScreen(
         },
         floatingActionButton = {
             if (!inSelectionMode) {
-                FloatingActionButton(
-                    onClick = { onCreateNewNote(false) },
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = "New note"
-                    )
-                }
+                ExpressiveMorphingCreateFab(
+                    expanded = isCreateMenuExpanded,
+                    onExpandedChange = { next ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        isCreateMenuExpanded = next
+                    },
+                    onSelectOption = { option ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        isCreateMenuExpanded = false
+                        onCreateNewNote(option)
+                    },
+                    reducedMotion = reducedMotion
+                )
             }
         }
     ) { innerPadding ->
         val contentBottomPadding = innerPadding.calculateBottomPadding() + 96.dp
+        Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -404,8 +432,6 @@ fun NotesOverviewScreen(
                 Box(modifier = Modifier.weight(1f).fillMaxWidth())
             } else if (allDisplayedNotes.isEmpty()) {
                 EmptyNotesPlaceholder(
-                    onCreateNote = { onCreateNewNote(false) },
-                    onCreateChecklist = { onCreateNewNote(true) },
                     bottomPadding = innerPadding.calculateBottomPadding() + 72.dp,
                     modifier = Modifier.weight(1f)
                 )
@@ -578,6 +604,171 @@ fun NotesOverviewScreen(
                     }
                 }
             }
+        }
+        if (isCreateMenuExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { isCreateMenuExpanded = false }
+                    )
+            )
+        }
+        }
+    }
+}
+
+@Composable
+private fun ExpressiveMorphingCreateFab(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelectOption: (NoteCreationOption) -> Unit,
+    reducedMotion: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val containerWidth by animateDpAsState(
+        targetValue = if (expanded) 176.dp else 56.dp,
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        label = "create_pill_width"
+    )
+    val cornerRadius by animateDpAsState(
+        targetValue = if (expanded) 28.dp else 16.dp,
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        label = "create_pill_corner"
+    )
+    val iconRotation by animateFloatAsState(
+        targetValue = if (expanded) 45f else 0f,
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        label = "create_pill_icon_rotation"
+    )
+
+    Surface(
+        modifier = modifier.width(containerWidth),
+        shape = RoundedCornerShape(cornerRadius),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp
+    ) {
+        Column(horizontalAlignment = Alignment.End) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter = if (reducedMotion) {
+                    fadeIn(tween(80))
+                } else {
+                    expandVertically(
+                        animationSpec = SmartNoteMotion.softSizeSpring(),
+                        expandFrom = Alignment.Bottom
+                    ) + fadeIn(tween(130))
+                },
+                exit = if (reducedMotion) {
+                    fadeOut(tween(70))
+                } else {
+                    shrinkVertically(
+                        animationSpec = SmartNoteMotion.softSizeSpring(),
+                        shrinkTowards = Alignment.Bottom
+                    ) + fadeOut(tween(90))
+                }
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    CreatePillOptionRow(
+                        icon = Icons.Rounded.Alarm,
+                        label = "Reminder",
+                        onClick = { onSelectOption(NoteCreationOption.REMINDER) }
+                    )
+                    CreatePillOptionRow(
+                        icon = Icons.Rounded.Image,
+                        label = "Image",
+                        onClick = { onSelectOption(NoteCreationOption.IMAGE) }
+                    )
+                    CreatePillOptionRow(
+                        icon = Icons.Rounded.CheckBox,
+                        label = "Checklist",
+                        onClick = { onSelectOption(NoteCreationOption.CHECKLIST) }
+                    )
+                    CreatePillOptionRow(
+                        icon = Icons.AutoMirrored.Rounded.NoteAdd,
+                        label = "Note",
+                        onClick = { onSelectOption(NoteCreationOption.TEXT_NOTE) }
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(cornerRadius))
+                    .clickable { onExpandedChange(!expanded) }
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = if (expanded) "Close create menu" else "New note"
+                    }
+            ) {
+                if (expanded) {
+                    Text(
+                        text = "Close",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 20.dp)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 16.dp)
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = iconRotation }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatePillOptionRow(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 46.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
@@ -1087,8 +1278,6 @@ private fun ReminderPill(triggerAtMs: Long) {
 
 @Composable
 private fun EmptyNotesPlaceholder(
-    onCreateNote: () -> Unit,
-    onCreateChecklist: () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
@@ -1123,25 +1312,6 @@ private fun EmptyNotesPlaceholder(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Spacer(Modifier.height(20.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FilterChip(
-                selected = true,
-                onClick = onCreateNote,
-                label = { Text("New note") },
-                leadingIcon = { Icon(Icons.Rounded.Add, contentDescription = null) },
-                border = null,
-                colors = smartNoteTonalFilterChipColors()
-            )
-            FilterChip(
-                selected = false,
-                onClick = onCreateChecklist,
-                label = { Text("New checklist") },
-                leadingIcon = { Icon(Icons.Rounded.CheckBox, contentDescription = null) },
-                border = null,
-                colors = smartNoteTonalFilterChipColors()
-            )
-        }
     }
 }
 
