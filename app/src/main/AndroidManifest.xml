@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Local Notifications & Android 16+ Promoted Live Updates strictly for active reminders -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
+    <!-- Offline Alarm Scheduling & Reboot Resilience -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Strictly gated behind opt-in Link Preview preference (default OFF) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:name=".SmartNoteApplication"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SmartNote"
+        tools:targetApi="36">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.SmartNote.Splash"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!-- Dedicated Translucent SmartCapture Sharesheet Activity -->
+        <activity
+            android:name=".capture.SmartCaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="Save to SmartNote"
+            android:theme="@style/Theme.SmartNote.ShareSheet"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".integration.widgets.PinnedNoteWidgetConfigActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SmartNote" />
+
+        <!-- Outgoing Note/Image Sharing -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <!-- Custom WorkManager Configuration.Provider (disable default initializer) -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
+        <!-- Offline Reminder Receivers -->
+        <receiver
+            android:name=".reminder.ReminderBroadcastReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_TRIGGER" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_COMPLETE" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_SNOOZE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".reminder.SystemTimeBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Quick Settings Tile -->
+        <service
+            android:name=".integration.QuickNoteTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_qs_new_note"
+            android:label="@string/qs_tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Home Screen Glance Widgets -->
+        <receiver
+            android:name=".integration.widgets.QuickNoteWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Quick Capture">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_note_info" />
+        </receiver>
+
+        <receiver
+            android:name=".integration.widgets.PinnedNoteWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Pinned Note">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_pinned_note_info" />
+        </receiver>
+
+        <receiver
+            android:name=".integration.widgets.NotesOverviewWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Overview">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_overview_info" />
+        </receiver>
+    </application>
+</manifest>

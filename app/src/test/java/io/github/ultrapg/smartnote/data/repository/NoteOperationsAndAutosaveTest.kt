@@ -1,0 +1,181 @@
+package io.github.ultrapg.smartnote.data.repository
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.data.local.AttachmentEntity
+import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
+import io.github.ultrapg.smartnote.domain.model.NoteBlock
+import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.search.SearchIndexer
+import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
+import io.github.ultrapg.smartnote.ui.editor.PendingNoteDraft
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import java.io.File
+import java.util.UUID
+
+@RunWith(RobolectricTestRunner::class)
+class NoteOperationsAndAutosaveTest {
+
+    private lateinit var context: Context
+    private lateinit var database: SmartNoteDatabase
+    private lateinit var storage: AttachmentStorage
+    private lateinit var searchIndexer: SearchIndexer
+    private lateinit var tagRepository: TagRepository
+    private lateinit var noteRepository: NoteRepository
+    private lateinit var scope: CoroutineScope
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        database = SmartNoteDatabase.createInMemory(context)
+        storage = AttachmentStorage(context)
+        searchIndexer = SearchIndexer(database)
+        tagRepository = TagRepository(database, searchIndexer)
+        noteRepository = NoteRepository(database, storage, searchIndexer, tagRepository)
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+
+    @After
+    fun tearDown() {
+        scope.cancel()
+        database.close()
+        storage.attachmentsDir.deleteRecursively()
+        storage.thumbnailsDir.deleteRecursively()
+    }
+
+    @Test
+    fun recycleBinPreservesAttachmentUntilPermanentPurgeAndRespectsSharedReferences() = runTest {
+        val attId = UUID.randomUUID().toString()
+        val relPath = "attachments/$attId.png"
+        val file = storage.resolvePrivateFile(relPath).apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(1, 2, 3, 4))
+        }
+        assertTrue(file.exists())
+
+        val noteId = noteRepository.createNote(
+            title = "Receipt photo",
+            blocks = listOf(
+                NoteBlock("b1", "n", 0, NoteBlockType.IMAGE, attachmentId = attId)
+            ),
+            attachments = listOf(
+                AttachmentEntity(
+                    id = attId,
+                    noteId = "placeholder",
+                    relativeFilePath = relPath,
+                    thumbnailRelativePath = null,
+                    mimeType = "image/png",
+                    originalDisplayName = "receipt.png",
+                    byteSize = 4L,
+                    widthPx = 100,
+                    heightPx = 100,
+                    sha256 = "deadbeef",
+                    isScreenshot = true,
+                    createdAtMs = System.currentTimeMillis()
+                )
+            ),
+            scheduleBackgroundWork = false
+        ).also { createdId ->
+            // Ensure attachment entity matches createdId (NoteRepository.createNote uses passed id when matching)
+            database.attachmentDao().upsertAttachment(
+                AttachmentEntity(
+                    id = attId,
+                    noteId = createdId,
+                    relativeFilePath = relPath,
+                    thumbnailRelativePath = null,
+                    mimeType = "image/png",
+                    originalDisplayName = "receipt.png",
+                    byteSize = 4L,
+                    widthPx = 100,
+                    heightPx = 100,
+                    sha256 = "deadbeef",
+                    isScreenshot = true,
+                    createdAtMs = System.currentTimeMillis()
+                )
+            )
+        }
+
+        // Duplicate note shares the underlying attachment path safely
+        val copyId = noteRepository.duplicateNote(noteId)!!
+        assertNotNull(noteRepository.getNoteDetail(copyId))
+
+        // Move original to Recycle Bin: file MUST survive
+        noteRepository.moveToRecycleBin(noteId)
+        assertTrue(file.exists())
+        assertEquals(1, noteRepository.observeDeletedNotes().first().size)
+
+        // Permanently deleting original MUST keep file because copy still references it
+        noteRepository.deletePermanently(noteId)
+        assertNull(noteRepository.getNoteDetail(noteId))
+        assertTrue(file.exists())
+
+        // Permanently deleting copy NOW deletes the unreferenced file
+        noteRepository.deletePermanently(copyId)
+        assertFalse(file.exists())
+    }
+
+    @Test
+    fun pinArchiveAndThirtyDayExpirationWorkAccurately() = runTest {
+        val id = noteRepository.createNote(
+            title = "Lifecycle Test",
+            blocks = listOf(NoteBlock("b1", "id", 0, NoteBlockType.CHECKLIST, "Buy milk", false)),
+            scheduleBackgroundWork = false
+        )
+        noteRepository.setPinned(id, true)
+        assertTrue(noteRepository.getNoteDetail(id)!!.isPinned)
+
+        noteRepository.setArchived(id, true)
+        val afterArchive = noteRepository.getNoteDetail(id)!!
+        assertTrue(afterArchive.isArchived)
+        assertFalse(afterArchive.isPinned)
+
+        // Simulate note deleted 31 days ago -> expires
+        val now = System.currentTimeMillis()
+        val oldDeletedMs = now - 31L * 24L * 60L * 60L * 1000L
+        database.noteDao().moveToRecycleBin(id, oldDeletedMs)
+        val purgedCount = noteRepository.purgeExpiredRecycleBin(retentionDays = 30, nowMs = now)
+        assertEquals(1, purgedCount)
+        assertNull(noteRepository.getNoteDetail(id))
+    }
+
+    @Test
+    fun autosaveCoordinatorCoalescesRapidTypingAndFlushesOnDemand() = runTest {
+        val noteId = noteRepository.createNote(title = "Initial", scheduleBackgroundWork = false)
+        val coordinator = NoteAutosaveCoordinator(noteRepository, scope, debounceMs = 150L)
+
+        repeat(40) { i ->
+            coordinator.scheduleSave(
+                PendingNoteDraft(
+                    noteId = noteId,
+                    title = "Draft $i",
+                    blocks = listOf(NoteBlock("b1", noteId, 0, NoteBlockType.TEXT, "Typing $i")),
+                    isPinned = false,
+                    revisionToken = i.toLong() + 1L
+                )
+            )
+        }
+        // Immediate flush must persist final draft "Draft 39" without losing characters
+        coordinator.flushNow(noteId)
+        delay(200L)
+
+        val reloaded = noteRepository.getNoteDetail(noteId)!!
+        assertEquals("Draft 39", reloaded.title)
+        assertEquals("Typing 39", reloaded.blocks.first().textContent)
+    }
+}

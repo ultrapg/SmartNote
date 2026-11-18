@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="shortcut_new_note"
+        android:enabled="true"
+        android:icon="@drawable/ic_qs_new_note"
+        android:shortcutShortLabel="@string/shortcut_new_note_short"
+        android:shortcutLongLabel="@string/shortcut_new_note_long">
+        <intent
+            android:action="io.github.ultrapg.smartnote.action.NEW_NOTE"
+            android:targetPackage="io.github.ultrapg.smartnote"
+            android:targetClass="io.github.ultrapg.smartnote.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="shortcut_new_checklist"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_checklist"
+        android:shortcutShortLabel="@string/shortcut_new_checklist_short"
+        android:shortcutLongLabel="@string/shortcut_new_checklist_long">
+        <intent
+            android:action="io.github.ultrapg.smartnote.action.NEW_CHECKLIST"
+            android:targetPackage="io.github.ultrapg.smartnote"
+            android:targetClass="io.github.ultrapg.smartnote.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="shortcut_smart_search"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_search"
+        android:shortcutShortLabel="@string/shortcut_search_short"
+        android:shortcutLongLabel="@string/shortcut_search_long">
+        <intent
+            android:action="io.github.ultrapg.smartnote.action.OPEN_SEARCH"
+            android:targetPackage="io.github.ultrapg.smartnote"
+            android:targetClass="io.github.ultrapg.smartnote.MainActivity" />
+    </shortcut>
+</shortcuts>

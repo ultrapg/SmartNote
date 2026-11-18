@@ -1,0 +1,135 @@
+package io.github.ultrapg.smartnote.tags
+
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
+import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
+import io.github.ultrapg.smartnote.data.repository.NoteRepository
+import io.github.ultrapg.smartnote.data.repository.TagRepository
+import io.github.ultrapg.smartnote.domain.model.NoteBlock
+import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.TagSource
+import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
+import io.github.ultrapg.smartnote.links.SmartLinkDetector
+import io.github.ultrapg.smartnote.search.SearchIndexer
+import kotlinx.coroutines.test.runTest
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+@RunWith(RobolectricTestRunner::class)
+class SmartTagsAndDuplicatesTest {
+
+    private lateinit var database: SmartNoteDatabase
+    private lateinit var tagRepository: TagRepository
+    private lateinit var noteRepository: NoteRepository
+    private lateinit var smartTagsEngine: SmartTagsEngine
+    private lateinit var duplicateDetector: SmartDuplicateDetector
+
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        database = SmartNoteDatabase.createInMemory(context)
+        val storage = AttachmentStorage(context)
+        val indexer = SearchIndexer(database)
+        tagRepository = TagRepository(database, indexer)
+        noteRepository = NoteRepository(database, storage, indexer, tagRepository)
+        smartTagsEngine = SmartTagsEngine()
+        duplicateDetector = SmartDuplicateDetector(database, noteRepository)
+    }
+
+    @After
+    fun tearDown() {
+        database.close()
+    }
+
+    @Test
+    fun smartTagsClassifiesNotesAndRespectsDismissedUserDecisions() = runTest {
+        val links = SmartLinkDetector.extractLinks("https://developer.android.com/jetpack/compose?utm_source=x")
+        val suggestions = smartTagsEngine.suggestTags(
+            title = "Jetpack Compose StateFlow Guide",
+            blocks = listOf(
+                NoteBlock("b1", "n1", 0, NoteBlockType.TEXT, "Using Kotlin coroutines and WorkManager in Android.")
+            ),
+            ocrTexts = emptyList(),
+            links = links,
+            hasScreenshot = false,
+            existingUserVocabulary = listOf("Architecture")
+        ).map { it.name }
+
+        assertTrue("Android" in suggestions)
+        assertTrue("Kotlin" in suggestions)
+        assertTrue("Development" in suggestions)
+
+        val errSuggestions = smartTagsEngine.suggestTags(
+            title = "Debug Log",
+            blocks = emptyList(),
+            ocrTexts = listOf("FATAL EXCEPTION: main\njava.lang.NullPointerException at MainActivity.kt:42"),
+            links = emptyList(),
+            hasScreenshot = true,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+
+        assertTrue("Screenshot" in errSuggestions)
+        assertTrue("Error" in errSuggestions)
+        assertTrue("Programming" in errSuggestions)
+
+        // Verify dismissal memory in TagRepository
+        val noteId = noteRepository.createNote(title = "Compose Note", scheduleBackgroundWork = false)
+        tagRepository.applySuggestedTags(noteId, listOf("Android" to 0.9f, "Kotlin" to 0.85f))
+        val tagsBefore = noteRepository.getNoteDetail(noteId)!!.tags
+        assertEquals(2, tagsBefore.size)
+        assertTrue(tagsBefore.all { it.source == TagSource.SUGGESTED })
+
+        val androidTagId = tagsBefore.first { it.name == "Android" }.tagId
+        val kotlinTagId = tagsBefore.first { it.name == "Kotlin" }.tagId
+        tagRepository.confirmSuggestedTag(noteId, kotlinTagId)
+        tagRepository.dismissOrRemoveTagFromNote(noteId, androidTagId)
+
+        // Re-applying suggestions must NOT bring back dismissed "Android", and must keep USER "Kotlin"
+        tagRepository.applySuggestedTags(noteId, listOf("Android" to 0.95f, "Kotlin" to 0.8f, "Development" to 0.78f))
+        val tagsAfter = noteRepository.getNoteDetail(noteId)!!.tags
+        assertFalse(tagsAfter.any { it.name == "Android" })
+        assertEquals(TagSource.USER, tagsAfter.first { it.name == "Kotlin" }.source)
+        assertEquals(TagSource.SUGGESTED, tagsAfter.first { it.name == "Development" }.source)
+    }
+
+    @Test
+    fun duplicateDetectorFindsExactSimilarAndUrlMatchesWithoutAutoDeleting() = runTest {
+        val n1 = noteRepository.createNote(
+            title = "Weekly Shopping List",
+            blocks = listOf(NoteBlock("1", "1", 0, NoteBlockType.TEXT, "Buy fresh organic milk, free range eggs, sourdough bread, roasted coffee beans")),
+            scheduleBackgroundWork = false
+        )
+        val n2 = noteRepository.createNote(
+            title = "Weekly Shopping List",
+            blocks = listOf(NoteBlock("2", "2", 0, NoteBlockType.TEXT, "Buy fresh organic milk, free range eggs, sourdough bread, roasted coffee beans!")),
+            scheduleBackgroundWork = false
+        )
+        val n3 = noteRepository.createNote(
+            title = "Bookmark",
+            blocks = listOf(NoteBlock("3", "3", 0, NoteBlockType.TEXT, "https://github.com/ultrapg/SmartNote?utm_source=twitter")),
+            scheduleBackgroundWork = false
+        )
+        val n4 = noteRepository.createNote(
+            title = "Repo link",
+            blocks = listOf(NoteBlock("4", "4", 0, NoteBlockType.TEXT, "https://github.com/ultrapg/SmartNote/")),
+            scheduleBackgroundWork = false
+        )
+
+        val duplicates = duplicateDetector.findDuplicatesForAllNotes()
+        assertEquals(2, duplicates.size)
+        assertTrue(duplicates.any { (it.noteA.id == n1 || it.noteB.id == n1) && (it.noteA.id == n2 || it.noteB.id == n2) })
+        assertTrue(duplicates.any { (it.noteA.id == n3 || it.noteB.id == n3) && (it.noteA.id == n4 || it.noteB.id == n4) })
+
+        // Dismissing keeps both notes safely intact
+        duplicateDetector.dismissDuplicatePair(n1, n2)
+        val remaining = duplicateDetector.findDuplicatesForAllNotes()
+        assertEquals(1, remaining.size)
+    }
+}

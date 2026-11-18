@@ -1,0 +1,25 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Expressive SmartNote rounded page + folded corner + subtle AI star -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,26 L62,26 L76,40 L76,76 C76,79.31 73.31,82 70,82 L34,82 C30.69,82 28,79.31 28,76 L28,32 C28,28.69 30.69,26 34,26 Z" />
+    <path
+        android:fillColor="#D8CEFF"
+        android:pathData="M62,26 L62,36 C62,38.21 63.79,40 66,40 L76,40 Z" />
+    <path
+        android:fillColor="#5B43D6"
+        android:pathData="M36,48 L56,48 C57.1,48 58,48.9 58,50 C58,51.1 57.1,52 56,52 L36,52 C34.9,52 34,51.1 34,50 C34,48.9 34.9,48 36,48 Z" />
+    <path
+        android:fillColor="#5B43D6"
+        android:pathData="M36,57 L64,57 C65.1,57 66,57.9 66,59 C66,60.1 65.1,61 64,61 L36,61 C34.9,61 34,60.1 34,59 C34,57.9 34.9,57 36,57 Z" />
+    <path
+        android:fillColor="#5B43D6"
+        android:pathData="M36,66 L52,66 C53.1,66 54,66.9 54,68 C54,69.1 53.1,70 52,70 L36,70 C34.9,70 34,69.1 34,68 C34,66.9 34.9,66 36,66 Z" />
+    <path
+        android:fillColor="#7B5CFF"
+        android:pathData="M64,63 L65.8,67.2 L70,69 L65.8,70.8 L64,75 L62.2,70.8 L58,69 L62.2,67.2 Z" />
+</vector>

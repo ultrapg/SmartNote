@@ -1,0 +1,34 @@
+# Compiled Android binaries & packages
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing keys & credentials (NEVER commit)
+*.jks
+*.keystore
+*.key
+*.pem
+*.pk8
+keystore.properties
+*-keys/
+
+# Local environment
+local.properties
+
+# Gradle & Kotlin caches
+.gradle/
+.kotlin/
+build/
+app/build/
+
+# IDE & OS
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+*.log
+*.part

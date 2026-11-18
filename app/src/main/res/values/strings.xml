@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SmartNote</string>
+    <string name="shortcut_new_note_short">New note</string>
+    <string name="shortcut_new_note_long">Create a new note</string>
+    <string name="shortcut_new_checklist_short">Checklist</string>
+    <string name="shortcut_new_checklist_long">Create a new checklist</string>
+    <string name="shortcut_search_short">SmartSearch</string>
+    <string name="shortcut_search_long">Search all notes</string>
+    <string name="qs_tile_label">Quick Note</string>
+    <string name="widget_quick_note_desc">Instantly create a new note or checklist in SmartNote</string>
+    <string name="widget_pinned_note_desc">Pin an important note directly on your home screen</string>
+    <string name="widget_overview_desc">View your recent and pinned SmartNote items</string>
+</resources>
