@@ -16,9 +16,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -41,6 +44,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,7 +98,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -107,13 +113,20 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -127,11 +140,13 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
 import io.github.ultrapg.smartnote.domain.model.TagSource
+import io.github.ultrapg.smartnote.ui.designsystem.components.VerticalLazyScrollbar
 import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -170,20 +185,56 @@ fun NoteEditorScreen(
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
-    onExitEditor: () -> Unit = onFlushAutosave
+    onExitEditor: () -> Unit = onFlushAutosave,
+    onEnsureTrailingEditableBlock: () -> String = { uiState.blocks.lastOrNull()?.id.orEmpty() }
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val density = LocalDensity.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val listState = rememberLazyListState()
 
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
     var showReminderSheet by remember { mutableStateOf(false) }
     var fullscreenAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
     var ocrViewerAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
+    val textFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val checklistFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    var pendingFocusTarget by remember { mutableStateOf<Pair<String, Int>?>(null) }
+    var focusSeq by remember { mutableIntStateOf(0) }
+    var titleHeaderHeightPx by remember { mutableIntStateOf(0) }
+
+    fun focusBottomEditor() {
+        val targetId = onEnsureTrailingEditableBlock()
+        if (targetId.isNotBlank()) {
+            focusSeq++
+            pendingFocusTarget = targetId to focusSeq
+        }
+    }
+
+    LaunchedEffect(pendingFocusTarget) {
+        val target = pendingFocusTarget ?: return@LaunchedEffect
+        val targetId = target.first
+        yield()
+        val prefixItems = 1 +
+            (if (uiState.tags.isNotEmpty() || uiState.reminder != null) 1 else 0) +
+            (if (uiState.duplicateMatches.isNotEmpty()) 1 else 0)
+        val blockIdx = uiState.blocks.indexOfFirst { it.id == targetId }
+        if (blockIdx >= 0) {
+            val listIdx = prefixItems + blockIdx
+            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == listIdx }
+            if (!isVisible) {
+                listState.scrollToItem(listIdx)
+            }
+        }
+        val requester = textFocusRequesters[targetId] ?: checklistFocusRequesters[targetId]
+        runCatching { requester?.requestFocus() }
+        keyboardController?.show()
+    }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(8)
@@ -390,18 +441,44 @@ fun NoteEditorScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 18.dp,
-                end = 18.dp,
-                top = innerPadding.calculateTopPadding() + 8.dp,
-                bottom = innerPadding.calculateBottomPadding() + 36.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+        val topContentPad = innerPadding.calculateTopPadding() + 8.dp
+        val bottomContentPad = innerPadding.calculateBottomPadding() + 24.dp
+        val isSingleCleanTextBlock = uiState.blocks.size == 1 &&
+            uiState.blocks.first().type == NoteBlockType.TEXT &&
+            uiState.tags.isEmpty() &&
+            uiState.reminder == null &&
+            uiState.duplicateMatches.isEmpty() &&
+            uiState.links.isEmpty()
+
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures { focusBottomEditor() }
+                }
         ) {
-            item(key = "editor_title") {
-                Column(modifier = Modifier.fillMaxWidth()) {
+            val availableBodyHeight = (maxHeight - topContentPad - bottomContentPad).coerceAtLeast(180.dp)
+            val titleHeaderHeightDp = with(density) { titleHeaderHeightPx.toDp() }
+            val usedAboveBody = if (titleHeaderHeightPx > 0) titleHeaderHeightDp + 16.dp else 72.dp
+            val singleTextMinHeight = (availableBodyHeight - usedAboveBody).coerceAtLeast(120.dp)
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 18.dp,
+                    end = 18.dp,
+                    top = topContentPad,
+                    bottom = bottomContentPad
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item(key = "editor_title") {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { titleHeaderHeightPx = it.height }
+                    ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -596,9 +673,22 @@ fun NoteEditorScreen(
                 ) {
                     when (block.type) {
                         NoteBlockType.TEXT -> {
+                            val requester = textFocusRequesters.getOrPut(block.id) { FocusRequester() }
+                            val textMinHeight = when {
+                                isSingleCleanTextBlock -> singleTextMinHeight
+                                block.id == uiState.blocks.lastOrNull()?.id -> 220.dp
+                                else -> 120.dp
+                            }
                             TextBlockEditorRow(
                                 block = block,
                                 visualTransformation = markdownTransformation,
+                                focusRequester = requester,
+                                minHeight = textMinHeight,
+                                moveCursorToEndSignal = if (pendingFocusTarget?.first == block.id) {
+                                    pendingFocusTarget?.second ?: 0
+                                } else {
+                                    0
+                                },
                                 onTextChange = { onBlockTextChange(block.id, it) }
                             )
                         }
@@ -679,6 +769,29 @@ fun NoteEditorScreen(
                     )
                 }
             }
+
+            if (uiState.blocks.isNotEmpty() && uiState.blocks.last().type != NoteBlockType.TEXT) {
+                item(key = "editor_bottom_tap_zone") {
+                    val tapZoneInteraction = remember { MutableInteractionSource() }
+                    Spacer(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clickable(
+                                interactionSource = tapZoneInteraction,
+                                indication = null,
+                                onClick = ::focusBottomEditor
+                            )
+                    )
+                }
+            }
+            }
+
+            VerticalLazyScrollbar(
+                listState = listState,
+                topPadding = innerPadding.calculateTopPadding() + 6.dp,
+                bottomPadding = innerPadding.calculateBottomPadding() + 6.dp
+            )
         }
     }
 
@@ -811,11 +924,53 @@ fun NoteEditorScreen(
 private fun TextBlockEditorRow(
     block: NoteBlock,
     visualTransformation: MarkdownVisualTransformation,
+    focusRequester: FocusRequester,
+    minHeight: Dp,
+    moveCursorToEndSignal: Int,
     onTextChange: (String) -> Unit
 ) {
+    var textFieldValue by remember(block.id) {
+        mutableStateOf(
+            TextFieldValue(
+                text = block.textContent,
+                selection = TextRange(block.textContent.length)
+            )
+        )
+    }
+    val pendingLocalTexts = remember(block.id) { ArrayDeque<String>() }
+
+    LaunchedEffect(block.id, block.textContent) {
+        val pendingIdx = pendingLocalTexts.indexOfFirst { it == block.textContent }
+        if (pendingIdx >= 0) {
+            repeat(pendingIdx + 1) { pendingLocalTexts.removeFirst() }
+        } else if (textFieldValue.text != block.textContent) {
+            val clampedStart = textFieldValue.selection.start.coerceIn(0, block.textContent.length)
+            val clampedEnd = textFieldValue.selection.end.coerceIn(0, block.textContent.length)
+            textFieldValue = TextFieldValue(
+                text = block.textContent,
+                selection = TextRange(clampedStart, clampedEnd)
+            )
+        }
+    }
+
+    LaunchedEffect(moveCursorToEndSignal) {
+        if (moveCursorToEndSignal > 0) {
+            val end = textFieldValue.text.length
+            textFieldValue = textFieldValue.copy(selection = TextRange(end))
+        }
+    }
+
     BasicTextField(
-        value = block.textContent,
-        onValueChange = onTextChange,
+        value = textFieldValue,
+        onValueChange = { next ->
+            val textChanged = next.text != textFieldValue.text
+            textFieldValue = next
+            if (textChanged && next.text != block.textContent) {
+                if (pendingLocalTexts.size >= 16) pendingLocalTexts.removeFirst()
+                pendingLocalTexts.addLast(next.text)
+                onTextChange(next.text)
+            }
+        },
         textStyle = MaterialTheme.typography.bodyLarge.copy(
             color = MaterialTheme.colorScheme.onSurface
         ),
@@ -823,10 +978,11 @@ private fun TextBlockEditorRow(
         visualTransformation = visualTransformation,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 240.dp),
+            .heightIn(min = minHeight)
+            .focusRequester(focusRequester),
         decorationBox = { innerTextField ->
             Box(modifier = Modifier.fillMaxWidth()) {
-                if (block.textContent.isEmpty()) {
+                if (textFieldValue.text.isEmpty()) {
                     Text(
                         text = "Start writing... (# heading, **bold**, *italic*, `code`)",
                         style = MaterialTheme.typography.bodyLarge,

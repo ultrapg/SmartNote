@@ -383,6 +383,7 @@ fun SmartNoteApp(
                         },
                         onFlushAutosave = vm::flushPendingEditsOnly,
                         onExitEditor = vm::finishEditorSession,
+                        onEnsureTrailingEditableBlock = vm::ensureTrailingEditableBlock,
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

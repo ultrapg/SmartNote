@@ -4,6 +4,19 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-11-18
+
+### Added
+- **Full-Viewport Clickable Note Editor**:
+  - Dynamically expands single-block note editors (`BoxWithConstraints` + live title-header measurement) down to the bottom toolbar without triggering false scrollability on blank/short notes, and adds `NoteEditorViewModel.ensureTrailingEditableBlock()`, `pointerInput(detectTapGestures)` fallback, and a trailing `120.dp` tap zone under images/links/checklists so tapping anywhere below note content focuses the bottom input and opens the keyboard cleanly with the cursor at the end (`TextFieldValue` + `FocusRequester` + `moveCursorToEndSignal`) without creating untouched ghost notes.
+- **Visible Vertical Scrollbar Indicator**:
+  - Added `VerticalLazyScrollbar` (`ExpressiveComponents.kt`) overlaid between the editor top bar and bottom toolbar/IME, computing pixel-accurate progress from `LazyListLayoutInfo` and displaying a calm `0.38f` resting / `0.78f` active thumb whenever content can scroll.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 25 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 25 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,032,365` bytes (`54.39 MiB`), `SHA-256: 0ffccc43a4c7e883c3b66e18eab8692d5b0850de3859ce2011db3d9fb077caa4`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.4] - 2026-11-18
 
 ### Changed

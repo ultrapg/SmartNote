@@ -344,4 +344,59 @@ class NoteOperationsAndAutosaveTest {
             samplePng.delete()
         }
     }
+
+    @Test
+    fun ensureTrailingEditableBlockHandlesTextChecklistAndTrailingImage() = runBlocking {
+        val dsFile = File(context.cacheDir, "editor_trailing_test_${System.nanoTime()}.preferences_pb")
+        val samplePng = File.createTempFile("trailing_img_", ".png")
+        try {
+            val bmp = Bitmap.createBitmap(120, 120, Bitmap.Config.ARGB_8888)
+            FileOutputStream(samplePng).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bmp.recycle()
+
+            val vm = createEditorHarness(dsFile)
+            ShadowLooper.idleMainLooper()
+
+            // 1. Single untouched TEXT block is reused and stays blank/unpersisted on exit
+            val initialId = vm.uiState.value.blocks.first().id
+            assertEquals(initialId, vm.ensureTrailingEditableBlock())
+            assertNull(noteRepository.getNoteDetail(vm.uiState.value.noteId))
+
+            // 2. Trailing blank CHECKLIST is reused; non-blank CHECKLIST appends another CHECKLIST item
+            vm.convertSelectionOrToggleChecklistMode()
+            val firstChecklistId = vm.uiState.value.blocks.last().id
+            assertEquals(firstChecklistId, vm.ensureTrailingEditableBlock())
+            assertEquals(1, vm.uiState.value.blocks.size)
+
+            vm.updateBlockText(firstChecklistId, "First item")
+            val addedChecklistId = vm.ensureTrailingEditableBlock()
+            assertFalse(addedChecklistId == firstChecklistId)
+            assertEquals(2, vm.uiState.value.blocks.size)
+            assertEquals(NoteBlockType.CHECKLIST, vm.uiState.value.blocks.last().type)
+
+            // 3. Trailing IMAGE block appends a trailing TEXT block when tapped below
+            vm.importImages(listOf(Uri.fromFile(samplePng)))
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.uiState.value.attachments.isEmpty() && System.currentTimeMillis() < deadline) {
+                ShadowLooper.idleMainLooper()
+                delay(20L)
+            }
+            assertEquals(NoteBlockType.IMAGE, vm.uiState.value.blocks.last().type)
+
+            val trailingTextId = vm.ensureTrailingEditableBlock()
+            assertEquals(NoteBlockType.TEXT, vm.uiState.value.blocks.last().type)
+            assertEquals(trailingTextId, vm.uiState.value.blocks.last().id)
+
+            vm.updateBlockText(trailingTextId, "Caption under image")
+            vm.finishEditorSession()
+            ShadowLooper.idleMainLooper()
+            delay(100L)
+
+            val saved = noteRepository.getNoteDetail(vm.uiState.value.noteId)!!
+            assertTrue(saved.blocks.any { it.type == NoteBlockType.TEXT && it.textContent == "Caption under image" })
+        } finally {
+            dsFile.delete()
+            samplePng.delete()
+        }
+    }
 }

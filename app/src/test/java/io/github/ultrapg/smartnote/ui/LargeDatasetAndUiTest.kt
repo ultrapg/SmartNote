@@ -203,4 +203,30 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithContentDescription("New note").assertIsDisplayed()
         composeRule.onNodeWithText("Notes").assertIsDisplayed()
     }
+
+    @Test
+    fun longScrollableNoteRendersEditorScrollbarAndAcceptsInput() {
+        val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
+        val longBody = (1..70).joinToString("\n") { "Scrollable editor line $it with offline note content" }
+        runBlocking {
+            app.container.noteRepository.createNote(
+                title = "Long Scrollable Note",
+                blocks = listOf(NoteBlock("long_blk_1", "long_n", 0, NoteBlockType.TEXT, longBody)),
+                scheduleBackgroundWork = false
+            )
+        }
+
+        composeRule.waitUntil(5_000L) {
+            composeRule.onAllNodesWithText("Long Scrollable Note").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Long Scrollable Note").performClick()
+
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Scrollable editor line 1", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithContentDescription("Back and save").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Long Scrollable Note").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
 }

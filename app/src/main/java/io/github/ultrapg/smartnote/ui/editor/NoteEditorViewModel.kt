@@ -322,6 +322,51 @@ class NoteEditorViewModel(
         }
     }
 
+    /**
+     * Ensures the note ends with an editable block so tapping empty space below the note
+     * focuses cleanly at the bottom (reusing a trailing text/blank-checklist block or adding one).
+     */
+    fun ensureTrailingEditableBlock(): String {
+        val state = _uiState.value
+        val last = state.blocks.lastOrNull()
+        if (last != null) {
+            when (last.type) {
+                NoteBlockType.TEXT -> return last.id
+                NoteBlockType.CHECKLIST -> if (last.textContent.isBlank()) return last.id
+                NoteBlockType.IMAGE, NoteBlockType.LINK -> Unit
+            }
+        }
+        val nextType = if (last?.type == NoteBlockType.CHECKLIST) {
+            NoteBlockType.CHECKLIST
+        } else {
+            NoteBlockType.TEXT
+        }
+        val newBlock = NoteBlock(
+            id = UUID.randomUUID().toString(),
+            noteId = activeNoteId,
+            position = state.blocks.size,
+            type = nextType,
+            textContent = ""
+        )
+        val shouldPersistNewBlock = state.blocks.isNotEmpty()
+        if (shouldPersistNewBlock) {
+            hasUserEditedLocally = true
+        }
+        _uiState.update { cur ->
+            val currentLast = cur.blocks.lastOrNull()
+            if (currentLast != null && currentLast.type == NoteBlockType.TEXT) {
+                cur
+            } else {
+                cur.copy(blocks = reindex(cur.blocks + newBlock))
+            }
+        }
+        val resolvedId = _uiState.value.blocks.lastOrNull()?.id ?: newBlock.id
+        if (shouldPersistNewBlock) {
+            enqueueAutosave()
+        }
+        return resolvedId
+    }
+
     fun updateBlockText(blockId: String, newText: String) {
         hasUserEditedLocally = true
         _uiState.update { state ->

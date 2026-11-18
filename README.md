@@ -5,7 +5,7 @@
 SmartNote is a native, offline-first Android note-taking application written in Kotlin with Jetpack Compose and **Material 3 Expressive**. Designed to capture quickly, organize automatically on-device, and search instantaneously across notes, checklists, links, and screenshot OCR text—without accounts, cloud sync, telemetry, or external API keys.
 
 - **Package ID:** `io.github.ultrapg.smartnote`
-- **Version:** `1.0.4` (`versionCode = 5`)
+- **Version:** `1.0.5` (`versionCode = 6`)
 - **Compatibility:** Android 9+ (`minSdk = 28`, `targetSdk = 36`, `compileSdk = 37`)
 - **ABIs:** `arm64-v8a`, `x86_64`
 - **License:** Apache License 2.0 ([LICENSE](LICENSE))
@@ -22,7 +22,7 @@ SmartNote is a native, offline-first Android note-taking application written in 
 - **Two Overview Layouts**: **Staggered Card** grid (default) and single-column **Compact List**, toggleable live with persisted preference.
 
 ### Capture, Editor & Data Integrity
-- **Distraction-Free Block Editor**: Supports titles, multiline Markdown-highlighted text (`#` headings, `**bold**`, `*italic*`, `` `code` ``), reorderable checklists, embedded private-storage images, and clickable link cards.
+- **Full-Screen Distraction-Free Block Editor**: Supports titles, multiline Markdown-highlighted text (`#` headings, `**bold**`, `*italic*`, `` `code` ``), reorderable checklists, embedded private-storage images, and clickable link cards—with full-viewport tap-to-edit canvas expansion and a scroll indicator bar when notes extend below the screen.
 - **Crash-Safe Autosave**: `NoteAutosaveCoordinator` debounces rapid edits (`650 ms` debounce, `4000 ms` max latency), flushes on lifecycle/navigation pause, preserves drafts via `SavedStateHandle`, and commits atomically via Room `@Upsert` + `immediateTransaction` with `PRAGMA foreign_keys = ON`.
 - **Archive & 30-Day Recycle Bin**: Prevents accidental permanent deletion, schedules 30-day expiration cleanup via WorkManager, and protects deduplicated attachments using cross-note reference counting.
 - **SmartCapture Sharesheet Integration**: Receives `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intents (`text/plain`, `image/png`, `image/jpeg`, `image/webp`, `image/*`, URLs, and multi-image shares) with immediate private staging, screenshot heuristics, quick-save UX, and canonical-path rejection of internal `file://` URIs.
@@ -57,11 +57,11 @@ SmartNote is a native, offline-first Android note-taking application written in 
 
 ## Installation
 
-1. Download **`smartnote-release.apk`** from the [v1.0.4 GitHub Release](../../releases/tag/v1.0.4).
+1. Download **`smartnote-release.apk`** from the [v1.0.5 GitHub Release](../../releases/tag/v1.0.5).
 2. Verify the APK checksum before installing:
    - **File:** `smartnote-release.apk`
-   - **Size:** `57,015,980` bytes (`54.37 MiB`)
-   - **SHA-256:** `b2735258df390b9959b1475b618d97c8fbd6dafa4389a8286ac48c24078d0281`
+   - **Size:** `57,032,365` bytes (`54.39 MiB`)
+   - **SHA-256:** `0ffccc43a4c7e883c3b66e18eab8692d5b0850de3859ce2011db3d9fb077caa4`
    - **APK Signature Scheme v3 Signer Cert SHA-256 (4096-bit RSA):**
      `b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`
 3. Install on an Android 9+ device via system package installer or `adb install smartnote-release.apk`.
@@ -104,12 +104,12 @@ The R8-minified, resource-shrunk, signed APK is output to `app/build/outputs/apk
 
 ### Verified on Build Host (2026-11-18)
 - `./gradlew testDebugUnitTest testReleaseUnitTest assembleRelease --no-daemon` completed cleanly (`BUILD SUCCESSFUL`) with zero source Kotlin warnings:
-  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 10 suites, **23 tests passed, 0 failures, 0 errors, 0 skipped**.
-  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **23 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, empty ghost note cleanup, image attachment/OCR OOM safety, opt-in auto-title generation, master AI switch toggling, and end-to-end Compose UI flows).
+  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 10 suites, **25 tests passed, 0 failures, 0 errors, 0 skipped**.
+  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **25 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, empty ghost note cleanup, image attachment/OCR OOM safety, opt-in auto-title generation, master AI switch toggling, full-viewport trailing-block focus, and end-to-end Compose UI flows).
 - **Release APK Verification (`build-tools/37.0.0`):**
   - `zipalign -c -P 16 -v 4 smartnote-release.apk`: **Verification successful** (16 KB ELF page-aligned).
   - `apksigner verify --print-certs -v smartnote-release.apk`: **Verifies** under APK Signature Scheme v3 (RSA-4096).
-  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='5'`, `versionName='1.0.4'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`.
+  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='6'`, `versionName='1.0.5'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`.
   - Archive inspection confirmed `assets/models/smartnote_text_embed_v1.tflite` and native libraries (`libsqliteJni.so`, `libmlkit_google_ocr_pipeline.so`, `libLiteRt.so`, `libLiteRtClGlAccelerator.so`) are packaged with zero Gemini/AppFunctions artifacts and zero keystores or credentials.
 
 ### Hardware-Dependent Checks (Require Physical Android Device)
