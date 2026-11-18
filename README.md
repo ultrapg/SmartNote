@@ -5,7 +5,7 @@
 SmartNote is a native, offline-first Android note-taking application written in Kotlin with Jetpack Compose and **Material 3 Expressive**. Designed to capture quickly, organize automatically on-device, and search instantaneously across notes, checklists, links, and screenshot OCR text—without accounts, cloud sync, telemetry, or external API keys.
 
 - **Package ID:** `io.github.ultrapg.smartnote`
-- **Version:** `1.0.1` (`versionCode = 2`)
+- **Version:** `1.0.2` (`versionCode = 3`)
 - **Compatibility:** Android 9+ (`minSdk = 28`, `targetSdk = 36`, `compileSdk = 37`)
 - **ABIs:** `arm64-v8a`, `x86_64`
 - **License:** Apache License 2.0 ([LICENSE](LICENSE))
@@ -15,10 +15,10 @@ SmartNote is a native, offline-first Android note-taking application written in 
 ## Core Capabilities
 
 ### Design & Adaptive Experience
-- **Material 3 Expressive**: Implements `MaterialExpressiveTheme`, a custom gooey `SmartNoteGooeyMotionScheme` (with automatic `MotionScheme.standard()` fallback when reduced motion is enabled), shared-element transitions (`gooeyBoundsTransform`), Predictive Back gestures, subtle haptic feedback, and expressive components (`HorizontalFloatingToolbar`, `SplitButtonLayout`, `ButtonGroup`, `LoadingIndicator`, `ExpressiveGooeyFab` `MaterialShapes` morphing).
-- **Edge-to-Edge Polish**: Full system-bar and IME inset integration (`ComponentActivity.enableEdgeToEdge`, transparent navigation bar contrast, status-bar-padded floating search bars, and keyboard-unioned editor toolbars).
+- **Material 3 Expressive**: Implements `MaterialExpressiveTheme` with calm, well-damped motion (`SmartNoteSoftMotionScheme` with automatic `MotionScheme.standard()` reduced-motion fallback), Predictive Back gestures, subtle haptic feedback, and expressive components (`SplitButtonLayout`, `ButtonGroup`, `LoadingIndicator`, and `MaterialShapes` badges).
+- **Edge-to-Edge Polish**: Full system-bar and IME inset integration (transparent status/navigation bars, light/dark icon contrast across themes, status-bar-padded search bars, and keyboard-unioned editor toolbars).
 - **Four Cohesive Themes**: **Dynamic Color** (Material You wallpaper default), **SmartNote Violet**, **Neutral**, and **True-Black AMOLED**—each supporting Light, Dark, and System appearance via Jetpack DataStore.
-- **Adaptive Window Support**: `NavigationSuiteScaffold` switches between a compact Navigation Bar and an expanded Navigation Rail across compact phones, foldables, tablets, and multi-window layouts.
+- **Adaptive Window Support**: `TopLevelAdaptiveShell` switches automatically between a compact `NavigationBar` (auto-hiding when typing in SmartSearch/Tags) and a `NavigationRail` on screens `>= 600dp` (tablets/foldables).
 - **Two Overview Layouts**: **Staggered Card** grid (default) and single-column **Compact List**, toggleable live with persisted preference.
 
 ### Capture, Editor & Data Integrity
@@ -28,17 +28,17 @@ SmartNote is a native, offline-first Android note-taking application written in 
 - **SmartCapture Sharesheet Integration**: Receives `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intents (`text/plain`, `image/png`, `image/jpeg`, `image/webp`, `image/*`, URLs, and multi-image shares) with immediate private staging, screenshot heuristics, quick-save UX, and canonical-path rejection of internal `file://` URIs.
 - **Local Backup & Restore**: Exports and restores portable `.smartnote.zip` archives with strict ZIP-Slip traversal protection, `MERGE` (UUID-conflict safe) and `REPLACE_ALL` modes, and full FTS5 reindexing.
 
-### On-Device Intelligence (100% Offline by Default)
+### On-Device Intelligence (100% Offline & Master-Switch Controlled)
+- **Unified AI Control**: A single **Enable All AI Features** master switch in **Settings → AI & Smart Features** toggles all AI capabilities together (and unloads active LiteRT models when disabled), alongside individual toggles for each feature.
 - **Bundled ML Kit Latin OCR**: Recognizes text inside screenshots and photos completely offline (`com.google.mlkit:text-recognition:16.0.1`) with SHA-256 deduplication caching.
 - **SmartSearch (SQLite FTS5)**: Dual virtual tables (`porter unicode61 remove_diacritics 2` + `trigram`) backed by bundled `sqlite-bundled` give weighted BM25 + recency + pin + exact-title scoring, typo correction (*Did you mean*), offline synonym expansion, and operator filtering (`#tag`, OCR, images, checklists, date ranges).
 - **SmartTags & SmartDuplicateDetector**: Rule/keyword auto-tagging that respects manual user confirmations and permanent dismissals, plus SHA-256, SimHash-64, and canonical-URL duplicate detection without ever auto-deleting notes.
-- **Offline Auto-Title Generation (`SmartTitleGenerator`)**: Automatically synthesizes readable titles for untitled notes, checklists, shared links, and OCR'd screenshots—plus live `Auto-title:` chip suggestions and a ✨ generate action in the editor, toggleable in Settings → Smart Features.
-- **On-Device LiteRT AI (`smartnote_text_embed_v1.tflite`)**: Uses LiteRT `2.3.2` with adaptive runtime delegation (`NPU` -> `GPU` -> `CPU XNNPACK` -> deterministic n-gram fallback) for optional local semantic search reranking, governed by a master toggle and per-feature DataStore switches.
+- **Offline Auto-Title Generation (`SmartTitleGenerator`)**: Automatically synthesizes readable titles for untitled notes, checklists, shared links, and OCR'd screenshots—plus live `Auto-title:` chip suggestions and a ✨ generate action in the editor.
+- **On-Device LiteRT AI (`smartnote_text_embed_v1.tflite`)**: Uses LiteRT `2.3.2` with adaptive runtime delegation (`NPU` -> `GPU` -> `CPU XNNPACK` -> deterministic n-gram fallback) for optional local semantic search reranking, governed by the master switch and per-feature DataStore switches.
 
-### Android Platform & Assistant Integrations
+### Android System Integrations
 - **Reminders & Android 16 Live Updates**: Exact-alarm reminders with boot/time-change rescheduling and Android 16 promoted Live Update support (`setRequestPromotedOngoing`, `setShortCriticalText`, `ProgressStyle` where supported, standard notification fallback elsewhere).
-- **Glance Widgets, Quick Settings Tile & Shortcuts**: Three Material 3 Glance widgets (Quick Capture, Pinned Note, Overview Summary), `QuickNoteTileService`, and static + dynamic App Shortcuts.
-- **Jetpack AppFunctions & Operations API**: Exposes offline note search/creation/tagging/reminder `@AppFunction` entry points (`appfunctions-service:1.0.0-alpha08`, packaged `app_functions.xml` & `app_functions_v2.xml`) routed through `SmartNoteOperationsApi`, which enforces soft-delete-only mutations and honors SmartNote's offline AI/integration master toggle.
+- **Glance Widgets, Quick Settings Tile & Shortcuts**: Three Material 3 Glance widgets (Quick Capture, Pinned Note, Overview Summary), `QuickNoteTileService`, and static + dynamic App Shortcuts backed by validated local operations (`SmartNoteOperationsApi`).
 
 ---
 
@@ -47,21 +47,21 @@ SmartNote is a native, offline-first Android note-taking application written in 
 | Layer | Technologies |
 | :--- | :--- |
 | **Language / Build** | Kotlin `2.2.21`, KSP `2.2.21-2.0.5`, Gradle `8.13`, AGP `8.13.2` |
-| **UI / Motion** | Jetpack Compose BOM `2026.06.01`, Material 3 `1.5.0-alpha15`, Navigation 3 / Compose, Adaptive `1.2.0` |
-| **Persistence / Search** | Room `2.8.5`, Bundled SQLite `2.7.1` (FTS5 Porter + Trigram), DataStore Preferences `1.2.1` |
+| **UI / Motion** | Jetpack Compose BOM `2026.06.01`, Material 3 `1.5.0-alpha15`, Navigation Compose `2.9.8` |
+| **Persistence / Search** | Room `2.8.5`, Bundled SQLite `2.7.1` (FTS5 Porter + Trigram), DataStore Preferences `1.1.2` |
 | **On-Device ML / OCR** | Google LiteRT `2.3.2` (`litert` + `litert-gpu`), ML Kit Bundled Latin Text Recognition `16.0.1` |
-| **Background / Platform** | WorkManager `2.11.2`, Glance `1.2.0`, Core KTX `1.18.0`, Jetpack AppFunctions `1.0.0-alpha08` |
-| **Testing** | JUnit4, Robolectric `4.16.1`, Compose UI Test, Kotlinx Coroutines Test `1.10.2` |
+| **Background / Platform** | WorkManager `2.11.2`, Glance `1.2.0`, Core KTX `1.18.0` |
+| **Testing** | JUnit4, Robolectric `4.14.1`, Compose UI Test, Kotlinx Coroutines Test `1.11.0` |
 
 ---
 
 ## Installation
 
-1. Download **`smartnote-release.apk`** from the [v1.0.1 GitHub Release](../../releases/tag/v1.0.1).
+1. Download **`smartnote-release.apk`** from the [v1.0.2 GitHub Release](../../releases/tag/v1.0.2).
 2. Verify the APK checksum before installing:
    - **File:** `smartnote-release.apk`
-   - **Size:** `57,474,433` bytes (`54.81 MiB`)
-   - **SHA-256:** `0a033c86efcf19b3cd0982a07839d549f303ccdf0d49e27be6d95fc610c7a80e`
+   - **Size:** `56,999,557` bytes (`54.36 MiB`)
+   - **SHA-256:** `872475ebde2f9ef8d5dab73139a16a3b91e05aa602ad6adb32e3ce62c8bcaca0`
    - **APK Signature Scheme v3 Signer Cert SHA-256 (4096-bit RSA):**
      `b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`
 3. Install on an Android 9+ device via system package installer or `adb install smartnote-release.apk`.
@@ -103,17 +103,16 @@ The R8-minified, resource-shrunk, signed APK is output to `app/build/outputs/apk
 ## Verification & Known Hardware Limitations
 
 ### Verified on Build Host (2026-11-18)
-- `./gradlew clean testDebugUnitTest testReleaseUnitTest assembleRelease --no-daemon` completed cleanly (`BUILD SUCCESSFUL`) with **0 Kotlin warnings**:
+- `./gradlew testDebugUnitTest testReleaseUnitTest assembleRelease --no-daemon` completed cleanly (`BUILD SUCCESSFUL`) with zero source Kotlin warnings:
   - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 10 suites, **20 tests passed, 0 failures, 0 errors, 0 skipped**.
-  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **20 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, AppFunctions input/toggle validation, offline auto-title generation, and end-to-end Compose note creation + auto-title + layout switching UI flows).
+  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **20 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, offline auto-title generation, master AI switch toggling, and end-to-end Compose UI flows).
 - **Release APK Verification (`build-tools/37.0.0`):**
   - `zipalign -c -P 16 -v 4 smartnote-release.apk`: **Verification successful** (16 KB ELF page-aligned).
   - `apksigner verify --print-certs -v smartnote-release.apk`: **Verifies** under APK Signature Scheme v3 (RSA-4096).
-  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='2'`, `versionName='1.0.1'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`.
-  - Archive inspection confirmed `assets/models/smartnote_text_embed_v1.tflite`, `assets/app_functions.xml`, `assets/app_functions_v2.xml`, and native libraries (`libsqliteJni.so`, `libmlkit_google_ocr_pipeline.so`, `libLiteRt.so`, `liblitert_jni.so`, `libLiteRtClGlAccelerator.so`) are packaged with zero keystores or credentials.
+  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='3'`, `versionName='1.0.2'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`.
+  - Archive inspection confirmed `assets/models/smartnote_text_embed_v1.tflite` and native libraries (`libsqliteJni.so`, `libmlkit_google_ocr_pipeline.so`, `libLiteRt.so`, `libLiteRtClGlAccelerator.so`) are packaged with zero Gemini/AppFunctions artifacts and zero keystores or credentials.
 
 ### Hardware-Dependent Checks (Require Physical Android Device)
 The Linux build environment has no `/dev/kvm` or attached Android device, so the following behaviors are implemented and compile-verified but require physical-device validation:
 - **LiteRT Hardware Delegates:** Physical vendor NPU (`CompiledModel` NPU) and GPU delegate acceleration paths (host tests verify model loading and CPU/fallback execution).
 - **Android 16 Live Updates OEM Surfaces:** System status-chip / Samsung One UI 8 Now Bar promotion behavior under OEM lock-screen policies.
-- **Consumer Gemini Connected Apps Routing:** End-to-end OS Assistant / Gemini app invocation against SmartNote's packaged `appfunctions-service` declaration.

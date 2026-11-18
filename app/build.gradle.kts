@@ -19,8 +19,8 @@ android {
         applicationId = "io.github.ultrapg.smartnote"
         minSdk = 28
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -138,7 +138,6 @@ kotlin {
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
     arg("room.generateKotlin", "true")
-    arg("appfunctions:aggregateAppFunctions", "true")
 }
 
 dependencies {
@@ -186,10 +185,6 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
     implementation(libs.litert)
     implementation(libs.litert.gpu)
-
-    implementation(libs.androidx.appfunctions)
-    implementation(libs.androidx.appfunctions.service)
-    ksp(libs.androidx.appfunctions.compiler)
 
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.coroutines.play.services)

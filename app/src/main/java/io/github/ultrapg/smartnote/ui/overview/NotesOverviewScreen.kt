@@ -1,19 +1,9 @@
 package io.github.ultrapg.smartnote.ui.overview
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -71,11 +61,11 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -115,10 +105,8 @@ import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveBadgeShapeKind
-import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveGooeyFab
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveShapeBadge
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
-import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
@@ -127,7 +115,7 @@ import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotesOverviewScreen(
     uiState: NotesOverviewUiState,
@@ -152,8 +140,7 @@ fun NotesOverviewScreen(
     onBatchArchive: () -> Unit,
     onBatchTrash: () -> Unit,
     onNavigateBack: (() -> Unit)? = null,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
@@ -162,7 +149,6 @@ fun NotesOverviewScreen(
     val context = LocalContext.current
     var showSortMenu by remember { mutableStateOf(false) }
     var showOverflowMenu by remember { mutableStateOf(false) }
-    var showFabQuickActions by remember { mutableStateOf(false) }
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
 
     val inSelectionMode = uiState.selectedIds.isNotEmpty()
@@ -195,6 +181,7 @@ fun NotesOverviewScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = bottomBar,
         topBar = {
             if (inSelectionMode) {
                 TopAppBar(
@@ -246,12 +233,6 @@ fun NotesOverviewScreen(
                     }
                 )
             } else {
-                val searchBarInteraction = remember { MutableInteractionSource() }
-                val searchBarShape = rememberGooeyRoundedShape(
-                    interactionSource = searchBarInteraction,
-                    baseRadius = 28.dp,
-                    pressedRadius = 20.dp
-                )
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -259,14 +240,8 @@ fun NotesOverviewScreen(
                         .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
                 ) {
                     Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .expressivePressable(
-                                interactionSource = searchBarInteraction,
-                                pressedScaleX = 0.985f,
-                                pressedScaleY = 0.96f
-                            ),
-                        shape = searchBarShape,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(28.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         border = smartNoteCardBorder()
                     ) {
@@ -288,12 +263,7 @@ fun NotesOverviewScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .heightIn(min = 48.dp)
-                                    .combinedClickable(
-                                        interactionSource = searchBarInteraction,
-                                        indication = androidx.compose.material3.ripple(),
-                                        onClick = onOpenSearch,
-                                        onLongClick = { showFabQuickActions = !showFabQuickActions }
-                                    )
+                                    .clickable(onClick = onOpenSearch)
                                     .padding(horizontal = 4.dp),
                                 contentAlignment = Alignment.CenterStart
                             ) {
@@ -388,60 +358,15 @@ fun NotesOverviewScreen(
         },
         floatingActionButton = {
             if (!inSelectionMode) {
-                Column(
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                FloatingActionButton(
+                    onClick = { onCreateNewNote(false) },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ) {
-                    AnimatedVisibility(
-                        visible = showFabQuickActions,
-                        enter = if (reducedMotion) {
-                            fadeIn(tween(90))
-                        } else {
-                            fadeIn(spring(stiffness = 300f)) +
-                                scaleIn(spring(dampingRatio = 0.54f, stiffness = 240f), initialScale = 0.7f) +
-                                slideInVertically(spring(dampingRatio = 0.58f, stiffness = 240f)) { it / 2 }
-                        },
-                        exit = fadeOut(spring(stiffness = 340f)) +
-                            scaleOut(spring(stiffness = 300f), targetScale = 0.75f) +
-                            slideOutVertically { it / 2 }
-                    ) {
-                        SmallFloatingActionButton(
-                            onClick = {
-                                showFabQuickActions = false
-                                onCreateNewNote(true)
-                            },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
-                        ) {
-                            Icon(Icons.Rounded.CheckBox, contentDescription = "New checklist")
-                        }
-                    }
-                    val fabSharedModifier = if (
-                        uiState.activeTagName == null &&
-                        sharedTransitionScope != null &&
-                        animatedVisibilityScope != null &&
-                        !reducedMotion
-                    ) {
-                        with(sharedTransitionScope) {
-                            Modifier.sharedBounds(
-                                sharedContentState = rememberSharedContentState(key = "new_note_fab"),
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                boundsTransform = SmartNoteMotion.gooeyBoundsTransform
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                    ExpressiveGooeyFab(
-                        onClick = {
-                            if (showFabQuickActions) {
-                                showFabQuickActions = false
-                            } else {
-                                onCreateNewNote(false)
-                            }
-                        },
-                        contentDescription = "New note",
-                        expanded = showFabQuickActions,
-                        modifier = fabSharedModifier
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = "New note"
                     )
                 }
             }
@@ -469,8 +394,7 @@ fun NotesOverviewScreen(
                     FilterChip(
                         selected = uiState.filterType == filter,
                         onClick = { onSelectFilter(filter) },
-                        label = { Text(label) },
-                        modifier = Modifier.animateContentSize(SmartNoteMotion.gooeySizeSpring())
+                        label = { Text(label) }
                     )
                 }
             }
@@ -489,16 +413,7 @@ fun NotesOverviewScreen(
                         if (reducedMotion) {
                             fadeIn(tween(90)) togetherWith fadeOut(tween(90))
                         } else {
-                            (fadeIn(spring(stiffness = 280f)) +
-                                scaleIn(
-                                    initialScale = 0.95f,
-                                    animationSpec = spring(dampingRatio = 0.60f, stiffness = 210f)
-                                )) togetherWith
-                                (fadeOut(spring(stiffness = 320f)) +
-                                    scaleOut(
-                                        targetScale = 0.95f,
-                                        animationSpec = spring(dampingRatio = 0.65f, stiffness = 220f)
-                                    ))
+                            fadeIn(tween(180)) togetherWith fadeOut(tween(140))
                         }
                     },
                     label = "notes_layout_switch",
@@ -535,8 +450,6 @@ fun NotesOverviewScreen(
                                             note = note,
                                             isSelected = isSelected,
                                             filesDir = context.filesDir,
-                                            sharedTransitionScope = sharedTransitionScope,
-                                            animatedVisibilityScope = animatedVisibilityScope,
                                             onClick = {
                                                 if (inSelectionMode) onToggleSelection(note.id) else onOpenNote(note.id)
                                             },
@@ -548,9 +461,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = spring(stiffness = 280f),
-                                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                                                fadeOutSpec = spring(stiffness = 320f)
+                                                fadeInSpec = tween(160),
+                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = tween(140)
                                             )
                                         )
                                     }
@@ -575,8 +488,6 @@ fun NotesOverviewScreen(
                                             note = note,
                                             isSelected = isSelected,
                                             filesDir = context.filesDir,
-                                            sharedTransitionScope = sharedTransitionScope,
-                                            animatedVisibilityScope = animatedVisibilityScope,
                                             onClick = {
                                                 if (inSelectionMode) onToggleSelection(note.id) else onOpenNote(note.id)
                                             },
@@ -588,9 +499,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = spring(stiffness = 280f),
-                                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                                                fadeOutSpec = spring(stiffness = 320f)
+                                                fadeInSpec = tween(160),
+                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = tween(140)
                                             )
                                         )
                                     }
@@ -620,8 +531,6 @@ fun NotesOverviewScreen(
                                             note = note,
                                             isSelected = note.id in uiState.selectedIds,
                                             filesDir = context.filesDir,
-                                            sharedTransitionScope = sharedTransitionScope,
-                                            animatedVisibilityScope = animatedVisibilityScope,
                                             onClick = {
                                                 if (inSelectionMode) onToggleSelection(note.id) else onOpenNote(note.id)
                                             },
@@ -633,9 +542,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = spring(stiffness = 280f),
-                                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                                                fadeOutSpec = spring(stiffness = 320f)
+                                                fadeInSpec = tween(160),
+                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = tween(140)
                                             )
                                         )
                                     }
@@ -654,8 +563,6 @@ fun NotesOverviewScreen(
                                             note = note,
                                             isSelected = note.id in uiState.selectedIds,
                                             filesDir = context.filesDir,
-                                            sharedTransitionScope = sharedTransitionScope,
-                                            animatedVisibilityScope = animatedVisibilityScope,
                                             onClick = {
                                                 if (inSelectionMode) onToggleSelection(note.id) else onOpenNote(note.id)
                                             },
@@ -667,9 +574,9 @@ fun NotesOverviewScreen(
                                             onArchive = { archiveWithUndo(note.id) },
                                             onTrash = { trashWithUndo(note.id) },
                                             modifier = Modifier.animateItem(
-                                                fadeInSpec = spring(stiffness = 280f),
-                                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                                                fadeOutSpec = spring(stiffness = 320f)
+                                                fadeInSpec = tween(160),
+                                                placementSpec = SmartNoteMotion.softPlacementSpring(),
+                                                fadeOutSpec = tween(140)
                                             )
                                         )
                                     }
@@ -693,14 +600,12 @@ private fun SectionHeaderText(title: String) {
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun NoteStaggeredCard(
     note: NoteSummary,
     isSelected: Boolean,
     filesDir: File,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onPinToggle: () -> Unit,
@@ -709,14 +614,7 @@ private fun NoteStaggeredCard(
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
-    val cardShape = rememberGooeyRoundedShape(
-        interactionSource = interactionSource,
-        baseRadius = 22.dp,
-        pressedRadius = 32.dp,
-        selectedRadius = 28.dp,
-        isSelected = isSelected
-    )
+    val cardShape = RoundedCornerShape(if (isSelected) 16.dp else 22.dp)
     val baseBorder = smartNoteCardBorder()
     val cardBorder = if (isSelected) {
         BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
@@ -724,23 +622,10 @@ private fun NoteStaggeredCard(
         baseBorder ?: BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     }
 
-    val sharedModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && !reducedMotion) {
-        with(sharedTransitionScope) {
-            Modifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = "note_card_${note.id}"),
-                animatedVisibilityScope = animatedVisibilityScope,
-                boundsTransform = SmartNoteMotion.gooeyBoundsTransform
-            )
-        }
-    } else {
-        Modifier
-    }
-
     val accessibleSummary = buildNoteAccessibilityLabel(note)
 
     Surface(
         modifier = modifier
-            .then(sharedModifier)
             .fillMaxWidth()
             .expressivePressable(interactionSource)
             .clip(cardShape)
@@ -967,14 +852,12 @@ private fun NoteStaggeredCard(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun SwipeableCompactNoteRow(
     note: NoteSummary,
     isSelected: Boolean,
     filesDir: File,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onPinToggle: () -> Unit,
@@ -989,10 +872,12 @@ private fun SwipeableCompactNoteRow(
             SwipeToDismissBoxValue.EndToStart -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onArchive()
+                dismissState.reset()
             }
             SwipeToDismissBoxValue.StartToEnd -> {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 onTrash()
+                dismissState.reset()
             }
             SwipeToDismissBoxValue.Settled -> Unit
         }
@@ -1034,34 +919,16 @@ private fun SwipeableCompactNoteRow(
         }
     ) {
         val interactionSource = remember { MutableInteractionSource() }
-        val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
-        val rowShape = rememberGooeyRoundedShape(
-            interactionSource = interactionSource,
-            baseRadius = 18.dp,
-            pressedRadius = 28.dp,
-            selectedRadius = 24.dp,
-            isSelected = isSelected
-        )
+        val rowShape = RoundedCornerShape(if (isSelected) 14.dp else 18.dp)
         val baseBorder = smartNoteCardBorder()
         val rowBorder = if (isSelected) {
             BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
         } else {
             baseBorder ?: BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
         }
-        val sharedModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && !reducedMotion) {
-            with(sharedTransitionScope) {
-                Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState(key = "note_card_${note.id}"),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                    boundsTransform = SmartNoteMotion.gooeyBoundsTransform
-                )
-            }
-        } else {
-            Modifier
-        }
 
         Surface(
-            modifier = sharedModifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .expressivePressable(interactionSource)
                 .clip(rowShape)
@@ -1217,7 +1084,6 @@ private fun EmptyNotesPlaceholder(
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
-    var badgeMorphed by remember { mutableStateOf(false) }
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -1230,13 +1096,7 @@ private fun EmptyNotesPlaceholder(
             kind = ExpressiveBadgeShapeKind.COOKIE,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            size = 76.dp,
-            morphed = badgeMorphed,
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = { badgeMorphed = !badgeMorphed }
-            )
+            size = 76.dp
         ) {
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.NoteAdd,

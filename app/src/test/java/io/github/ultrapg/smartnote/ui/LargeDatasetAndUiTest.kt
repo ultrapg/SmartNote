@@ -6,10 +6,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import androidx.compose.ui.test.printToString
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.MainActivity
 import io.github.ultrapg.smartnote.SmartNoteApplication
@@ -18,6 +16,7 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -134,6 +133,30 @@ class LargeDatasetAndUiTest {
 
         composeRule.onNodeWithText("SmartSearch").performClick()
         composeRule.onNodeWithText("SmartSearch titles, OCR text, #tags, URLs...").assertIsDisplayed()
+
+        // Navigate to Settings -> AI & Smart Features and toggle master AI setting
+        composeRule.onNodeWithText("Notes").performClick()
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("AI & Smart Features").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("AI & Smart Features").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Enable All AI Features").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Enable All AI Features").performClick()
+        composeRule.waitUntil(3_000L) {
+            runBlocking {
+                !app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
+            }
+        }
+        composeRule.onNodeWithText("Enable All AI Features").performClick()
+        composeRule.waitUntil(3_000L) {
+            runBlocking {
+                app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
+            }
+        }
     }
 
     @Test

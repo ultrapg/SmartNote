@@ -69,25 +69,13 @@ class SmartNoteOperationsApi(
     private val settingsRepository: SettingsRepository,
     private val titleGenerator: SmartTitleGenerator = SmartTitleGenerator()
 ) {
-    private suspend fun requireAgentIntegrationEnabled() {
-        val enabled = settingsRepository.settingsFlow.first().geminiIntegrationEnabled
-        if (!enabled) {
-            throw SmartNoteOperationException(
-                code = "INTEGRATION_DISABLED",
-                message = "Gemini / external assistant integration is disabled in SmartNote Settings."
-            )
-        }
-    }
-
     suspend fun createNote(
         title: String,
         content: String,
         tags: List<String> = emptyList(),
         isPinned: Boolean = false,
-        checklistItems: List<String> = emptyList(),
-        checkIntegrationToggle: Boolean = true
+        checklistItems: List<String> = emptyList()
     ): AgentNoteDetailDto {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val safeTitle = title.trim().take(MAX_TITLE_CHARS)
         val safeContent = content.trim().take(MAX_CONTENT_CHARS)
         val safeItems = checklistItems.map { it.trim().take(400) }.filter { it.isNotBlank() }.take(100)
@@ -121,7 +109,7 @@ class SmartNoteOperationsApi(
                 )
             }
         }
-        val resolvedTitle = if (safeTitle.isBlank() && settingsRepository.settingsFlow.first().autoTitleEnabled) {
+        val resolvedTitle = if (safeTitle.isBlank() && settingsRepository.settingsFlow.first().effectiveAutoTitleEnabled) {
             titleGenerator.generateFastTitle(blocks = blocks).take(MAX_TITLE_CHARS)
         } else {
             safeTitle
@@ -132,17 +120,15 @@ class SmartNoteOperationsApi(
             blocks = blocks,
             initialTags = tags.map { it.trim() }.filter { it.isNotBlank() }.take(10),
             isPinned = isPinned,
-            sourceType = if (checkIntegrationToggle) NoteSourceType.GEMINI else NoteSourceType.MANUAL
+            sourceType = NoteSourceType.MANUAL
         )
-        return getNote(noteId, checkIntegrationToggle = false)
+        return getNote(noteId)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Created note could not be reloaded.")
     }
 
     suspend fun getNote(
-        noteId: String,
-        checkIntegrationToggle: Boolean = true
+        noteId: String
     ): AgentNoteDetailDto? {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         val detail = noteRepository.getNoteDetail(validId) ?: return null
         val textBody = detail.blocks
@@ -180,10 +166,8 @@ class SmartNoteOperationsApi(
         pinnedOnly: Boolean = false,
         includeArchived: Boolean = false,
         afterEpochMs: Long? = null,
-        beforeEpochMs: Long? = null,
-        checkIntegrationToggle: Boolean = true
+        beforeEpochMs: Long? = null
     ): List<AgentNoteMetadataDto> {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val safeLimit = limit.coerceIn(1, 50)
         val safeOffset = offset.coerceAtLeast(0)
         val all = noteRepository.getAllSummariesSnapshot(includeArchived = includeArchived)
@@ -203,10 +187,8 @@ class SmartNoteOperationsApi(
     suspend fun searchNotes(
         query: String,
         limit: Int = 20,
-        tagFilter: String? = null,
-        checkIntegrationToggle: Boolean = true
+        tagFilter: String? = null
     ): List<AgentNoteMetadataDto> {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val safeQuery = query.trim().take(256)
         val safeLimit = limit.coerceIn(1, 50)
         val filter = SearchFilterSpec(
@@ -215,7 +197,7 @@ class SmartNoteOperationsApi(
         val response = searchEngine.search(
             rawQuery = safeQuery,
             filter = filter,
-            enableSemanticRerank = false
+            enableSemanticRerank = settingsRepository.settingsFlow.first().effectiveSemanticRerankEnabled
         )
         return response.results.take(safeLimit).map { toMetadataDto(it.note) }
     }
@@ -224,10 +206,8 @@ class SmartNoteOperationsApi(
         noteId: String,
         newTitle: String? = null,
         newContent: String? = null,
-        appendContent: String? = null,
-        checkIntegrationToggle: Boolean = true
+        appendContent: String? = null
     ): AgentNoteDetailDto {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val detail = noteRepository.getNoteDetail(validateId(noteId))
             ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
         if (detail.isDeleted) {
@@ -276,19 +256,14 @@ class SmartNoteOperationsApi(
             isPinned = detail.isPinned,
             scheduleBackgroundWork = true
         )
-        return getNote(detail.id, checkIntegrationToggle = false)
+        return getNote(detail.id)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Updated note could not be reloaded.")
     }
 
-    /**
-     * External assistants NEVER permanently delete user notes; deletion always moves to the 30-day Recycle Bin.
-     */
     suspend fun deleteNoteToRecycleBin(
         noteId: String,
-        confirmedByUser: Boolean = true,
-        checkIntegrationToggle: Boolean = true
+        confirmedByUser: Boolean = true
     ): AgentOperationResult {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         if (!confirmedByUser) {
             throw SmartNoteOperationException(
                 "CONFIRMATION_REQUIRED",
@@ -308,10 +283,8 @@ class SmartNoteOperationsApi(
     suspend fun manageNoteTags(
         noteId: String,
         addTags: List<String> = emptyList(),
-        removeTags: List<String> = emptyList(),
-        checkIntegrationToggle: Boolean = true
+        removeTags: List<String> = emptyList()
     ): AgentNoteMetadataDto {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         val detail = noteRepository.getNoteDetail(validId)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
@@ -334,10 +307,8 @@ class SmartNoteOperationsApi(
     suspend fun setNoteReminder(
         noteId: String,
         triggerAtMs: Long?,
-        repeatRule: RepeatRule = RepeatRule.NONE,
-        checkIntegrationToggle: Boolean = true
+        repeatRule: RepeatRule = RepeatRule.NONE
     ): AgentOperationResult {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         noteRepository.getNoteDetail(validId)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
@@ -355,10 +326,8 @@ class SmartNoteOperationsApi(
 
     suspend fun setNoteArchived(
         noteId: String,
-        archived: Boolean,
-        checkIntegrationToggle: Boolean = true
+        archived: Boolean
     ): AgentOperationResult {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         noteRepository.getNoteDetail(validId)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
@@ -368,10 +337,8 @@ class SmartNoteOperationsApi(
 
     suspend fun setNotePinned(
         noteId: String,
-        pinned: Boolean,
-        checkIntegrationToggle: Boolean = true
+        pinned: Boolean
     ): AgentOperationResult {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         noteRepository.getNoteDetail(validId)
             ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
@@ -380,10 +347,8 @@ class SmartNoteOperationsApi(
     }
 
     suspend fun getNoteMetadata(
-        noteId: String,
-        checkIntegrationToggle: Boolean = true
+        noteId: String
     ): AgentNoteMetadataDto? {
-        if (checkIntegrationToggle) requireAgentIntegrationEnabled()
         val validId = validateId(noteId)
         val summary = noteRepository.getAllSummariesSnapshot(includeArchived = true)
             .firstOrNull { it.id == validId } ?: return null

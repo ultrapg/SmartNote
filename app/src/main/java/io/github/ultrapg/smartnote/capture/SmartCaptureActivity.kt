@@ -91,6 +91,7 @@ import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveLoading
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveSplitSaveButton
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.UUID
@@ -124,9 +125,10 @@ class SmartCaptureActivity : ComponentActivity() {
             val settings by container.settingsRepository.settingsFlow.collectAsState(initial = AppSettings())
             var isStaging by remember { mutableStateOf(payload.imageUris.isNotEmpty()) }
             var stagedImages by remember { mutableStateOf<List<StagedAttachment>>(emptyList()) }
+            var userEditedTitle by remember { mutableStateOf(false) }
             var titleText by remember {
                 mutableStateOf(
-                    if (settings.autoTitleEnabled) {
+                    if (settings.effectiveAutoTitleEnabled) {
                         suggestInitialTitle(
                             subject = payload.subject,
                             text = payload.sharedText,
@@ -145,6 +147,10 @@ class SmartCaptureActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
 
             LaunchedEffect(Unit) {
+                val latestSettings = container.settingsRepository.settingsFlow.first()
+                if (!latestSettings.effectiveAutoTitleEnabled && !userEditedTitle) {
+                    titleText = payload.subject.take(100)
+                }
                 val staged = if (payload.imageUris.isNotEmpty()) {
                     container.attachmentImporter.stageIncomingUris(sessionId, payload.imageUris)
                 } else {
@@ -153,25 +159,29 @@ class SmartCaptureActivity : ComponentActivity() {
                 stagedImages = staged
                 isStaging = false
 
-                // Compute instant SmartTags preview
-                val previewBlocks = listOf(
-                    NoteBlock(
-                        id = "preview",
-                        noteId = "preview",
-                        position = 0,
-                        type = NoteBlockType.TEXT,
-                        textContent = payload.sharedText
+                // Compute instant SmartTags preview only when SmartTags AI is enabled
+                if (latestSettings.effectiveSmartTagsEnabled) {
+                    val previewBlocks = listOf(
+                        NoteBlock(
+                            id = "preview",
+                            noteId = "preview",
+                            position = 0,
+                            type = NoteBlockType.TEXT,
+                            textContent = payload.sharedText
+                        )
                     )
-                )
-                val existingTags = container.tagRepository.getAllTagsSnapshot().map { it.name }
-                suggestedTags = container.smartTagsEngine.suggestTags(
-                    title = titleText,
-                    blocks = previewBlocks,
-                    ocrTexts = emptyList(),
-                    links = payload.detectedLinks,
-                    hasScreenshot = staged.any { it.isScreenshot },
-                    existingUserVocabulary = existingTags
-                ).map { it.name }
+                    val existingTags = container.tagRepository.getAllTagsSnapshot().map { it.name }
+                    suggestedTags = container.smartTagsEngine.suggestTags(
+                        title = titleText,
+                        blocks = previewBlocks,
+                        ocrTexts = emptyList(),
+                        links = payload.detectedLinks,
+                        hasScreenshot = staged.any { it.isScreenshot },
+                        existingUserVocabulary = existingTags
+                    ).map { it.name }
+                } else {
+                    suggestedTags = emptyList()
+                }
             }
 
             fun cancelAndClose() {
@@ -267,8 +277,12 @@ class SmartCaptureActivity : ComponentActivity() {
                 SmartCaptureSheetContent(
                     isStaging = isStaging,
                     isSaving = isSaving,
+                    ocrEnabled = settings.effectiveOcrEnabled,
                     title = titleText,
-                    onTitleChange = { titleText = it },
+                    onTitleChange = {
+                        userEditedTitle = true
+                        titleText = it
+                    },
                     body = bodyText,
                     onBodyChange = { bodyText = it },
                     stagedImages = stagedImages,
@@ -404,6 +418,7 @@ class SmartCaptureActivity : ComponentActivity() {
 private fun SmartCaptureSheetContent(
     isStaging: Boolean,
     isSaving: Boolean,
+    ocrEnabled: Boolean,
     title: String,
     onTitleChange: (String) -> Unit,
     body: String,
@@ -427,14 +442,14 @@ private fun SmartCaptureSheetContent(
     LaunchedEffect(Unit) { entered = true }
     val revealProgress by animateFloatAsState(
         targetValue = if (entered || reducedMotion) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = 210f),
+        animationSpec = spring(dampingRatio = 0.92f, stiffness = 500f),
         label = "capture_sheet_reveal"
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.4f * revealProgress.coerceIn(0f, 1f)))
+            .background(Color.Black.copy(alpha = 0.15f * revealProgress.coerceIn(0f, 1f)))
             .statusBarsPadding()
             .padding(top = 24.dp)
             .clickable(
@@ -448,13 +463,9 @@ private fun SmartCaptureSheetContent(
             modifier = Modifier
                 .widthIn(max = 580.dp)
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                 .graphicsLayer {
                     val progress = revealProgress
-                    translationY = (1f - progress) * 140f
-                    val s = 0.94f + (0.06f * progress)
-                    scaleX = s
-                    scaleY = s
+                    translationY = (1f - progress) * 72f
                     alpha = progress.coerceIn(0f, 1f)
                 }
                 .clickable(
@@ -469,6 +480,7 @@ private fun SmartCaptureSheetContent(
             Column(
                 modifier = Modifier
                     .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -489,7 +501,7 @@ private fun SmartCaptureSheetContent(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = if (stagedImages.any { it.isScreenshot }) {
+                            text = if (stagedImages.any { it.isScreenshot } && ocrEnabled) {
                                 "Screenshot preserved offline • OCR runs in background"
                             } else {
                                 "Saved locally • 100% offline"
@@ -532,7 +544,7 @@ private fun SmartCaptureSheetContent(
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
-                                if (img.isScreenshot) {
+                                if (img.isScreenshot && ocrEnabled) {
                                     Surface(
                                         modifier = Modifier
                                             .align(Alignment.BottomStart)

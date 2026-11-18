@@ -24,12 +24,14 @@ import io.github.ultrapg.smartnote.domain.model.ReminderInfo
 import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
 import io.github.ultrapg.smartnote.reminder.ReminderScheduler
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 @Immutable
@@ -76,6 +78,9 @@ class NoteEditorViewModel(
     private var hasUserEditedLocally = false
     private var userManuallyClearedTitle = false
     private var autoTitleEnabledCache = true
+    private var lastDupeCheckRevision: Long = -1L
+    private var lastDupeEnabled: Boolean = false
+    private var cachedDupes: List<DuplicatePairInfo> = emptyList()
     private var isNewNotePendingCreation = (initialNoteId == null && savedStateHandle.get<String>(KEY_NOTE_ID) == null)
 
     private val _uiState = MutableStateFlow(NoteEditorUiState(noteId = activeNoteId))
@@ -116,14 +121,27 @@ class NoteEditorViewModel(
                 Triple(detail, saveStatus, settings)
             }.collect { (detail, saveStatus, settings) ->
                 if (detail == null) return@collect
-                autoTitleEnabledCache = settings.autoTitleEnabled
-                val dupes = runCatching { duplicateDetector.findDuplicatesForNote(activeNoteId) }.getOrDefault(emptyList())
+                val autoTitleActive = settings.effectiveAutoTitleEnabled
+                val dupeActive = settings.effectiveDuplicateDetectionEnabled
+                autoTitleEnabledCache = autoTitleActive
+                if (!dupeActive) {
+                    cachedDupes = emptyList()
+                    lastDupeCheckRevision = detail.contentRevision
+                    lastDupeEnabled = false
+                } else if (detail.contentRevision != lastDupeCheckRevision || !lastDupeEnabled) {
+                    cachedDupes = withContext(Dispatchers.IO) {
+                        runCatching { duplicateDetector.findDuplicatesForNote(activeNoteId) }.getOrDefault(emptyList())
+                    }
+                    lastDupeCheckRevision = detail.contentRevision
+                    lastDupeEnabled = true
+                }
+                val dupes = cachedDupes
                 val attMap = detail.attachments.associateBy { it.id }
                 _uiState.update { cur ->
                     // Preserve active local typing buffer while only refreshing metadata/OCR/tags/links
                     if (hasUserEditedLocally && cur.isLoaded && saveStatus == AutosaveStatus.PENDING) {
                         val candidateTitle = computeSuggestedTitle(
-                            enabled = settings.autoTitleEnabled,
+                            enabled = autoTitleActive,
                             title = cur.title,
                             blocks = cur.blocks,
                             attachments = attMap.values.toList(),
@@ -140,7 +158,7 @@ class NoteEditorViewModel(
                             duplicateMatches = dupes,
                             autosaveStatus = saveStatus,
                             suggestedTitle = candidateTitle,
-                            autoTitleEnabled = settings.autoTitleEnabled
+                            autoTitleEnabled = autoTitleActive
                         )
                     } else {
                         val resolvedTitle = if (hasUserEditedLocally) cur.title else detail.title
@@ -155,7 +173,7 @@ class NoteEditorViewModel(
                             )
                         }
                         val candidateTitle = computeSuggestedTitle(
-                            enabled = settings.autoTitleEnabled,
+                            enabled = autoTitleActive,
                             title = resolvedTitle,
                             blocks = resolvedBlocks,
                             attachments = attMap.values.toList(),
@@ -175,7 +193,7 @@ class NoteEditorViewModel(
                             duplicateMatches = dupes,
                             autosaveStatus = saveStatus,
                             suggestedTitle = candidateTitle,
-                            autoTitleEnabled = settings.autoTitleEnabled,
+                            autoTitleEnabled = autoTitleActive,
                             updatedAtMs = detail.updatedAtMs,
                             isLoaded = true
                         )
@@ -214,13 +232,15 @@ class NoteEditorViewModel(
     }
 
     fun generateSmartTitleNow() {
+        if (!autoTitleEnabledCache) return
         val state = _uiState.value
         viewModelScope.launch {
             val ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
             val generated = smartTitleGenerator.generateSmartTitle(
                 blocks = state.blocks,
                 ocrTexts = ocrTexts,
-                links = state.links
+                links = state.links,
+                allowNeuralScoring = autoTitleEnabledCache
             )
             if (generated.isNotBlank()) {
                 userManuallyClearedTitle = false

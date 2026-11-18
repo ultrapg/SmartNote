@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -92,11 +93,11 @@ class SmartSearchViewModel(
         viewModelScope.launch {
             combine(
                 queryFlow.debounce(90L),
-                filterFlow
-            ) { q, f -> q to f }
-                .collect { (query, filter) ->
+                filterFlow,
+                settingsRepository.settingsFlow.map { it.effectiveSemanticRerankEnabled }.distinctUntilChanged()
+            ) { q, f, semantic -> Triple(q, f, semantic) }
+                .collect { (query, filter, semantic) ->
                     searchResultState.update { it.copy(isSearching = true) }
-                    val semantic = settingsRepository.settingsFlow.first().semanticRerankEnabled
                     val response = searchEngine.search(
                         rawQuery = query,
                         filter = filter,
@@ -120,7 +121,7 @@ class SmartSearchViewModel(
         val clean = queryFlow.value.trim()
         if (clean.length < 2) return
         viewModelScope.launch {
-            if (settingsRepository.settingsFlow.first().recentSearchesEnabled) {
+            if (uiState.value.recentSearchesEnabled) {
                 searchEngine.recordRecentSearch(clean)
             }
         }

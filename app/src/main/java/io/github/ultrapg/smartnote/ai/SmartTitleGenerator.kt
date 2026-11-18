@@ -84,7 +84,8 @@ class SmartTitleGenerator(
         blocks: List<NoteBlock>,
         ocrTexts: List<String> = emptyList(),
         links: List<LinkPreviewInfo> = emptyList(),
-        rawSubject: String = ""
+        rawSubject: String = "",
+        allowNeuralScoring: Boolean = true
     ): String {
         val cleanSubject = cleanTextCandidate(rawSubject)
         if (cleanSubject.isNotBlank() && !isBareUrl(cleanSubject)) {
@@ -115,7 +116,7 @@ class SmartTitleGenerator(
         val candidates = collectScoredCandidates(textBlocks, ocrTexts)
         if (candidates.isNotEmpty()) {
             val engine = aiEngine
-            if (candidates.size >= 2 && engine != null) {
+            if (allowNeuralScoring && candidates.size >= 2 && engine != null) {
                 val combinedDoc = buildString {
                     textBlocks.forEach { append(it.textContent).append('\n') }
                     ocrTexts.forEach { append(it).append('\n') }

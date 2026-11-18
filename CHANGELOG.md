@@ -4,6 +4,31 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-11-18
+
+### Added
+- **Master AI Control (`aiFeaturesEnabled`)**:
+  - Added a top-level **Enable All AI Features** switch in **Settings → AI & Smart Features** gating all on-device AI capabilities (`Auto-Title Generation`, `SmartTags`, `Offline OCR`, `Duplicate Detection`, and `Hybrid Semantic Search (LiteRT)`), automatically disabling sub-switches and unloading any active LiteRT model when turned off while preserving individual preferences.
+  - Wired effective AI guards consistently across `NoteEditorViewModel`, `NoteProcessingWorker`, `SmartCaptureActivity`, `SmartSearchViewModel`, `SmartTitleGenerator`, `SmartNoteAiEngine`, and `SmartNoteOperationsApi`.
+
+### Changed
+- **Refined Animations & Restored Crisp Material 3 Visuals**:
+  - Replaced underdamped jello springs (`SmartNoteGooeyMotionScheme`, shared-element `sharedBounds`, corner-morphing cards, and `ExpressiveGooeyFab`) with calm, well-damped `SmartNoteSoftMotionScheme` springs (`0.85`–`0.90` damping ratio) and restored clean `v1.0.0` Material 3 `FloatingActionButton` and static rounded card shapes.
+  - Replaced full-screen bounce navigation with pure crossfades between top-level tabs and crisp `180 ms` vertical slide-fade transitions for detail screens.
+- **Removed Gemini / AppFunctions Integration**:
+  - Removed `SmartNoteAppFunctions`, `androidx.appfunctions` dependencies, KSP schema generation, ProGuard keep rules, and Gemini UI settings while keeping the local `SmartNoteOperationsApi` for internal validated note operations and Glance widgets/shortcuts.
+
+### Fixed
+- **Usability & Layout Bugs Across Screens**:
+  - Replaced `NavigationSuiteScaffold` with an explicit `TopLevelAdaptiveShell` (`NavigationBar` on compact screens that hides cleanly when the IME opens on Search/Tags, `NavigationRail` on screens `>= 600dp`), eliminating navigation-inset jumps during route transitions.
+  - Replaced the fixed-width editor floating toolbar with a horizontally scrollable `CircleShape` floating toolbar so all formatting, image, and tag actions remain accessible on narrow (`320dp`–`360dp`) displays.
+  - Fixed `MarkdownVisualTransformation` heading/code colors to adapt dynamically to Dark and AMOLED themes, moved duplicate detection in `NoteEditorViewModel` to `Dispatchers.IO` gated on `contentRevision`, fixed `SmartSearchScreen` keyboard overlap (`WindowInsets.ime` padding without double offset), fixed `SwipeableCompactNoteRow` stuck swipe state via `dismissState.reset()`, fixed `SmartCaptureActivity` navigation-bar gap by moving window insets inside the sheet `Surface`, and eliminated all Kotlin deprecation warnings.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 20 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 20 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `56,999,557` bytes (`54.36 MiB`), `SHA-256: 872475ebde2f9ef8d5dab73139a16a3b91e05aa602ad6adb32e3ce62c8bcaca0`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`), with zero Gemini/AppFunctions artifacts packaged.
+
 ## [1.0.1] - 2026-11-18
 
 ### Added

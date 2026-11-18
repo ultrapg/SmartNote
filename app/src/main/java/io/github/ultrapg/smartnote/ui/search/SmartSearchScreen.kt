@@ -1,7 +1,6 @@
 package io.github.ultrapg.smartnote.ui.search
 
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -11,10 +10,11 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,7 +47,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -59,7 +61,6 @@ import io.github.ultrapg.smartnote.search.SearchDateFilter
 import io.github.ultrapg.smartnote.search.SearchMatchField
 import io.github.ultrapg.smartnote.search.SmartSearchResultItem
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
-import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import java.util.Locale
@@ -82,10 +83,15 @@ fun SmartSearchScreen(
     onToggleLinkFilter: () -> Unit,
     onSelectDateFilter: (SearchDateFilter) -> Unit,
     onOpenNote: (String) -> Unit,
+    bottomBar: @Composable () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val density = LocalDensity.current
+    val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
+        bottomBar = bottomBar,
         topBar = {
             Column(
                 modifier = Modifier
@@ -118,7 +124,6 @@ fun SmartSearchScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                val chipAnimModifier = Modifier.animateContentSize(SmartNoteMotion.gooeySizeSpring())
                 LazyRow(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -128,8 +133,7 @@ fun SmartSearchScreen(
                             selected = uiState.filter.pinnedOnly,
                             onClick = onTogglePinnedFilter,
                             label = { Text("Pinned") },
-                            leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = chipAnimModifier
+                            leadingIcon = { Icon(Icons.Rounded.PushPin, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                     }
                     item(key = "f_ocr") {
@@ -137,8 +141,7 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasOcrOnly,
                             onClick = onToggleOcrFilter,
                             label = { Text("Has OCR") },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = chipAnimModifier
+                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.TextSnippet, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                     }
                     item(key = "f_image") {
@@ -146,16 +149,14 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasImageOnly,
                             onClick = onToggleImageFilter,
                             label = { Text("Images") },
-                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = chipAnimModifier
+                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                     }
                     item(key = "f_checklist") {
                         FilterChip(
                             selected = uiState.filter.hasChecklistOnly,
                             onClick = onToggleChecklistFilter,
-                            label = { Text("Checklists") },
-                            modifier = chipAnimModifier
+                            label = { Text("Checklists") }
                         )
                     }
                     item(key = "f_link") {
@@ -163,8 +164,7 @@ fun SmartSearchScreen(
                             selected = uiState.filter.hasLinkOnly,
                             onClick = onToggleLinkFilter,
                             label = { Text("Links") },
-                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            modifier = chipAnimModifier
+                            leadingIcon = { Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(16.dp)) }
                         )
                     }
                     items(SearchDateFilter.entries.filter { it != SearchDateFilter.ANY }, key = { it.name }) { df ->
@@ -179,16 +179,14 @@ fun SmartSearchScreen(
                             onClick = {
                                 onSelectDateFilter(if (uiState.filter.dateFilter == df) SearchDateFilter.ANY else df)
                             },
-                            label = { Text(label) },
-                            modifier = chipAnimModifier
+                            label = { Text(label) }
                         )
                     }
                     items(uiState.availableTags.take(10), key = { "tag_${it.id}" }) { tag ->
                         FilterChip(
                             selected = tag.name in uiState.filter.tagNames,
                             onClick = { onToggleTagFilter(tag.name) },
-                            label = { Text("#${tag.name}") },
-                            modifier = chipAnimModifier
+                            label = { Text("#${tag.name}") }
                         )
                     }
                 }
@@ -196,14 +194,12 @@ fun SmartSearchScreen(
         }
     ) { innerPadding ->
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding(),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
                 top = innerPadding.calculateTopPadding() + 4.dp,
-                bottom = innerPadding.calculateBottomPadding() + 96.dp
+                bottom = maxOf(innerPadding.calculateBottomPadding(), imeBottom) + 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -293,9 +289,9 @@ fun SmartSearchScreen(
                     item = item,
                     onClick = { onOpenNote(item.note.id) },
                     modifier = Modifier.animateItem(
-                        fadeInSpec = spring(stiffness = 280f),
-                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                        fadeOutSpec = spring(stiffness = 320f)
+                        fadeInSpec = tween(160),
+                        placementSpec = SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = tween(140)
                     )
                 )
             }
@@ -312,11 +308,7 @@ private fun SearchResultCard(
     val highlightBg = MaterialTheme.colorScheme.primaryContainer
     val highlightFg = MaterialTheme.colorScheme.onPrimaryContainer
     val interactionSource = androidx.compose.runtime.remember { MutableInteractionSource() }
-    val cardShape = rememberGooeyRoundedShape(
-        interactionSource = interactionSource,
-        baseRadius = 18.dp,
-        pressedRadius = 28.dp
-    )
+    val cardShape = RoundedCornerShape(18.dp)
 
     Surface(
         shape = cardShape,
@@ -325,6 +317,7 @@ private fun SearchResultCard(
         modifier = modifier
             .fillMaxWidth()
             .expressivePressable(interactionSource)
+            .clip(cardShape)
             .clickable(interactionSource = interactionSource, indication = androidx.compose.material3.ripple(), onClick = onClick)
     ) {
         Column(

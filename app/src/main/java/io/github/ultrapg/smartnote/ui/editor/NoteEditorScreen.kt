@@ -10,19 +10,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +42,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -132,7 +127,6 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
 import io.github.ultrapg.smartnote.domain.model.TagSource
-import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveFloatingEditorToolbar
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.LocalSmartNoteThemeMeta
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
@@ -143,8 +137,7 @@ import java.util.Date
 
 @OptIn(
     ExperimentalMaterial3Api::class,
-    ExperimentalLayoutApi::class,
-    ExperimentalSharedTransitionApi::class
+    ExperimentalLayoutApi::class
 )
 @Composable
 fun NoteEditorScreen(
@@ -175,9 +168,6 @@ fun NoteEditorScreen(
     onOpenDuplicateNote: (String) -> Unit,
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
-    sharedTransitionKey: String? = null,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -221,38 +211,20 @@ fun NoteEditorScreen(
     }
 
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
-    val effectiveSharedKey = sharedTransitionKey ?: uiState.noteId.takeIf { it.isNotBlank() }?.let { "note_card_$it" }
-    val sharedModifier = if (
-        sharedTransitionScope != null &&
-        animatedVisibilityScope != null &&
-        !reducedMotion &&
-        effectiveSharedKey != null
-    ) {
-        with(sharedTransitionScope) {
-            Modifier.sharedBounds(
-                sharedContentState = rememberSharedContentState(key = effectiveSharedKey),
-                animatedVisibilityScope = animatedVisibilityScope,
-                boundsTransform = SmartNoteMotion.gooeyBoundsTransform
-            )
-        }
-    } else {
-        Modifier
-    }
 
-    val markdownTransformation = remember(
-        MaterialTheme.colorScheme.surfaceContainerHighest,
-        MaterialTheme.colorScheme.onSurfaceVariant,
-        MaterialTheme.colorScheme.primary
-    ) {
+    val headingColor = MaterialTheme.colorScheme.primary
+    val codeBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+    val syntaxMarkerColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
+    val markdownTransformation = remember(headingColor, codeBackground, syntaxMarkerColor) {
         MarkdownVisualTransformation(
-            codeBackground = androidx.compose.ui.graphics.Color(0x267B5CFF),
-            syntaxMarkerColor = androidx.compose.ui.graphics.Color(0x99787680),
-            headingColor = androidx.compose.ui.graphics.Color(0xFF5B43D6)
+            codeBackground = codeBackground,
+            syntaxMarkerColor = syntaxMarkerColor,
+            headingColor = headingColor
         )
     }
 
     Scaffold(
-        modifier = sharedModifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -360,39 +332,56 @@ fun NoteEditorScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                ExpressiveFloatingEditorToolbar(expanded = true) {
-                    IconButton(onClick = { onInsertMarkdown("**", "**") }) {
-                        Icon(Icons.Rounded.FormatBold, contentDescription = "Bold")
-                    }
-                    IconButton(onClick = { onInsertMarkdown("*", "*") }) {
-                        Icon(Icons.Rounded.FormatItalic, contentDescription = "Italic")
-                    }
-                    IconButton(onClick = { onInsertMarkdown("`", "`") }) {
-                        Icon(Icons.Rounded.Code, contentDescription = "Inline code")
-                    }
-                    IconButton(onClick = { onInsertMarkdown("# ", "") }) {
-                        Icon(Icons.Rounded.Title, contentDescription = "Heading")
-                    }
-                    IconButton(onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onToggleChecklistMode()
-                    }) {
-                        Icon(Icons.Rounded.CheckBox, contentDescription = "Toggle checklist")
-                    }
-                    IconButton(
-                        onClick = {
-                            imagePickerLauncher.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        }
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 4.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Rounded.Image, contentDescription = "Insert image")
-                    }
-                    IconButton(onClick = { showAddTagDialog = true }) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add tag")
+                        IconButton(onClick = { onInsertMarkdown("**", "**") }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Rounded.FormatBold, contentDescription = "Bold")
+                        }
+                        IconButton(onClick = { onInsertMarkdown("*", "*") }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Rounded.FormatItalic, contentDescription = "Italic")
+                        }
+                        IconButton(onClick = { onInsertMarkdown("`", "`") }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Rounded.Code, contentDescription = "Inline code")
+                        }
+                        IconButton(onClick = { onInsertMarkdown("# ", "") }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Rounded.Title, contentDescription = "Heading")
+                        }
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onToggleChecklistMode()
+                            },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(Icons.Rounded.CheckBox, contentDescription = "Toggle checklist")
+                        }
+                        IconButton(
+                            onClick = {
+                                imagePickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Icon(Icons.Rounded.Image, contentDescription = "Insert image")
+                        }
+                        IconButton(onClick = { showAddTagDialog = true }, modifier = Modifier.size(44.dp)) {
+                            Icon(Icons.Rounded.Add, contentDescription = "Add tag")
+                        }
                     }
                 }
             }
@@ -449,13 +438,8 @@ fun NoteEditorScreen(
 
                     AnimatedVisibility(
                         visible = uiState.autoTitleEnabled && uiState.title.isBlank() && !uiState.suggestedTitle.isNullOrBlank(),
-                        enter = if (reducedMotion) {
-                            fadeIn(tween(90))
-                        } else {
-                            fadeIn(spring(stiffness = 280f)) +
-                                scaleIn(spring(dampingRatio = 0.62f, stiffness = 220f), initialScale = 0.92f)
-                        },
-                        exit = fadeOut(spring(stiffness = 320f)) + scaleOut(targetScale = 0.92f)
+                        enter = if (reducedMotion) fadeIn(tween(90)) else fadeIn(tween(150)),
+                        exit = if (reducedMotion) fadeOut(tween(90)) else fadeOut(tween(120))
                     ) {
                         AssistChip(
                             onClick = onApplySuggestedTitle,
@@ -476,7 +460,7 @@ fun NoteEditorScreen(
             if (uiState.tags.isNotEmpty() || uiState.reminder != null) {
                 item(key = "editor_meta_chips") {
                     FlowRow(
-                        modifier = Modifier.animateContentSize(SmartNoteMotion.gooeySizeSpring()),
+                        modifier = Modifier.animateContentSize(SmartNoteMotion.softSizeSpring()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -602,9 +586,9 @@ fun NoteEditorScreen(
             ) { block ->
                 Box(
                     modifier = Modifier.animateItem(
-                        fadeInSpec = spring(stiffness = 280f),
-                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                        fadeOutSpec = spring(stiffness = 320f)
+                        fadeInSpec = tween(160),
+                        placementSpec = SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = tween(140)
                     )
                 ) {
                     when (block.type) {
@@ -676,9 +660,9 @@ fun NoteEditorScreen(
             ) { link ->
                 Box(
                     modifier = Modifier.animateItem(
-                        fadeInSpec = spring(stiffness = 280f),
-                        placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                        fadeOutSpec = spring(stiffness = 320f)
+                        fadeInSpec = tween(160),
+                        placementSpec = SmartNoteMotion.softPlacementSpring(),
+                        fadeOutSpec = tween(140)
                     )
                 ) {
                     LinkBlockCard(
@@ -833,7 +817,7 @@ private fun TextBlockEditorRow(
         visualTransformation = visualTransformation,
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 120.dp),
+            .heightIn(min = 240.dp),
         decorationBox = { innerTextField ->
             Box(modifier = Modifier.fillMaxWidth()) {
                 if (block.textContent.isEmpty()) {

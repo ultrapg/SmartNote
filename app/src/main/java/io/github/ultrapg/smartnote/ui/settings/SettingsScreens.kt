@@ -7,7 +7,6 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -52,7 +51,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,6 +60,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -77,8 +77,6 @@ import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
-import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
-import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -129,8 +127,8 @@ fun SettingsScreen(
             item {
                 SettingsCategoryCard(
                     icon = Icons.Rounded.AutoAwesome,
-                    title = "Smart Features",
-                    subtitle = "SmartTags, SmartSearch, Offline OCR, Link Previews, Duplicates & AI Engine",
+                    title = "AI & Smart Features",
+                    subtitle = "Master AI switch, Auto-Titles, SmartTags, Offline OCR, Duplicates & Semantic Search",
                     onClick = onOpenSmartFeatures
                 )
             }
@@ -145,8 +143,8 @@ fun SettingsScreen(
             item {
                 SettingsCategoryCard(
                     icon = Icons.Rounded.Extension,
-                    title = "Integrations",
-                    subtitle = "Gemini / AppFunctions status, Widgets, Quick Tile, Shortcuts",
+                    title = "System Integrations",
+                    subtitle = "Home screen widgets, Quick Settings tile, app shortcuts & Sharesheet",
                     onClick = onOpenIntegrations
                 )
             }
@@ -242,40 +240,65 @@ fun AppearanceSettingsScreen(
 fun SmartFeaturesSettingsScreen(
     settings: AppSettings,
     settingsRepository: SettingsRepository,
+    onDisableAiUnloadModel: () -> Unit = {},
     onOpenAiProcessing: () -> Unit,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    SettingsSubScaffold(title = "Smart Features", onBack = onBack) {
+    SettingsSubScaffold(title = "AI & Smart Features", onBack = onBack) {
         SettingsSwitchRow(
-            title = "SmartTags",
-            subtitle = "Suggest tags automatically using local rules, TF-IDF, and your personal tag vocabulary",
-            checked = settings.smartTagsEnabled,
-            onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
+            title = "Enable All AI Features",
+            subtitle = "Master switch for Auto-Title Generation, SmartTags, Offline OCR, Duplicate Detection, and LiteRT Semantic Search",
+            checked = settings.aiFeaturesEnabled,
+            highlighted = true,
+            onCheckedChange = { enabled ->
+                scope.launch { settingsRepository.setAiFeaturesEnabled(enabled) }
+                if (!enabled) onDisableAiUnloadModel()
+            }
         )
+        SectionLabel("Individual AI Features")
         SettingsSwitchRow(
             title = "Auto-Title Generation",
             subtitle = "Generate concise offline titles for untitled notes and shared screenshots",
             checked = settings.autoTitleEnabled,
+            enabled = settings.aiFeaturesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
+        )
+        SettingsSwitchRow(
+            title = "SmartTags",
+            subtitle = "Suggest tags automatically using local rules, TF-IDF, and your personal tag vocabulary",
+            checked = settings.smartTagsEnabled,
+            enabled = settings.aiFeaturesEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Offline OCR",
             subtitle = "Extract searchable text from shared screenshots and images on-device via bundled ML Kit",
             checked = settings.ocrEnabled,
+            enabled = settings.aiFeaturesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setOcrEnabled(it) } }
-        )
-        SettingsSwitchRow(
-            title = "Save Recent Searches",
-            subtitle = "Store recent SmartSearch queries locally on device",
-            checked = settings.recentSearchesEnabled,
-            onCheckedChange = { scope.launch { settingsRepository.setRecentSearchesEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Duplicate Detection",
             subtitle = "Flag exact or near-duplicate notes and attachments for manual review",
             checked = settings.duplicateDetectionEnabled,
+            enabled = settings.aiFeaturesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setDuplicateDetectionEnabled(it) } }
+        )
+        SettingsSwitchRow(
+            title = "Hybrid Semantic Search (LiteRT)",
+            subtitle = "Blend local on-device text embedding similarity into SmartSearch results",
+            checked = settings.semanticRerankEnabled,
+            enabled = settings.aiFeaturesEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
+        )
+
+        SectionLabel("Search & Privacy")
+        SettingsSwitchRow(
+            title = "Save Recent Searches",
+            subtitle = "Store recent SmartSearch queries locally on device",
+            checked = settings.recentSearchesEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setRecentSearchesEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Fetch Link Previews (Network Opt-In)",
@@ -285,13 +308,13 @@ fun SmartFeaturesSettingsScreen(
         )
         SettingsSwitchRow(
             title = "Background Analysis",
-            subtitle = "Run OCR, tagging, and FTS5 indexing asynchronously after saving",
+            subtitle = "Run indexing and enabled smart analysis asynchronously after saving",
             checked = settings.backgroundAnalysisEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setBackgroundAnalysisEnabled(it) } }
         )
         SettingsCategoryCard(
             icon = Icons.Rounded.Memory,
-            title = "AI Processing & Hardware Diagnostics",
+            title = "AI Hardware & Diagnostics",
             subtitle = "Configure NPU / GPU / CPU preferences, energy mode, and view active LiteRT backend",
             onClick = onOpenAiProcessing
         )
@@ -311,7 +334,18 @@ fun AiProcessingSettingsScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(Unit) { onRefreshDiagnostics() }
 
-    SettingsSubScaffold(title = "AI Processing", onBack = onBack) {
+    SettingsSubScaffold(title = "AI Hardware & Diagnostics", onBack = onBack) {
+        if (!settings.aiFeaturesEnabled) {
+            SettingsSwitchRow(
+                title = "All AI Features Disabled",
+                subtitle = "Turn on the master AI switch to enable LiteRT semantic search, Auto-Titles, SmartTags, OCR, and duplicate detection",
+                checked = false,
+                highlighted = true,
+                onCheckedChange = { enabled ->
+                    scope.launch { settingsRepository.setAiFeaturesEnabled(enabled) }
+                }
+            )
+        }
         SectionLabel("Hardware Acceleration Preference")
         AiBackendPreference.entries.forEach { pref ->
             val title = when (pref) {
@@ -365,6 +399,7 @@ fun AiProcessingSettingsScreen(
             title = "Hybrid Semantic Re-Ranking (LiteRT)",
             subtitle = "Optional: blend local compact text-embedding similarity into FTS5 SmartSearch results",
             checked = settings.semanticRerankEnabled,
+            enabled = settings.aiFeaturesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
         )
 
@@ -496,41 +531,9 @@ fun ReminderSettingsScreen(
 
 @Composable
 fun IntegrationsSettingsScreen(
-    settings: AppSettings,
-    settingsRepository: SettingsRepository,
     onBack: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    SettingsSubScaffold(title = "Integrations", onBack = onBack) {
-        SettingsSwitchRow(
-            title = "Gemini & Android AppFunctions",
-            subtitle = "Allow authorized Android 16+ assistants to run controlled SmartNote actions (never permanent delete)",
-            checked = settings.geminiIntegrationEnabled,
-            onCheckedChange = { scope.launch { settingsRepository.setGeminiIntegrationEnabled(it) } }
-        )
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = smartNoteCardBorder(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DiagRow("Internal Operations API", "Active (11 validated operations)")
-                DiagRow(
-                    "Android AppFunctions OS Exposure",
-                    if (Build.VERSION.SDK_INT >= 36) "Supported (Android 16+)" else "Requires Android 16 (API 36+)"
-                )
-                Text(
-                    text = "Note: Consumer Google Gemini app voice routing for third-party apps additionally requires Play distribution and Google Connected Console registration.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
+    SettingsSubScaffold(title = "System Integrations", onBack = onBack) {
         SectionLabel("System Shell Features")
         Surface(
             shape = RoundedCornerShape(18.dp),
@@ -786,7 +789,7 @@ fun AboutScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("• AndroidX Compose, Material 3 Expressive, Room, Bundled SQLite, DataStore, WorkManager, Glance, AppFunctions (Apache-2.0)", style = MaterialTheme.typography.bodySmall)
+                Text("• AndroidX Compose, Material 3 Expressive, Room, Bundled SQLite, DataStore, WorkManager, Glance (Apache-2.0)", style = MaterialTheme.typography.bodySmall)
                 Text("• Google AI Edge LiteRT (Apache-2.0) & Google ML Kit Text Recognition (Google APIs ToS)", style = MaterialTheme.typography.bodySmall)
                 Text("• Coil Image Loading & OkHttp (Apache-2.0)", style = MaterialTheme.typography.bodySmall)
             }
@@ -839,16 +842,15 @@ private fun SettingsCategoryCard(
     subtitle: String,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val shape = rememberGooeyRoundedShape(interactionSource, baseRadius = 18.dp, pressedRadius = 28.dp)
+    val shape = RoundedCornerShape(18.dp)
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         border = smartNoteCardBorder(),
         modifier = Modifier
             .fillMaxWidth()
-            .expressivePressable(interactionSource)
-            .clickable(interactionSource = interactionSource, indication = ripple(), onClick = onClick)
+            .clip(shape)
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -878,15 +880,24 @@ private fun SettingsSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
+    highlighted: Boolean = false,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    val shape = RoundedCornerShape(18.dp)
     Surface(
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = shape,
+        color = if (highlighted) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
         border = smartNoteCardBorder(),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onCheckedChange(!checked) }
+            .alpha(if (enabled) 1f else 0.5f)
+            .clip(shape)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
@@ -897,7 +908,7 @@ private fun SettingsSwitchRow(
                 Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
         }
     }
 }

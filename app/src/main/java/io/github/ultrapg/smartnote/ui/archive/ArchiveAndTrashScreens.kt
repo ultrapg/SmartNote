@@ -1,6 +1,6 @@
 package io.github.ultrapg.smartnote.ui.archive
 
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -42,13 +42,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
-import io.github.ultrapg.smartnote.ui.designsystem.components.rememberGooeyRoundedShape
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlin.math.max
@@ -96,7 +96,7 @@ fun ArchiveScreen(
             ) {
                 items(archivedNotes, key = { it.id }) { note ->
                     val interactionSource = remember { MutableInteractionSource() }
-                    val shape = rememberGooeyRoundedShape(interactionSource, baseRadius = 18.dp, pressedRadius = 28.dp)
+                    val shape = RoundedCornerShape(18.dp)
                     Surface(
                         shape = shape,
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -104,11 +104,12 @@ fun ArchiveScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateItem(
-                                fadeInSpec = spring(stiffness = 280f),
-                                placementSpec = SmartNoteMotion.gooeyPlacementSpring(),
-                                fadeOutSpec = spring(stiffness = 320f)
+                                fadeInSpec = tween(160),
+                                placementSpec = SmartNoteMotion.softPlacementSpring(),
+                                fadeOutSpec = tween(140)
                             )
                             .expressivePressable(interactionSource)
+                            .clip(shape)
                             .clickable(
                                 interactionSource = interactionSource,
                                 indication = ripple(),

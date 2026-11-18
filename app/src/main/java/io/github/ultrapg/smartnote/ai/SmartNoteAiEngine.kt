@@ -309,6 +309,8 @@ class SmartNoteAiEngine(
 
     suspend fun updateNoteEmbeddingIfNeeded(noteId: String, contentSha256: String, text: String) {
         if (text.isBlank()) return
+        val s = settingsRepository.settingsFlow.first()
+        if (!s.effectiveSemanticRerankEnabled) return
         val existing = database.searchAndMaintenanceDao().getEmbedding(noteId)
         if (existing != null && existing.contentSha256 == contentSha256 && existing.modelId == MODEL_ID) {
             return
@@ -328,6 +330,11 @@ class SmartNoteAiEngine(
 
     suspend fun scoreSemanticSimilarity(query: String, candidateNoteIds: List<String>): Map<String, Float> {
         if (query.isBlank() || candidateNoteIds.isEmpty()) return emptyMap()
+        val s = settingsRepository.settingsFlow.first()
+        if (!s.aiFeaturesEnabled) {
+            unloadModel()
+            return emptyMap()
+        }
         val queryVec = embedText(query)
         val embeddings = database.searchAndMaintenanceDao().getEmbeddings(candidateNoteIds)
         return embeddings.associate { entity ->

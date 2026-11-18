@@ -105,16 +105,6 @@ class OperationsApiAndAiEngineTest {
         val delRes = operationsApi.deleteNoteToRecycleBin(created.id, confirmedByUser = true)
         assertTrue(delRes.success)
         assertTrue(noteRepository.getNoteDetail(created.id)!!.isDeleted)
-
-        // Master toggle disables all agent calls
-        settingsRepo.setGeminiIntegrationEnabled(false)
-        var disabledBlocked = false
-        try {
-            operationsApi.listNotes()
-        } catch (ex: SmartNoteOperationException) {
-            disabledBlocked = ex.code == "INTEGRATION_DISABLED"
-        }
-        assertTrue(disabledBlocked)
     }
 
     @Test
@@ -223,7 +213,7 @@ class OperationsApiAndAiEngineTest {
         assertTrue(SmartTitleGenerator.isPlaceholderOrBlankTitle("Link from github.com"))
         assertFalse(SmartTitleGenerator.isPlaceholderOrBlankTitle("Sprint Planning Notes"))
 
-        // 6. Operations API auto-titles untitled createNote when enabled & respects toggle when disabled
+        // 6. Operations API auto-titles untitled createNote when enabled & respects per-feature and master AI toggles
         val autoTitled = operationsApi.createNote(
             title = "",
             content = "Architecture review for local FTS5 search index.",
@@ -237,6 +227,15 @@ class OperationsApiAndAiEngineTest {
             content = "Body remains untitled when auto-title toggle is off."
         )
         assertEquals("", untitledDisabled.title)
+
+        settingsRepo.setAutoTitleEnabled(true)
+        settingsRepo.setAiFeaturesEnabled(false)
+        val masterOffNote = operationsApi.createNote(
+            title = "",
+            content = "Body remains untitled when master AI switch is off."
+        )
+        assertEquals("", masterOffNote.title)
+        settingsRepo.setAiFeaturesEnabled(true)
 
         // 7. Atomic repository update guards against stale revisions
         val staleRejected = noteRepository.applyGeneratedTitleIfUnmodified(

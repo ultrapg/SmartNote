@@ -61,7 +61,7 @@ class NoteProcessingWorker(
                     att.ocrText?.takeIf { it.isNotBlank() }?.let(ocrTexts::add)
                     continue
                 }
-                if (!settings.ocrEnabled) continue
+                if (!settings.effectiveOcrEnabled) continue
 
                 val cached = container.database.attachmentDao().findCachedOcrBySha256(att.sha256)
                 if (cached != null) {
@@ -123,12 +123,13 @@ class NoteProcessingWorker(
             }
 
             // 3. Auto-title generation after OCR / optional link metadata when blank or generic share placeholder
-            if (settings.autoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
+            if (settings.effectiveAutoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
                 val refreshedLinks = container.noteRepository.getNoteDetail(noteId)?.links ?: detail.links
                 val generatedTitle = container.smartTitleGenerator.generateSmartTitle(
                     blocks = detail.blocks,
                     ocrTexts = ocrTexts,
-                    links = refreshedLinks
+                    links = refreshedLinks,
+                    allowNeuralScoring = settings.aiFeaturesEnabled
                 )
                 if (generatedTitle.isNotBlank()) {
                     container.noteRepository.applyGeneratedTitleIfUnmodified(
@@ -151,7 +152,7 @@ class NoteProcessingWorker(
                 }
             }.distinctBy { it.canonicalUrl }
 
-            if (settings.smartTagsEnabled) {
+            if (settings.effectiveSmartTagsEnabled) {
                 val existingUserVocab = container.tagRepository.getAllTagsSnapshot().map { it.name }
                 val suggestions = container.smartTagsEngine.suggestTags(
                     title = currentTitleForTags,
@@ -171,7 +172,7 @@ class NoteProcessingWorker(
             container.searchIndexer.indexNote(noteId)
 
             // 6. Optional neural embedding update when semantic re-ranking is enabled
-            if (settings.semanticRerankEnabled) {
+            if (settings.effectiveSemanticRerankEnabled) {
                 val combined = buildString {
                     append(currentTitleForTags).append('\n')
                     detail.blocks.forEach { append(it.textContent).append('\n') }

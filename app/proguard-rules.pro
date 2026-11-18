@@ -24,14 +24,6 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Android AppFunctions (KSP generated service, inventory, schemas)
--keep class io.github.ultrapg.smartnote.gemini.** { *; }
--keep class androidx.appfunctions.** { *; }
--keep @androidx.appfunctions.AppFunctionSerializable class * { *; }
--keepclassmembers class * {
-    @androidx.appfunctions.service.AppFunction <methods>;
-}
-
 # Google LiteRT & TensorFlow Lite JNI
 -keep class com.google.ai.edge.litert.** { *; }
 -keep class org.tensorflow.lite.** { *; }

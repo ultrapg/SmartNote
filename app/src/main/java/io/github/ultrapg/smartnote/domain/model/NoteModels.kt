@@ -7,8 +7,7 @@ enum class NoteSourceType {
     SHARE_TEXT,
     SHARE_IMAGE,
     SHARE_URL,
-    QUICK_TILE,
-    GEMINI
+    QUICK_TILE
 }
 
 enum class NoteBlockType {
@@ -99,6 +98,7 @@ data class AppSettings(
     val darkModeConfig: DarkModeConfig = DarkModeConfig.SYSTEM,
     val notesLayout: NotesLayoutMode = NotesLayoutMode.STAGGERED_CARDS,
     val reducedMotion: Boolean = false,
+    val aiFeaturesEnabled: Boolean = true,
     val smartTagsEnabled: Boolean = true,
     val autoTitleEnabled: Boolean = true,
     val ocrEnabled: Boolean = true,
@@ -110,9 +110,14 @@ data class AppSettings(
     val energyEfficientAi: Boolean = true,
     val backgroundAnalysisEnabled: Boolean = true,
     val defaultSnoozeMinutes: Int = 10,
-    val liveUpdateRemindersEnabled: Boolean = true,
-    val geminiIntegrationEnabled: Boolean = true
-)
+    val liveUpdateRemindersEnabled: Boolean = true
+) {
+    val effectiveSmartTagsEnabled: Boolean get() = aiFeaturesEnabled && smartTagsEnabled
+    val effectiveAutoTitleEnabled: Boolean get() = aiFeaturesEnabled && autoTitleEnabled
+    val effectiveOcrEnabled: Boolean get() = aiFeaturesEnabled && ocrEnabled
+    val effectiveDuplicateDetectionEnabled: Boolean get() = aiFeaturesEnabled && duplicateDetectionEnabled
+    val effectiveSemanticRerankEnabled: Boolean get() = aiFeaturesEnabled && semanticRerankEnabled
+}
 
 @Immutable
 data class ChecklistPreviewItem(

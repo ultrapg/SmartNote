@@ -23,6 +23,7 @@ class SettingsRepository(
         val DARK_MODE_CONFIG = stringPreferencesKey("dark_mode_config")
         val NOTES_LAYOUT = stringPreferencesKey("notes_layout")
         val REDUCED_MOTION = booleanPreferencesKey("reduced_motion")
+        val AI_FEATURES_ENABLED = booleanPreferencesKey("ai_features_enabled")
         val SMART_TAGS_ENABLED = booleanPreferencesKey("smart_tags_enabled")
         val AUTO_TITLE_ENABLED = booleanPreferencesKey("auto_title_enabled")
         val OCR_ENABLED = booleanPreferencesKey("ocr_enabled")
@@ -35,7 +36,6 @@ class SettingsRepository(
         val BACKGROUND_ANALYSIS_ENABLED = booleanPreferencesKey("background_analysis_enabled")
         val DEFAULT_SNOOZE_MINUTES = intPreferencesKey("default_snooze_minutes")
         val LIVE_UPDATE_REMINDERS_ENABLED = booleanPreferencesKey("live_update_reminders_enabled")
-        val GEMINI_INTEGRATION_ENABLED = booleanPreferencesKey("gemini_integration_enabled")
     }
 
     val settingsFlow: Flow<AppSettings> = dataStore.data
@@ -45,13 +45,13 @@ class SettingsRepository(
                 darkModeConfig = enumOrDefault(prefs[Keys.DARK_MODE_CONFIG], DarkModeConfig.SYSTEM),
                 notesLayout = enumOrDefault(prefs[Keys.NOTES_LAYOUT], NotesLayoutMode.STAGGERED_CARDS),
                 reducedMotion = prefs[Keys.REDUCED_MOTION] ?: false,
+                aiFeaturesEnabled = prefs[Keys.AI_FEATURES_ENABLED] ?: true,
                 smartTagsEnabled = prefs[Keys.SMART_TAGS_ENABLED] ?: true,
                 autoTitleEnabled = prefs[Keys.AUTO_TITLE_ENABLED] ?: true,
                 ocrEnabled = prefs[Keys.OCR_ENABLED] ?: true,
                 duplicateDetectionEnabled = prefs[Keys.DUPLICATE_DETECTION_ENABLED] ?: true,
                 fetchLinkPreviews = prefs[Keys.FETCH_LINK_PREVIEWS] ?: false,
-                recentSearchesEnabled = prefs[Keys.REDUCED_MOTION]?.let { prefs[Keys.RECENT_SEARCHES_ENABLED] }
-                    ?: (prefs[Keys.RECENT_SEARCHES_ENABLED] ?: true),
+                recentSearchesEnabled = prefs[Keys.RECENT_SEARCHES_ENABLED] ?: true,
                 semanticRerankEnabled = prefs[Keys.SEMANTIC_RERANK_ENABLED] ?: false,
                 aiBackendPreference = enumOrDefault(
                     prefs[Keys.AI_BACKEND_PREFERENCE],
@@ -60,8 +60,7 @@ class SettingsRepository(
                 energyEfficientAi = prefs[Keys.ENERGY_EFFICIENT_AI] ?: true,
                 backgroundAnalysisEnabled = prefs[Keys.BACKGROUND_ANALYSIS_ENABLED] ?: true,
                 defaultSnoozeMinutes = (prefs[Keys.DEFAULT_SNOOZE_MINUTES] ?: 10).coerceIn(1, 120),
-                liveUpdateRemindersEnabled = prefs[Keys.LIVE_UPDATE_REMINDERS_ENABLED] ?: true,
-                geminiIntegrationEnabled = prefs[Keys.GEMINI_INTEGRATION_ENABLED] ?: true
+                liveUpdateRemindersEnabled = prefs[Keys.LIVE_UPDATE_REMINDERS_ENABLED] ?: true
             )
         }
         .distinctUntilChanged()
@@ -80,6 +79,10 @@ class SettingsRepository(
 
     suspend fun setReducedMotion(enabled: Boolean) {
         dataStore.edit { it[Keys.REDUCED_MOTION] = enabled }
+    }
+
+    suspend fun setAiFeaturesEnabled(enabled: Boolean) {
+        dataStore.edit { it[Keys.AI_FEATURES_ENABLED] = enabled }
     }
 
     suspend fun setSmartTagsEnabled(enabled: Boolean) {
@@ -128,10 +131,6 @@ class SettingsRepository(
 
     suspend fun setLiveUpdateRemindersEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.LIVE_UPDATE_REMINDERS_ENABLED] = enabled }
-    }
-
-    suspend fun setGeminiIntegrationEnabled(enabled: Boolean) {
-        dataStore.edit { it[Keys.GEMINI_INTEGRATION_ENABLED] = enabled }
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(raw: String?, fallback: T): T {
