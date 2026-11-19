@@ -505,9 +505,9 @@ private fun SmartCaptureSheetContent(
                         )
                         Text(
                             text = if (stagedImages.any { it.isScreenshot } && ocrEnabled) {
-                                "Screenshot preserved offline • OCR runs in background"
+                                "Screenshot attached • Text extraction runs in the background"
                             } else {
-                                "Saved locally • 100% offline"
+                                "Ready to save to SmartNote"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -527,7 +527,7 @@ private fun SmartCaptureSheetContent(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         ExpressiveLoading(modifier = Modifier.size(32.dp))
-                        Text("Copying shared media safely to local storage...")
+                        Text("Preparing shared media...")
                     }
                 }
 

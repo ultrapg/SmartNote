@@ -16,8 +16,6 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationException
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationsApi
-import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
 import kotlinx.coroutines.CoroutineScope
@@ -61,9 +59,7 @@ class OperationsApiAndAiEngineTest {
         val tagRepo = TagRepository(database, indexer)
         noteRepository = NoteRepository(database, storage, indexer, tagRepo)
         val searchEngine = SmartSearchEngine(database, noteRepository)
-        val notifBuilder = ReminderNotificationBuilder(context, settingsRepo)
-        val remScheduler = ReminderScheduler(context, database, notifBuilder)
-        operationsApi = SmartNoteOperationsApi(noteRepository, tagRepo, searchEngine, remScheduler, settingsRepo)
+        operationsApi = SmartNoteOperationsApi(noteRepository, tagRepo, searchEngine, settingsRepo)
     }
 
     @After

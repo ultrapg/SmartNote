@@ -54,7 +54,6 @@ import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckBox
@@ -69,7 +68,6 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -126,10 +124,7 @@ import io.github.ultrapg.smartnote.domain.model.NoteFilterType
 import io.github.ultrapg.smartnote.domain.model.NoteSortOrder
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
-import io.github.ultrapg.smartnote.domain.model.ReminderInfo
-import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.TagSource
-import io.github.ultrapg.smartnote.reminder.ReminderCalculator
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveBadgeShapeKind
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveShapeBadge
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
@@ -341,7 +336,7 @@ fun NotesOverviewScreen(
                                 contentAlignment = Alignment.CenterStart
                             ) {
                                 Text(
-                                    text = "Search SmartNote, OCR, #tags...",
+                                    text = "Search notes, tags...",
                                     style = MaterialTheme.typography.bodyLarge,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -441,7 +436,6 @@ fun NotesOverviewScreen(
                     val label = when (filter) {
                         NoteFilterType.ALL -> "All"
                         NoteFilterType.PINNED -> "Pinned"
-                        NoteFilterType.REMINDERS -> "Reminders"
                         NoteFilterType.IMAGES -> "Images"
                         NoteFilterType.CHECKLISTS -> "Checklists"
                         NoteFilterType.LINKS -> "Links"
@@ -959,11 +953,6 @@ private fun ExpressiveMorphingCreateFab(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     CreatePillOptionRow(
-                        icon = Icons.Rounded.Alarm,
-                        label = "Reminder",
-                        onClick = { onSelectOption(NoteCreationOption.REMINDER) }
-                    )
-                    CreatePillOptionRow(
                         icon = Icons.Rounded.Image,
                         label = "Image",
                         onClick = { onSelectOption(NoteCreationOption.IMAGE) }
@@ -1279,10 +1268,6 @@ private fun NoteStaggeredCard(
                     }
                 }
 
-                if (note.reminder != null && !note.reminder.isCompleted) {
-                    ReminderPill(note.reminder)
-                }
-
                 if (note.tags.isNotEmpty()) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1481,31 +1466,6 @@ private fun SwipeableCompactNoteRow(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (note.reminder != null && !note.reminder.isCompleted) {
-                            val isOverdue = note.reminder.triggerAtMs <= System.currentTimeMillis()
-                            val remTint = if (isOverdue || note.reminder.isImportant) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.tertiary
-                            }
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(3.dp)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.Alarm,
-                                    contentDescription = "Reminder set",
-                                    modifier = Modifier.size(13.dp),
-                                    tint = remTint
-                                )
-                                Text(
-                                    text = ReminderCalculator.formatHumanDateTime(note.reminder.triggerAtMs),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = remTint,
-                                    maxLines = 1
-                                )
-                            }
-                        }
                         note.tags.take(2).forEach { t ->
                             Text(
                                 text = "#${t.name}",
@@ -1530,60 +1490,6 @@ private fun SwipeableCompactNoteRow(
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReminderPill(reminder: ReminderInfo) {
-    val isOverdue = remember(reminder.triggerAtMs) {
-        reminder.triggerAtMs <= System.currentTimeMillis()
-    }
-    val isEmphasized = isOverdue || reminder.isImportant
-    val bgColor = if (isEmphasized) {
-        MaterialTheme.colorScheme.errorContainer
-    } else {
-        MaterialTheme.colorScheme.tertiaryContainer
-    }
-    val fgColor = if (isEmphasized) {
-        MaterialTheme.colorScheme.onErrorContainer
-    } else {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    }
-    val label = remember(reminder.triggerAtMs, isOverdue) {
-        val base = ReminderCalculator.formatHumanDateTime(reminder.triggerAtMs)
-        if (isOverdue) "Overdue · $base" else base
-    }
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = bgColor
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Alarm,
-                contentDescription = null,
-                modifier = Modifier.size(13.dp),
-                tint = fgColor
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = fgColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (reminder.repeatRule != RepeatRule.NONE) {
-                Icon(
-                    imageVector = Icons.Rounded.Repeat,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = fgColor
-                )
             }
         }
     }
@@ -1616,12 +1522,12 @@ private fun EmptyNotesPlaceholder(
         }
         Spacer(Modifier.height(18.dp))
         Text(
-            text = "Capture anything, offline",
+            text = "Capture your thoughts",
             style = MaterialTheme.typography.headlineSmall
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "Jot down quick notes, checklists, or share screenshots from any app for automatic OCR and SmartTags.",
+            text = "Write notes and checklists, or share links and screenshots from other apps.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -1639,8 +1545,5 @@ private fun buildNoteAccessibilityLabel(note: NoteSummary): String = buildString
     }
     if (note.tags.isNotEmpty()) {
         append(". Tags: ").append(note.tags.joinToString(", ") { it.name })
-    }
-    if (note.reminder != null && !note.reminder.isCompleted) {
-        append(". Reminder scheduled")
     }
 }

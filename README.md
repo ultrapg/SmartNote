@@ -5,7 +5,7 @@
 SmartNote is a native, offline-first Android note-taking application written in Kotlin with Jetpack Compose and **Material 3 Expressive**. Designed to capture quickly, organize automatically on-device, and search instantaneously across notes, checklists, links, and screenshot OCR text—without accounts, cloud sync, telemetry, or external API keys.
 
 - **Package ID:** `io.github.ultrapg.smartnote`
-- **Version:** `1.0.12` (`versionCode = 13`)
+- **Version:** `1.0.13` (`versionCode = 14`)
 - **Compatibility:** Android 9+ (`minSdk = 28`, `targetSdk = 36`, `compileSdk = 37`)
 - **ABIs:** `arm64-v8a`, `x86_64`
 - **License:** Apache License 2.0 ([LICENSE](LICENSE))
@@ -28,16 +28,15 @@ SmartNote is a native, offline-first Android note-taking application written in 
 - **SmartCapture Sharesheet Integration**: Receives `ACTION_SEND` and `ACTION_SEND_MULTIPLE` intents (`text/plain`, `image/png`, `image/jpeg`, `image/webp`, `image/*`, URLs, and multi-image shares) with immediate private staging, screenshot heuristics, quick-save UX, and canonical-path rejection of internal `file://` URIs.
 - **Local Backup & Restore**: Exports and restores portable `.smartnote.zip` archives with strict ZIP-Slip traversal protection, `MERGE` (UUID-conflict safe) and `REPLACE_ALL` modes, and full FTS5 reindexing.
 
-### On-Device Intelligence (100% Offline & Master-Switch Controlled)
+### On-Device Intelligence (Master-Switch Controlled)
 - **Unified AI Control**: A single **Enable AI Features** switch (enabled by default) in **Settings → AI & Smart Features** toggles all AI capabilities together—graying out and disabling every AI toggle, hardware radio option, and diagnostics trigger while preserving saved preferences—and unloads active LiteRT models when disabled.
-- **Bundled ML Kit Latin OCR**: Recognizes text inside screenshots and photos completely offline (`com.google.mlkit:text-recognition:16.0.1`) with SHA-256 deduplication caching.
-- **SmartSearch (SQLite FTS5)**: Dual virtual tables (`porter unicode61 remove_diacritics 2` + `trigram`) backed by bundled `sqlite-bundled` give weighted BM25 + recency + pin + exact-title scoring, typo correction (*Did you mean*), offline synonym expansion, and operator filtering (`#tag`, OCR, images, checklists, date ranges).
-- **SmartTags & SmartDuplicateDetector**: Bilingual English/German 27-category auto-tagging with inline `#hashtag` extraction, morphological stemming, German compound-word decomposition, personal confirmed-tag profile learning, optional LiteRT semantic category affinity, live editor suggestions inside a borderless `ManageTagsSheet` (respecting manual confirmations and permanent dismissals), plus SHA-256, SimHash-64, and canonical-URL duplicate detection without ever auto-deleting notes.
-- **Offline Auto-Title Generation (`SmartTitleGenerator`)**: Optional (off by default) automatic titling for untitled notes and shared screenshots—plus an on-demand tonal **`Generate`** title button in the editor even when automatic titling is turned off (still governed by **Enable AI Features**).
+- **Bundled ML Kit Latin OCR**: Recognizes text inside screenshots and photos locally on-device (`com.google.mlkit:text-recognition:16.0.1`) with SHA-256 deduplication caching.
+- **SmartSearch (SQLite FTS5)**: Dual virtual tables (`porter unicode61 remove_diacritics 2` + `trigram`) backed by bundled `sqlite-bundled` give weighted BM25 + recency + pin + exact-title scoring, typo correction (*Did you mean*), local synonym expansion, and operator filtering (`#tag`, OCR, images, checklists, date ranges).
+- **SmartTags & SmartDuplicateDetector**: Bilingual English/German 27-category auto-tagging with inline `#hashtag` extraction, morphological stemming, German compound-word decomposition, personal confirmed-tag profile learning, optional LiteRT semantic category affinity, live editor suggestions inside a borderless `ManageTagsSheet`, plus an on-demand **`Generate tags`** button in the editor (even when automatic SmartTags is disabled)—alongside SHA-256, SimHash-64, and canonical-URL duplicate detection without ever auto-deleting notes.
+- **On-Device Auto-Title Generation (`SmartTitleGenerator`)**: Optional (off by default) automatic titling for untitled notes and shared screenshots—plus an on-demand tonal **`Generate`** title button in the editor even when automatic titling is turned off (still governed by **Enable AI Features**).
 - **On-Device LiteRT AI (`smartnote_text_embed_v1.tflite`)**: Uses LiteRT `2.3.2` with adaptive runtime delegation (`NPU` -> `GPU` -> `CPU XNNPACK` -> deterministic n-gram fallback) for local semantic search reranking (enabled by default, with NPU-prioritized energy-efficient dispatch under Battery Saver/thermal load), governed by the master switch and per-feature DataStore switches.
 
 ### Android System Integrations
-- **Reminders, Android 16 Now Bar & Wear OS Bridging**: Streamlined borderless `ReminderPickerSheet` with progressive `More options` disclosure, full centered `TimePicker` dialog, offline EN/DE natural date/time detection (`NaturalDateTimeParser`), custom Mon–Sun weekday schedules, early pre-alerts, audible/vibrating due alerts (`smartnote_reminders_due_v2` / `smartnote_reminders_urgent_v2`), discreet **today-only** silent Android 16 Live Update / Now Bar cards (`CHANNEL_NOWBAR_TODAY`), zero-watch-app Wear OS bridged notifications (`WearableExtender` synchronized dismissal, wrist actions & voice `RemoteInput` **`Add note`** reply), and boot/date-change rescheduling.
 - **Glance Widgets, Quick Settings Tile & Shortcuts**: Three Material 3 Glance widgets (Quick Capture, Pinned Note, Overview Summary), `QuickNoteTileService`, and static + dynamic App Shortcuts backed by validated local operations (`SmartNoteOperationsApi`).
 
 ---
@@ -57,11 +56,11 @@ SmartNote is a native, offline-first Android note-taking application written in 
 
 ## Installation
 
-1. Download **`smartnote-release.apk`** from the [v1.0.12 GitHub Release](../../releases/tag/v1.0.12).
+1. Download **`smartnote-release.apk`** from the [v1.0.13 GitHub Release](../../releases/tag/v1.0.13).
 2. Verify the APK checksum before installing:
    - **File:** `smartnote-release.apk`
-   - **Size:** `57,206,704` bytes (`54.56 MiB`)
-   - **SHA-256:** `0c1486456b42bf8c65f69985032276425189ccef216fcc3de2015200dd728f7a`
+   - **Size:** `56,750,725` bytes (`54.12 MiB`)
+   - **SHA-256:** `127386fae4e5f109c6404c1f0d209ba716cdaf4f6845eed2fca6507c952149b4`
    - **APK Signature Scheme v3 Signer Cert SHA-256 (4096-bit RSA):**
      `b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`
 3. Install on an Android 9+ device via system package installer or `adb install smartnote-release.apk`.
@@ -104,15 +103,14 @@ The R8-minified, resource-shrunk, signed APK is output to `app/build/outputs/apk
 
 ### Verified on Build Host (2026-11-19)
 - `./gradlew clean assembleRelease --no-daemon --warning-mode=summary && ./gradlew testDebugUnitTest --rerun-tasks --no-daemon --warning-mode=summary && ./gradlew testReleaseUnitTest --rerun-tasks --no-daemon --warning-mode=summary` completed cleanly (`BUILD SUCCESSFUL`) with zero source Kotlin warnings:
-  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 10 suites, **34 tests passed, 0 failures, 0 errors, 0 skipped**.
-  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **34 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, empty ghost note cleanup, image attachment/OCR OOM safety, opt-in auto-title + on-demand `Generate` button, NPU-first energy-saving dispatch, default-on semantic search, **"Enable AI Features"** gray-out/restore behavior, upgraded bilingual `#hashtag` / compound / semantic SmartTags, Room `MIGRATION_1_2`, simplified progressive-disclosure `ReminderPickerSheet` + centered `TimePicker` dialog, silent Today-only Now Bar channel + audible/vibrating due channels + Wear OS `WearableExtender`/`RemoteInput` bridging, full-viewport trailing-block focus, SmartSearch header clipping, upward-morphing `+` pill menu, pop-out bubble top-bar `Sort` and `Menu` menus, flying bottom-bar pill indicator, System Integrations & Diagnostics layouts, and end-to-end Compose UI flows).
+  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 9 suites, **31 tests passed, 0 failures, 0 errors, 0 skipped**.
+  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 9 suites, **31 tests passed, 0 failures, 0 errors, 0 skipped** (validating R8/ProGuard behavior alongside business logic, FTS5 search latency on 2,500 synthetic notes `< 250 ms`, ZIP-Slip traversal rejection, empty ghost note cleanup, image attachment/OCR OOM safety, opt-in auto-title + on-demand `Generate` button, NPU-first energy-saving dispatch, default-on semantic search, **"Enable AI Features"** gray-out/restore behavior, bilingual `#hashtag` / compound / semantic SmartTags with on-demand `Generate tags` button, Room `MIGRATION_1_2` + `MIGRATION_2_3` cleanly dropping the retired `reminders` table while preserving notes, full-viewport trailing-block focus, SmartSearch header clipping, upward-morphing `+` pill menu, pop-out bubble top-bar `Sort` and `Menu` menus, flying bottom-bar pill indicator, System Integrations & Diagnostics layouts, and end-to-end Compose UI flows).
 - **Release APK Verification (`build-tools/37.0.0`):**
   - `zipalign -c -P 16 -v 4 smartnote-release.apk`: **Verification successful** (16 KB ELF page-aligned).
   - `apksigner verify --print-certs -v smartnote-release.apk`: **Verifies** under APK Signature Scheme v3 (RSA-4096).
-  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='13'`, `versionName='1.0.12'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`.
+  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='14'`, `versionName='1.0.13'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`, `arm64-v8a` & `x86_64`, and confirmed `POST_NOTIFICATIONS`, `POST_PROMOTED_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, and `VIBRATE` permissions are absent.
   - Archive inspection confirmed `assets/models/smartnote_text_embed_v1.tflite` and native libraries (`libsqliteJni.so`, `libmlkit_google_ocr_pipeline.so`, `libLiteRt.so`, `libLiteRtClGlAccelerator.so`) are packaged with zero Gemini/AppFunctions artifacts and zero keystores or credentials.
 
 ### Hardware-Dependent Checks (Require Physical Android Device)
 The Linux build environment has no `/dev/kvm` or attached Android device, so the following behaviors are implemented and compile-verified but require physical-device validation:
 - **LiteRT Hardware Delegates:** Physical vendor NPU (`CompiledModel` NPU) and GPU delegate acceleration paths (host tests verify model loading and CPU/fallback execution).
-- **Android 16 Live Updates OEM Surfaces:** System status-chip / Samsung One UI 8 Now Bar promotion behavior under OEM lock-screen policies.

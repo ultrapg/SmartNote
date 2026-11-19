@@ -250,52 +250,6 @@ data class LinkPreviewEntity(
 )
 
 @Entity(
-    tableName = "reminders",
-    foreignKeys = [
-        ForeignKey(
-            entity = NoteEntity::class,
-            parentColumns = ["id"],
-            childColumns = ["note_id"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
-    indices = [
-        Index(value = ["note_id"], unique = true),
-        Index(value = ["is_completed", "trigger_at_ms"])
-    ]
-)
-data class ReminderEntity(
-    @PrimaryKey
-    val id: String,
-    @ColumnInfo(name = "note_id")
-    val noteId: String,
-    @ColumnInfo(name = "trigger_at_ms")
-    val triggerAtMs: Long,
-    @ColumnInfo(name = "zone_id")
-    val zoneId: String,
-    @ColumnInfo(name = "local_date_time_iso")
-    val localDateTimeIso: String,
-    @ColumnInfo(name = "repeat_rule")
-    val repeatRule: String = "NONE",
-    @ColumnInfo(name = "is_completed")
-    val isCompleted: Boolean = false,
-    @ColumnInfo(name = "completed_at_ms")
-    val completedAtMs: Long? = null,
-    @ColumnInfo(name = "snooze_count")
-    val snoozeCount: Int = 0,
-    @ColumnInfo(name = "use_live_update")
-    val useLiveUpdate: Boolean = true,
-    @ColumnInfo(name = "repeat_days_mask", defaultValue = "0")
-    val repeatDaysMask: Int = 0,
-    @ColumnInfo(name = "repeat_interval", defaultValue = "1")
-    val repeatInterval: Int = 1,
-    @ColumnInfo(name = "pre_alert_minutes", defaultValue = "0")
-    val preAlertMinutes: Int = 0,
-    @ColumnInfo(name = "is_important", defaultValue = "0")
-    val isImportant: Boolean = false
-)
-
-@Entity(
     tableName = "processing_jobs",
     primaryKeys = ["note_id", "job_type"],
     foreignKeys = [

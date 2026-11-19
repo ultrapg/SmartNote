@@ -97,7 +97,6 @@ import io.github.ultrapg.smartnote.ui.settings.AiProcessingSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.AppearanceSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.DataSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.IntegrationsSettingsScreen
-import io.github.ultrapg.smartnote.ui.settings.ReminderSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.SettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.SmartFeaturesSettingsScreen
 import io.github.ultrapg.smartnote.ui.tags.TagsScreen
@@ -236,8 +235,7 @@ fun SmartNoteApp(
                                 NoteEditorRoute(
                                     noteId = null,
                                     startChecklist = option == NoteCreationOption.CHECKLIST,
-                                    autoPickImage = option == NoteCreationOption.IMAGE,
-                                    autoOpenReminder = option == NoteCreationOption.REMINDER
+                                    autoPickImage = option == NoteCreationOption.IMAGE
                                 )
                             )
                         },
@@ -344,8 +342,7 @@ fun SmartNoteApp(
                                 NoteEditorRoute(
                                     noteId = null,
                                     startChecklist = option == NoteCreationOption.CHECKLIST,
-                                    autoPickImage = option == NoteCreationOption.IMAGE,
-                                    autoOpenReminder = option == NoteCreationOption.REMINDER
+                                    autoPickImage = option == NoteCreationOption.IMAGE
                                 )
                             )
                         },
@@ -383,7 +380,6 @@ fun SmartNoteApp(
                             autosaveCoordinator = container.autosaveCoordinator,
                             attachmentImporter = container.attachmentImporter,
                             noteShareExporter = container.noteShareExporter,
-                            reminderScheduler = container.reminderScheduler,
                             duplicateDetector = container.duplicateDetector,
                             settingsRepository = container.settingsRepository,
                             smartTitleGenerator = container.smartTitleGenerator,
@@ -418,10 +414,6 @@ fun SmartNoteApp(
                         onApplyAutoTagsNow = vm::applyAutoTagsNow,
                         onConfirmSuggestedTag = vm::confirmSuggestedTag,
                         onDismissOrRemoveTag = vm::dismissOrRemoveTag,
-                        onSaveReminder = vm::saveReminder,
-                        onCompleteReminder = vm::completeReminder,
-                        onSnoozeReminder = vm::snoozeReminder,
-                        onRemoveReminder = vm::removeReminder,
                         onDismissDuplicate = vm::dismissDuplicatePair,
                         onOpenDuplicateNote = { otherId ->
                             navController.navigate(NoteEditorRoute(noteId = otherId))
@@ -429,7 +421,6 @@ fun SmartNoteApp(
                         onFlushAutosave = vm::flushPendingEditsOnly,
                         onExitEditor = vm::finishEditorSession,
                         initialPickImage = route.autoPickImage,
-                        initialOpenReminder = route.autoOpenReminder,
                         onEnsureTrailingEditableBlock = vm::ensureTrailingEditableBlock,
                         onNavigateBack = { navController.popBackStack() }
                     )
@@ -487,7 +478,6 @@ fun SmartNoteApp(
                     SettingsScreen(
                         onOpenAppearance = { navController.navigate(AppearanceSettingsRoute) },
                         onOpenSmartFeatures = { navController.navigate(SmartFeaturesSettingsRoute) },
-                        onOpenReminders = { navController.navigate(ReminderSettingsRoute) },
                         onOpenIntegrations = { navController.navigate(IntegrationsSettingsRoute) },
                         onOpenData = { navController.navigate(DataSettingsRoute) },
                         onOpenAbout = { navController.navigate(AboutSettingsRoute) },
@@ -526,25 +516,6 @@ fun SmartNoteApp(
                             }
                         },
                         onUnloadModel = { scope.launch { container.aiEngine.unloadModel() } },
-                        onBack = { navController.popBackStack() }
-                    )
-                }
-
-                composable<ReminderSettingsRoute> {
-                    ReminderSettingsScreen(
-                        settings = settings,
-                        canScheduleExactAlarms = container.reminderScheduler.canScheduleExactAlarms(),
-                        canPostLiveUpdates = container.reminderNotificationBuilder.canPromoteLiveUpdates(),
-                        settingsRepository = container.settingsRepository,
-                        onLiveUpdateSettingChanged = { enabled ->
-                            scope.launch {
-                                if (enabled) {
-                                    container.reminderScheduler.syncTodayNowBarReminders()
-                                } else {
-                                    container.reminderScheduler.clearAllTodayNowBarReminders()
-                                }
-                            }
-                        },
                         onBack = { navController.popBackStack() }
                     )
                 }

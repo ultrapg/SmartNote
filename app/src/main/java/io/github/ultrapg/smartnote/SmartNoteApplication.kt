@@ -1,6 +1,8 @@
 package io.github.ultrapg.smartnote
 
 import android.app.Application
+import android.app.NotificationManager
+import android.content.Context
 import androidx.work.Configuration
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -27,12 +29,32 @@ class SmartNoteApplication : Application(), Configuration.Provider, ImageLoaderF
 
     override fun onCreate() {
         super.onCreate()
-        container.reminderNotificationBuilder.ensureChannel()
+        cleanupRetiredReminderNotifications()
         runCatching { MaintenanceCleanupWorker.schedulePeriodic(this) }
         val launchMs = System.currentTimeMillis()
         container.applicationScope.launch {
             runCatching { container.noteRepository.pruneBlankUntouchedNotes(olderThanOrEqualMs = launchMs) }
-            runCatching { container.reminderScheduler.syncTodayNowBarReminders() }
         }
+    }
+
+    private fun cleanupRetiredReminderNotifications() {
+        runCatching {
+            val mgr = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+            mgr.cancelAll()
+            RETIRED_NOTIFICATION_CHANNELS.forEach { channelId ->
+                runCatching { mgr.deleteNotificationChannel(channelId) }
+            }
+        }
+    }
+
+    private companion object {
+        val RETIRED_NOTIFICATION_CHANNELS = listOf(
+            "smartnote_reminders_high",
+            "smartnote_reminders_urgent",
+            "smartnote_reminders_due_v2",
+            "smartnote_reminders_urgent_v2",
+            "smartnote_nowbar_today_v1",
+            "smartnote_nowbar_live_v2"
+        )
     }
 }

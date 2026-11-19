@@ -8,7 +8,6 @@ import io.github.ultrapg.smartnote.data.local.NoteBlockEntity
 import io.github.ultrapg.smartnote.data.local.NoteEntity
 import io.github.ultrapg.smartnote.data.local.NoteTagWithInfo
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
-import io.github.ultrapg.smartnote.data.local.ReminderEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.domain.model.AttachmentInfo
 import io.github.ultrapg.smartnote.domain.model.ChecklistPreviewItem
@@ -23,8 +22,6 @@ import io.github.ultrapg.smartnote.domain.model.NoteSourceType
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.domain.model.NoteTag
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
-import io.github.ultrapg.smartnote.domain.model.ReminderInfo
-import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.domain.util.TextHashing
@@ -42,29 +39,25 @@ class NoteRepository(
     private val searchIndexer: SearchIndexer,
     private val tagRepository: TagRepository,
     private val onNoteChangedForBackground: (String) -> Unit = {},
-    private val onNotesUiMutated: () -> Unit = {},
-    private val onReminderChanged: (String) -> Unit = {}
+    private val onNotesUiMutated: () -> Unit = {}
 ) {
     private val noteDao = database.noteDao()
     private val blockDao = database.noteBlockDao()
     private val tagDao = database.tagDao()
     private val attachmentDao = database.attachmentDao()
     private val linkDao = database.linkPreviewDao()
-    private val reminderDao = database.reminderDao()
 
     private val sharedCatalogFlow: Flow<CatalogSnapshot> = combine(
         blockDao.observeAllBlocks(),
         tagDao.observeAllActiveNoteTags(),
         attachmentDao.observeAllAttachmentsWithOcr(),
-        linkDao.observeAllLinkPreviews(),
-        reminderDao.observeAllReminders()
-    ) { blocks, tags, attachments, links, reminders ->
+        linkDao.observeAllLinkPreviews()
+    ) { blocks, tags, attachments, links ->
         CatalogSnapshot(
             blocksByNote = blocks.groupBy { it.noteId },
             tagsByNote = tags.groupBy { it.noteId },
             attachmentsByNote = attachments.groupBy { it.noteId },
-            linksByNote = links.groupBy { it.noteId },
-            remindersByNote = reminders.associateBy { it.noteId }
+            linksByNote = links.groupBy { it.noteId }
         )
     }
 
@@ -83,23 +76,13 @@ class NoteRepository(
                 val matchesFilter = when (filterType) {
                     NoteFilterType.ALL -> true
                     NoteFilterType.PINNED -> summary.isPinned
-                    NoteFilterType.REMINDERS -> summary.reminder != null && !summary.reminder.isCompleted
                     NoteFilterType.IMAGES -> summary.imageCount > 0
                     NoteFilterType.CHECKLISTS -> summary.hasChecklist
                     NoteFilterType.LINKS -> summary.hasLink
                 }
                 matchesTag && matchesFilter
             }
-            .let { filtered ->
-                if (filterType == NoteFilterType.REMINDERS) {
-                    filtered.sortedWith(
-                        compareBy<NoteSummary> { it.reminder?.triggerAtMs ?: Long.MAX_VALUE }
-                            .thenByDescending { it.updatedAtMs }
-                    )
-                } else {
-                    filtered.sortSummaries(sortOrder)
-                }
-            }
+            .sortSummaries(sortOrder)
     }.flowOn(Dispatchers.Default)
 
     fun observeArchivedNotes(): Flow<List<NoteSummary>> = combine(
@@ -121,22 +104,10 @@ class NoteRepository(
         blockDao.observeBlocksForNote(noteId),
         tagDao.observeTagsForNote(noteId),
         attachmentDao.observeAttachmentsForNote(noteId),
-        linkDao.observeLinksForNote(noteId),
-        reminderDao.observeReminderForNote(noteId)
-    ) { values ->
-        @Suppress("UNCHECKED_CAST")
-        val note = values[0] as? NoteEntity ?: return@combine null
-        @Suppress("UNCHECKED_CAST")
-        val blocks = values[1] as List<NoteBlockEntity>
-        @Suppress("UNCHECKED_CAST")
-        val tags = values[2] as List<NoteTagWithInfo>
-        @Suppress("UNCHECKED_CAST")
-        val attachments = values[3] as List<AttachmentWithOcrRow>
-        @Suppress("UNCHECKED_CAST")
-        val links = values[4] as List<LinkPreviewEntity>
-        val reminder = values[5] as? ReminderEntity
-
-        buildNoteDetail(note, blocks, tags, attachments, links, reminder)
+        linkDao.observeLinksForNote(noteId)
+    ) { note, blocks, tags, attachments, links ->
+        if (note == null) return@combine null
+        buildNoteDetail(note, blocks, tags, attachments, links)
     }.flowOn(Dispatchers.Default)
 
     suspend fun getNoteDetail(noteId: String): NoteDetail? {
@@ -146,8 +117,7 @@ class NoteRepository(
             blocks = blockDao.getBlocksForNote(noteId),
             tags = tagDao.getActiveTagsForNote(noteId),
             attachments = attachmentDao.getAttachmentsForNote(noteId),
-            links = linkDao.getLinksForNote(noteId),
-            reminder = reminderDao.getReminderForNote(noteId)
+            links = linkDao.getLinksForNote(noteId)
         )
     }
 
@@ -196,8 +166,7 @@ class NoteRepository(
                     )
                 }.groupBy { it.noteId }
             },
-            linksByNote = linkDao.getAllLinksSnapshot().groupBy { it.noteId },
-            remindersByNote = reminderDao.getAllRemindersSnapshot().associateBy { it.noteId }
+            linksByNote = linkDao.getAllLinksSnapshot().groupBy { it.noteId }
         )
         return notes.map { mapToSummary(it, catalog) }
     }
@@ -305,44 +274,6 @@ class NoteRepository(
         if (scheduleBackgroundWork) {
             onNoteChangedForBackground(noteId)
         }
-    }
-
-    /**
-     * Appends a quick line (e.g. from a bridged Wear OS notification reply) to an existing note.
-     */
-    suspend fun appendQuickLineToNote(noteId: String, text: String): Boolean {
-        val cleaned = text.trim()
-        if (cleaned.isBlank()) return false
-        val detail = getNoteDetail(noteId) ?: return false
-        if (detail.isDeleted) return false
-
-        val existingBlocks = detail.blocks
-        val lastBlock = existingBlocks.lastOrNull()
-        val updatedBlocks = if (lastBlock != null && lastBlock.type == NoteBlockType.TEXT) {
-            val newText = if (lastBlock.textContent.isBlank()) {
-                cleaned
-            } else {
-                "${lastBlock.textContent.trimEnd()}\n• $cleaned"
-            }
-            existingBlocks.dropLast(1) + lastBlock.copy(textContent = newText)
-        } else {
-            existingBlocks + NoteBlock(
-                id = UUID.randomUUID().toString(),
-                noteId = noteId,
-                position = existingBlocks.size,
-                type = NoteBlockType.TEXT,
-                textContent = cleaned
-            )
-        }
-
-        saveNoteContent(
-            noteId = noteId,
-            title = detail.title,
-            blocks = updatedBlocks,
-            isPinned = detail.isPinned,
-            scheduleBackgroundWork = false
-        )
-        return true
     }
 
     /**
@@ -681,14 +612,12 @@ class NoteRepository(
     suspend fun moveToRecycleBin(noteId: String) {
         noteDao.moveToRecycleBin(noteId, System.currentTimeMillis())
         searchIndexer.removeNote(noteId)
-        onReminderChanged(noteId)
         onNotesUiMutated()
     }
 
     suspend fun restoreFromRecycleBin(noteId: String) {
         noteDao.restoreFromRecycleBin(noteId, System.currentTimeMillis())
         searchIndexer.indexNote(noteId)
-        onReminderChanged(noteId)
         onNotesUiMutated()
     }
 
@@ -706,7 +635,6 @@ class NoteRepository(
         links.forEach { link ->
             attachmentStorage.deleteRelativeFileQuietly(link.previewImagePath)
         }
-        onReminderChanged(noteId)
         onNotesUiMutated()
     }
 
@@ -736,7 +664,6 @@ class NoteRepository(
         if (attachmentDao.getAttachmentsForNote(noteId).isNotEmpty()) return false
         if (linkDao.getLinksForNote(noteId).isNotEmpty()) return false
         if (tagDao.getActiveTagsForNote(noteId).isNotEmpty()) return false
-        if (reminderDao.getReminderForNote(noteId) != null) return false
         return true
     }
 
@@ -793,7 +720,6 @@ class NoteRepository(
             ?: attachments.firstOrNull()
         val thumbPath = primaryAtt?.thumbnailRelativePath ?: primaryAtt?.relativeFilePath
         val links = catalog.linksByNote[entity.id].orEmpty()
-        val reminder = catalog.remindersByNote[entity.id]?.let(::mapReminder)
         val checklistItems = blocks
             .filter { it.blockType == NoteBlockType.CHECKLIST.name && it.textContent.isNotBlank() }
             .take(5)
@@ -817,7 +743,6 @@ class NoteRepository(
             primaryThumbnailPath = thumbPath,
             imageCount = attachments.size,
             tags = tags,
-            reminder = reminder,
             hasLink = links.isNotEmpty(),
             primaryLinkDomain = links.firstOrNull()?.domain,
             ocrSnippet = attachments.firstNotNullOfOrNull { it.recognizedText?.takeIf(String::isNotBlank) },
@@ -830,8 +755,7 @@ class NoteRepository(
         blocks: List<NoteBlockEntity>,
         tags: List<NoteTagWithInfo>,
         attachments: List<AttachmentWithOcrRow>,
-        links: List<LinkPreviewEntity>,
-        reminder: ReminderEntity?
+        links: List<LinkPreviewEntity>
     ): NoteDetail {
         return NoteDetail(
             id = note.id,
@@ -897,27 +821,9 @@ class NoteRepository(
                     fetchStatus = enumOrDefault(l.fetchStatus, LinkFetchStatus.LOCAL_ONLY),
                     updatedAtMs = l.updatedAtMs
                 )
-            },
-            reminder = reminder?.let(::mapReminder)
+            }
         )
     }
-
-    private fun mapReminder(entity: ReminderEntity): ReminderInfo = ReminderInfo(
-        id = entity.id,
-        noteId = entity.noteId,
-        triggerAtMs = entity.triggerAtMs,
-        zoneId = entity.zoneId,
-        localDateTimeIso = entity.localDateTimeIso,
-        repeatRule = enumOrDefault(entity.repeatRule, RepeatRule.NONE),
-        isCompleted = entity.isCompleted,
-        completedAtMs = entity.completedAtMs,
-        snoozeCount = entity.snoozeCount,
-        useLiveUpdate = entity.useLiveUpdate,
-        repeatDaysMask = entity.repeatDaysMask,
-        repeatInterval = entity.repeatInterval.coerceAtLeast(1),
-        preAlertMinutes = entity.preAlertMinutes.coerceAtLeast(0),
-        isImportant = entity.isImportant
-    )
 
     private fun List<NoteSummary>.sortSummaries(sortOrder: NoteSortOrder): List<NoteSummary> = when (sortOrder) {
         NoteSortOrder.UPDATED_DESC -> sortedWith(
@@ -936,8 +842,7 @@ class NoteRepository(
         val blocksByNote: Map<String, List<NoteBlockEntity>>,
         val tagsByNote: Map<String, List<NoteTagWithInfo>>,
         val attachmentsByNote: Map<String, List<AttachmentWithOcrRow>>,
-        val linksByNote: Map<String, List<LinkPreviewEntity>>,
-        val remindersByNote: Map<String, ReminderEntity>
+        val linksByNote: Map<String, List<LinkPreviewEntity>>
     )
 
     private inline fun <reified T : Enum<T>> enumOrDefault(raw: String?, fallback: T): T {

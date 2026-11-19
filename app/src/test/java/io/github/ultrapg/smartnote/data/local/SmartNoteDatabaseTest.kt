@@ -154,9 +154,9 @@ class SmartNoteDatabaseTest {
     }
 
     @Test
-    fun migratesVersion1ReminderRowsCleanlyToVersion2() = runTest {
+    fun migratesVersion1And2DatabasesCleanlyToVersion3DroppingRemindersTable() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val dbFile = File(context.cacheDir, "migration_v1_v2_${System.nanoTime()}.db")
+        val dbFile = File(context.cacheDir, "migration_v1_v3_${System.nanoTime()}.db")
         try {
             val driver = BundledSQLiteDriver()
             val conn = driver.open(dbFile.absolutePath)
@@ -206,16 +206,21 @@ class SmartNoteDatabaseTest {
             )
                 .setDriver(BundledSQLiteDriver())
                 .setQueryCoroutineContext(Dispatchers.IO)
-                .addMigrations(SmartNoteDatabase.MIGRATION_1_2)
+                .addMigrations(SmartNoteDatabase.MIGRATION_1_2, SmartNoteDatabase.MIGRATION_2_3)
                 .build()
             try {
-                val rem = migratedDb.reminderDao().getReminderForNote("n-v1")
-                assertNotNull(rem)
-                assertEquals("r-v1", rem!!.id)
-                assertEquals(0, rem.repeatDaysMask)
-                assertEquals(1, rem.repeatInterval)
-                assertEquals(0, rem.preAlertMinutes)
-                assertFalse(rem.isImportant)
+                val note = migratedDb.noteDao().getNoteById("n-v1")
+                assertNotNull(note)
+                assertEquals("V1 Note", note!!.title)
+
+                val remindersTableExists = migratedDb.useReaderConnection { reader ->
+                    reader.usePrepared(
+                        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='reminders'"
+                    ) { stmt ->
+                        stmt.step() && stmt.getLong(0) > 0L
+                    }
+                }
+                assertFalse(remindersTableExists)
             } finally {
                 migratedDb.close()
             }

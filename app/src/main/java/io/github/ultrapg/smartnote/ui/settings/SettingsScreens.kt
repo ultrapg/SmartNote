@@ -1,19 +1,13 @@
 package io.github.ultrapg.smartnote.ui.settings
 
-import android.Manifest
-import android.app.AlarmManager
 import android.app.StatusBarManager
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
 import android.os.Build
-import android.provider.Settings
-import androidx.core.app.AlarmManagerCompat
-import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -36,7 +30,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.AppShortcut
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
@@ -50,7 +43,6 @@ import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,12 +62,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -116,7 +104,6 @@ import java.util.Locale
 fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenSmartFeatures: () -> Unit,
-    onOpenReminders: () -> Unit,
     onOpenIntegrations: () -> Unit,
     onOpenData: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -160,16 +147,8 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.AutoAwesome,
                     title = "AI & Smart Features",
-                    subtitle = "Enable AI Features, Auto-Titles, SmartTags, Offline OCR, Duplicates & Semantic Search",
+                    subtitle = "Auto-titles, tags, text recognition, duplicate checks & search ranking",
                     onClick = onOpenSmartFeatures
-                )
-            }
-            item {
-                SettingsCategoryCard(
-                    icon = Icons.Rounded.Alarm,
-                    title = "Reminders",
-                    subtitle = "Notifications, exact alarms, snooze defaults, Live Updates",
-                    onClick = onOpenReminders
                 )
             }
             item {
@@ -184,7 +163,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.Storage,
                     title = "Data",
-                    subtitle = "SAF ZIP backup & restore, duplicate review, recycle bin, storage usage",
+                    subtitle = "Backups, duplicate review, recycle bin & storage usage",
                     onClick = onOpenData
                 )
             }
@@ -192,7 +171,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.Info,
                     title = "About",
-                    subtitle = "SmartNote v${BuildConfig.VERSION_NAME}, offline privacy guarantee & licenses",
+                    subtitle = "Version v${BuildConfig.VERSION_NAME}, privacy details & licenses",
                     onClick = onOpenAbout
                 )
             }
@@ -289,7 +268,7 @@ fun SmartFeaturesSettingsScreen(
     SettingsSubScaffold(title = "AI & Smart Features", onBack = onBack) {
         SettingsSwitchRow(
             title = "Enable AI Features",
-            subtitle = "Master switch for Auto-Title Generation, SmartTags, Offline OCR, Duplicate Detection, and LiteRT Semantic Search",
+            subtitle = "Master switch for Auto-Title Generation, SmartTags, Text Recognition, Duplicate Detection, and Semantic Search",
             checked = aiEnabled,
             highlighted = true,
             onCheckedChange = { enabled ->
@@ -300,35 +279,35 @@ fun SmartFeaturesSettingsScreen(
         SectionLabel("Individual AI Features", enabled = aiEnabled)
         SettingsSwitchRow(
             title = "Auto-Title Generation",
-            subtitle = "Automatically title untitled notes and shared screenshots (when off, use the on-demand Generate button in the editor)",
+            subtitle = "Automatically title untitled notes and shared screenshots (when off, use the Generate button in the editor)",
             checked = settings.effectiveAutoTitleEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "SmartTags",
-            subtitle = "Suggest tags automatically using local rules, TF-IDF, and your personal tag vocabulary",
+            subtitle = "Suggest tags automatically from note topics and the tags you use (when off, use Generate tags in the editor)",
             checked = settings.effectiveSmartTagsEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
         )
         SettingsSwitchRow(
-            title = "Offline OCR",
-            subtitle = "Extract searchable text from shared screenshots and images on-device via bundled ML Kit",
+            title = "Text Recognition (OCR)",
+            subtitle = "Extract searchable text from shared screenshots and photos",
             checked = settings.effectiveOcrEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setOcrEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Duplicate Detection",
-            subtitle = "Flag exact or near-duplicate notes and attachments for manual review",
+            subtitle = "Highlight matching or near-duplicate notes and images for manual review",
             checked = settings.effectiveDuplicateDetectionEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setDuplicateDetectionEnabled(it) } }
         )
         SettingsSwitchRow(
-            title = "Hybrid Semantic Search (LiteRT)",
-            subtitle = "Blend local on-device text embedding similarity into SmartSearch results",
+            title = "Semantic Search",
+            subtitle = "Understand meaning and related topics alongside exact keyword matches",
             checked = settings.effectiveSemanticRerankEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
@@ -337,26 +316,26 @@ fun SmartFeaturesSettingsScreen(
         SectionLabel("Search & Privacy")
         SettingsSwitchRow(
             title = "Save Recent Searches",
-            subtitle = "Store recent SmartSearch queries locally on device",
+            subtitle = "Keep a quick history of your recent searches",
             checked = settings.recentSearchesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setRecentSearchesEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Fetch Link Previews (Network Opt-In)",
-            subtitle = "Optional: fetch page titles ONLY for saved URLs. Never transmits private note text. Default OFF.",
+            subtitle = "Optional: fetch webpage titles only for links you save; note text stays private. Off by default.",
             checked = settings.fetchLinkPreviews,
             onCheckedChange = { scope.launch { settingsRepository.setFetchLinkPreviews(it) } }
         )
         SettingsSwitchRow(
             title = "Background Analysis",
-            subtitle = "Run indexing and enabled smart analysis asynchronously after saving",
+            subtitle = "Update search indexing, tags, and text recognition in the background after saving",
             checked = settings.backgroundAnalysisEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setBackgroundAnalysisEnabled(it) } }
         )
         SettingsCategoryCard(
             icon = Icons.Rounded.Memory,
             title = "AI Hardware & Diagnostics",
-            subtitle = "Configure NPU / GPU / CPU preferences, energy mode, and view active LiteRT backend",
+            subtitle = "Choose NPU, GPU, or CPU execution and check hardware diagnostics",
             enabled = aiEnabled,
             onClick = onOpenAiProcessing
         )
@@ -381,7 +360,7 @@ fun AiProcessingSettingsScreen(
         if (!aiEnabled) {
             SettingsSwitchRow(
                 title = "Enable AI Features",
-                subtitle = "AI features are currently off. Turn on to re-enable LiteRT semantic search, Auto-Titles, SmartTags, OCR, and duplicate detection",
+                subtitle = "AI features are currently off. Turn on to re-enable Semantic Search, Auto-Titles, SmartTags, Text Recognition, and Duplicate Detection",
                 checked = false,
                 highlighted = true,
                 onCheckedChange = { enabled ->
@@ -410,9 +389,9 @@ fun AiProcessingSettingsScreen(
                         AiBackendPreference.CPU_ONLY -> "CPU Only"
                     }
                     val desc = when (pref) {
-                        AiBackendPreference.AUTO -> "Prioritizes low-power NPU first, then GPU, then CPU for LiteRT; bundled ML Kit for OCR"
-                        AiBackendPreference.PREFER_NPU -> "Prioritizes energy-efficient NPU hardware dispatch when ready; falls back cleanly"
-                        AiBackendPreference.PREFER_GPU -> "Prefers OpenCL/GLES GPU execution (skipped when Energy-Efficient throttling is active)"
+                        AiBackendPreference.AUTO -> "Prioritizes low-power NPU first, then GPU, then CPU for semantic features"
+                        AiBackendPreference.PREFER_NPU -> "Prioritizes energy-efficient NPU hardware dispatch when available"
+                        AiBackendPreference.PREFER_GPU -> "Uses GPU acceleration (skipped when Energy-Efficient throttling is active)"
                         AiBackendPreference.CPU_ONLY -> "Forces CPU execution strictly; disables both NPU and GPU delegates"
                     }
                     Row(
@@ -464,8 +443,8 @@ fun AiProcessingSettingsScreen(
         )
 
         SettingsSwitchRow(
-            title = "Hybrid Semantic Re-Ranking (LiteRT)",
-            subtitle = "Blend local compact text-embedding similarity into FTS5 SmartSearch results (enabled by default)",
+            title = "Semantic Search Ranking",
+            subtitle = "Blend meaning-based similarity into search results alongside keyword matching",
             checked = settings.effectiveSemanticRerankEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
@@ -524,134 +503,6 @@ fun AiProcessingSettingsScreen(
             OutlinedButton(onClick = onUnloadModel, modifier = Modifier.weight(1f)) {
                 Text("Unload Model")
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-fun ReminderSettingsScreen(
-    settings: AppSettings,
-    canScheduleExactAlarms: Boolean,
-    canPostLiveUpdates: Boolean,
-    settingsRepository: SettingsRepository,
-    onLiveUpdateSettingChanged: (Boolean) -> Unit = {},
-    onBack: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    fun checkNotifGranted(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-    } else {
-        true
-    }
-
-    fun checkExactAlarmGranted(): Boolean {
-        val mgr = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return canScheduleExactAlarms
-        return AlarmManagerCompat.canScheduleExactAlarms(mgr) || canScheduleExactAlarms
-    }
-
-    var hasNotifPermission by remember { mutableStateOf(checkNotifGranted()) }
-    var effectiveExactAlarms by remember { mutableStateOf(checkExactAlarmGranted()) }
-
-    val notifPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        hasNotifPermission = granted || checkNotifGranted()
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                hasNotifPermission = checkNotifGranted()
-                effectiveExactAlarms = checkExactAlarmGranted()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    SettingsSubScaffold(title = "Reminders", onBack = onBack) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = smartNoteCardBorder(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                DiagRow("Notifications", if (hasNotifPermission) "Granted" else "Not granted (alerts blocked)")
-                DiagRow("Exact Alarm Access", if (effectiveExactAlarms) "Granted" else "Fallback window (5 min)")
-                DiagRow(
-                    "Android 16 Live Updates / Now Bar",
-                    when {
-                        Build.VERSION.SDK_INT < 36 -> "Requires Android 16+ (using standard alerts)"
-                        canPostLiveUpdates -> "Available for today's reminders (silent until due)"
-                        else -> "Disabled in system settings (using standard alerts)"
-                    }
-                )
-                DiagRow("Wear OS Watch Sync", "Active (bridged alerts, wrist actions & voice reply)")
-                if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    TextButton(
-                        onClick = { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
-                    ) { Text("Allow Notifications") }
-                }
-                if (!effectiveExactAlarms && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    TextButton(
-                        onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                        data = Uri.parse("package:${context.packageName}")
-                                    }
-                                )
-                            }
-                        }
-                    ) { Text("Grant Exact Alarm Permission") }
-                }
-                TextButton(
-                    onClick = {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                }
-                            )
-                        }
-                    }
-                ) { Text("Open System Notification Settings") }
-            }
-        }
-
-        SectionLabel("Default Snooze Duration")
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf(5, 10, 15, 30, 60).forEach { mins ->
-                FilterChip(
-                    selected = settings.defaultSnoozeMinutes == mins,
-                    onClick = { scope.launch { settingsRepository.setDefaultSnoozeMinutes(mins) } },
-                    label = { Text("${mins}m") },
-                    border = null,
-                    colors = smartNoteTonalFilterChipColors()
-                )
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= 36) {
-            SettingsSwitchRow(
-                title = "Now Bar for Today's Reminders",
-                subtitle = "Shows today's upcoming reminders discreetly in the Android 16 Live Update / Now Bar (silent until due)",
-                checked = settings.liveUpdateRemindersEnabled,
-                onCheckedChange = { enabled ->
-                    scope.launch {
-                        settingsRepository.setLiveUpdateRemindersEnabled(enabled)
-                        onLiveUpdateSettingChanged(enabled)
-                    }
-                }
-            )
         }
     }
 }
@@ -794,14 +645,7 @@ fun IntegrationsSettingsScreen(
             icon = Icons.Rounded.Share,
             title = "Android Sharesheet",
             badge = "Active",
-            description = "Share text, URLs, screenshots, or multiple images from any app straight into SmartNote for private storage, offline OCR, and SmartTags."
-        )
-
-        SystemIntegrationCard(
-            icon = Icons.Rounded.Watch,
-            title = "Wear OS Watch Bridging",
-            badge = "No Watch App",
-            description = "Due reminders bridge directly to your paired Wear OS watch with synchronized dismissal, wrist Complete/Snooze buttons, and voice-reply note additions."
+            description = "Share text, links, screenshots, or multiple images from any app straight into SmartNote."
         )
     }
 }
@@ -883,7 +727,7 @@ fun DataSettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.Backup,
                     title = "Export Backup (.snbackup)",
-                    subtitle = "Save versioned ZIP with SHA-256 checksums, notes, tags, OCR, reminders & attachments",
+                    subtitle = "Save a verified backup archive with notes, tags, and images",
                     onClick = { exportLauncher.launch("smartnote-backup-$stamp.snbackup") }
                 )
             }
@@ -891,7 +735,7 @@ fun DataSettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.Restore,
                     title = "Import / Restore Backup",
-                    subtitle = "Choose Merge or Replace All after archive integrity verification",
+                    subtitle = "Merge with existing notes or restore from a saved archive",
                     onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) }
                 )
             }
@@ -899,7 +743,7 @@ fun DataSettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.ContentCopy,
                     title = "Review Duplicates",
-                    subtitle = "Inspect exact text, URL, image, and SimHash near-duplicate pairs",
+                    subtitle = "Review matching or near-duplicate notes and attachments",
                     onClick = onOpenDuplicates
                 )
             }
@@ -912,7 +756,7 @@ fun DataSettingsScreen(
                 )
             }
             item {
-                SectionLabel("Local Storage Usage")
+                SectionLabel("Storage Usage")
                 Surface(
                     shape = RoundedCornerShape(18.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -927,7 +771,7 @@ fun DataSettingsScreen(
                         DiagRow("Archived Notes", "${storageStats?.archivedCount ?: 0}")
                         DiagRow("Attachments (${storageStats?.attachmentCount ?: 0})", formatBytes(storageStats?.attachmentsBytes ?: 0L))
                         DiagRow("Thumbnails Cache", formatBytes(storageStats?.thumbnailsBytes ?: 0L))
-                        DiagRow("SQLite + FTS5 Database", formatBytes(storageStats?.databaseBytes ?: 0L))
+                        DiagRow("Notes Database", formatBytes(storageStats?.databaseBytes ?: 0L))
                     }
                 }
             }
@@ -1018,16 +862,15 @@ fun AboutScreen(onBack: () -> Unit) {
             ) {
                 Text("SmartNote v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    text = "Offline-first native Android notes built with Kotlin, Jetpack Compose, and Material 3 Expressive.",
+                    text = "A fast, private notes app for Android built with Kotlin, Jetpack Compose, and Material 3.",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(Modifier.height(4.dp))
-                SectionLabel("Privacy Guarantee")
+                SectionLabel("Privacy")
                 Text(
-                    text = "• Zero user accounts, zero cloud sync, zero ads or analytics.\n" +
-                        "• Offline OCR via bundled ML Kit Text Recognition.\n" +
-                        "• Local FTS5 + Trigram + Fuzzy SmartSearch inside Bundled SQLite.\n" +
-                        "• Network access is used ONLY when you explicitly opt into Link Previews.",
+                    text = "• No accounts, cloud sync, ads, or analytics.\n" +
+                        "• Image text recognition, auto-tags, titles, and search run directly on your device.\n" +
+                        "• Network access is used only if you opt into Link Previews for saved URLs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

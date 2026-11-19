@@ -334,7 +334,7 @@ fun DuplicateReviewScreen(
             EmptyStateMessage(
                 icon = Icons.Rounded.ContentCopy,
                 title = "No duplicate notes detected",
-                subtitle = "SmartNote never deletes duplicates automatically; potential matches appear here for review.",
+                subtitle = "Potential duplicate notes will appear here for review. Nothing is ever deleted automatically.",
                 modifier = Modifier.padding(innerPadding)
             )
         } else {

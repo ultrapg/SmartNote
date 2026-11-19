@@ -116,7 +116,7 @@ class QuickNoteWidget : GlanceAppWidget() {
                                 )
                             )
                             Text(
-                                text = "Capture offline",
+                                text = "Tap to write",
                                 style = TextStyle(
                                     color = GlanceTheme.colors.onPrimaryContainer
                                 )

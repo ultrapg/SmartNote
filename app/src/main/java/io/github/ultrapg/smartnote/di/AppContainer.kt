@@ -22,8 +22,6 @@ import io.github.ultrapg.smartnote.integration.widgets.WidgetRefreshHelper
 import io.github.ultrapg.smartnote.links.LinkMetadataFetcher
 import io.github.ultrapg.smartnote.ocr.MlKitBundledOcrEngine
 import io.github.ultrapg.smartnote.ocr.OcrEngine
-import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
@@ -89,14 +87,6 @@ class AppContainer(
         AppShortcutsManager(context)
     }
 
-    val reminderNotificationBuilder: ReminderNotificationBuilder by lazy {
-        ReminderNotificationBuilder(context, settingsRepository)
-    }
-
-    val reminderScheduler: ReminderScheduler by lazy {
-        ReminderScheduler(context, database, reminderNotificationBuilder)
-    }
-
     val tagRepository: TagRepository by lazy {
         TagRepository(
             database = database,
@@ -114,17 +104,7 @@ class AppContainer(
             onNoteChangedForBackground = { noteId ->
                 NoteProcessingWorker.enqueueForNote(context, noteId)
             },
-            onNotesUiMutated = { notifyShellChanged() },
-            onReminderChanged = { noteId ->
-                applicationScope.launch {
-                    val note = database.noteDao().getNoteById(noteId)
-                    if (note == null || note.isDeleted) {
-                        reminderScheduler.cancelReminderForNote(noteId, deleteFromDb = false)
-                    } else {
-                        reminderScheduler.rescheduleAllActiveReminders()
-                    }
-                }
-            }
+            onNotesUiMutated = { notifyShellChanged() }
         )
     }
 
@@ -162,7 +142,6 @@ class AppContainer(
             noteRepository = noteRepository,
             tagRepository = tagRepository,
             searchEngine = searchEngine,
-            reminderScheduler = reminderScheduler,
             settingsRepository = settingsRepository,
             titleGenerator = smartTitleGenerator
         )
@@ -173,8 +152,7 @@ class AppContainer(
             context = context,
             database = database,
             attachmentStorage = attachmentStorage,
-            searchIndexer = searchIndexer,
-            reminderScheduler = reminderScheduler
+            searchIndexer = searchIndexer
         )
     }
 

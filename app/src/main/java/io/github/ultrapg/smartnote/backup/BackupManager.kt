@@ -9,12 +9,10 @@ import io.github.ultrapg.smartnote.data.local.NoteBlockEntity
 import io.github.ultrapg.smartnote.data.local.NoteEntity
 import io.github.ultrapg.smartnote.data.local.NoteTagCrossRefEntity
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
-import io.github.ultrapg.smartnote.data.local.ReminderEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.local.TagEntity
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.domain.util.TextHashing
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,29 +30,27 @@ import java.util.zip.ZipOutputStream
 @Serializable
 data class BackupManifest(
     val format: String = "smartnote-backup",
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val appVersionName: String,
     val appVersionCode: Int,
     val createdAtEpochMs: Long,
     val noteCount: Int,
     val tagCount: Int,
     val attachmentCount: Int,
-    val reminderCount: Int,
     val dataSha256: String,
     val attachmentChecksums: Map<String, String>
 )
 
 @Serializable
 data class BackupSnapshot(
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val notes: List<BackupNoteDto>,
     val blocks: List<BackupBlockDto>,
     val tags: List<BackupTagDto>,
     val noteTags: List<BackupNoteTagDto>,
     val attachments: List<BackupAttachmentDto>,
     val ocrResults: List<BackupOcrDto>,
-    val links: List<BackupLinkDto>,
-    val reminders: List<BackupReminderDto>
+    val links: List<BackupLinkDto>
 )
 
 @Serializable
@@ -151,24 +147,6 @@ data class BackupLinkDto(
     val updatedAtMs: Long
 )
 
-@Serializable
-data class BackupReminderDto(
-    val id: String,
-    val noteId: String,
-    val triggerAtMs: Long,
-    val zoneId: String,
-    val localDateTimeIso: String,
-    val repeatRule: String,
-    val isCompleted: Boolean,
-    val completedAtMs: Long? = null,
-    val snoozeCount: Int,
-    val useLiveUpdate: Boolean,
-    val repeatDaysMask: Int = 0,
-    val repeatInterval: Int = 1,
-    val preAlertMinutes: Int = 0,
-    val isImportant: Boolean = false
-)
-
 enum class RestoreMode {
     MERGE,
     REPLACE_ALL
@@ -240,8 +218,7 @@ class BackupManager(
     private val context: Context,
     private val database: SmartNoteDatabase,
     private val attachmentStorage: AttachmentStorage,
-    private val searchIndexer: SearchIndexer,
-    private val reminderScheduler: ReminderScheduler
+    private val searchIndexer: SearchIndexer
 ) {
     private val json = Json {
         prettyPrint = true
@@ -260,7 +237,6 @@ class BackupManager(
         val attachments = database.attachmentDao().getAllAttachmentsSnapshot()
         val ocrs = database.attachmentDao().getAllOcrResultsSnapshot()
         val links = database.linkPreviewDao().getAllLinksSnapshot()
-        val reminders = database.reminderDao().getAllRemindersSnapshot()
 
         val snapshot = BackupSnapshot(
             notes = notes.map {
@@ -343,24 +319,6 @@ class BackupManager(
                     fetchStatus = it.fetchStatus,
                     updatedAtMs = it.updatedAtMs
                 )
-            },
-            reminders = reminders.map {
-                BackupReminderDto(
-                    id = it.id,
-                    noteId = it.noteId,
-                    triggerAtMs = it.triggerAtMs,
-                    zoneId = it.zoneId,
-                    localDateTimeIso = it.localDateTimeIso,
-                    repeatRule = it.repeatRule,
-                    isCompleted = it.isCompleted,
-                    completedAtMs = it.completedAtMs,
-                    snoozeCount = it.snoozeCount,
-                    useLiveUpdate = it.useLiveUpdate,
-                    repeatDaysMask = it.repeatDaysMask,
-                    repeatInterval = it.repeatInterval,
-                    preAlertMinutes = it.preAlertMinutes,
-                    isImportant = it.isImportant
-                )
             }
         )
 
@@ -384,7 +342,6 @@ class BackupManager(
             noteCount = notes.size,
             tagCount = tags.size,
             attachmentCount = exportFiles.size,
-            reminderCount = reminders.size,
             dataSha256 = dataSha256,
             attachmentChecksums = attachmentChecksums
         )
@@ -434,7 +391,7 @@ class BackupManager(
             }
 
             val manifest = json.decodeFromString(BackupManifest.serializer(), manifestFile.readText())
-            require(manifest.format == "smartnote-backup" && manifest.schemaVersion in 1..2) {
+            require(manifest.format == "smartnote-backup" && manifest.schemaVersion in 1..3) {
                 "Unsupported SmartNote backup format or schema version (${manifest.schemaVersion})."
             }
 
@@ -459,7 +416,6 @@ class BackupManager(
             val snapshot = json.decodeFromString(BackupSnapshot.serializer(), dataFile.readText())
             val result = applyValidatedSnapshot(snapshot, stagedAttachmentsRoot, mode)
             searchIndexer.rebuildAll()
-            reminderScheduler.rescheduleAllActiveReminders(recomputeTimeZone = true)
             result
         } finally {
             stagingDir.deleteRecursively()
@@ -510,9 +466,6 @@ class BackupManager(
                 if (snapshot.links.isNotEmpty()) {
                     database.linkPreviewDao().upsertLinks(snapshot.links.map { it.toEntity() })
                 }
-                if (snapshot.reminders.isNotEmpty()) {
-                    database.reminderDao().upsertReminders(snapshot.reminders.map { it.toEntity() })
-                }
                 importedCount = snapshot.notes.size
             }
 
@@ -536,7 +489,6 @@ class BackupManager(
             val attsByNote = snapshot.attachments.groupBy { it.noteId }
             val ocrByAttId = snapshot.ocrResults.associateBy { it.attachmentId }
             val linksByNote = snapshot.links.groupBy { it.noteId }
-            val reminderByNote = snapshot.reminders.associateBy { it.noteId }
 
             database.inWriteTransaction {
                 // Ensure tags exist without violating unique normalized_name
@@ -624,15 +576,6 @@ class BackupManager(
                         )
                     }
                     if (mappedLinks.isNotEmpty()) database.linkPreviewDao().upsertLinks(mappedLinks)
-
-                    reminderByNote[backupNote.id]?.let { rem ->
-                        database.reminderDao().upsertReminder(
-                            rem.toEntity().copy(
-                                id = if (targetNoteId == backupNote.id) rem.id else UUID.randomUUID().toString(),
-                                noteId = targetNoteId
-                            )
-                        )
-                    }
                 }
             }
         }
@@ -683,14 +626,5 @@ class BackupManager(
         id = id, noteId = noteId, rawUrl = rawUrl, canonicalUrl = canonicalUrl,
         domain = domain, pageTitle = pageTitle, description = description,
         fetchStatus = fetchStatus, updatedAtMs = updatedAtMs
-    )
-
-    private fun BackupReminderDto.toEntity() = ReminderEntity(
-        id = id, noteId = noteId, triggerAtMs = triggerAtMs, zoneId = zoneId,
-        localDateTimeIso = localDateTimeIso, repeatRule = repeatRule,
-        isCompleted = isCompleted, completedAtMs = completedAtMs,
-        snoozeCount = snoozeCount, useLiveUpdate = useLiveUpdate,
-        repeatDaysMask = repeatDaysMask, repeatInterval = repeatInterval.coerceAtLeast(1),
-        preAlertMinutes = preAlertMinutes.coerceAtLeast(0), isImportant = isImportant
     )
 }

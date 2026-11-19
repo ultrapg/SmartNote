@@ -114,7 +114,7 @@ fun SmartSearchScreen(
                 OutlinedTextField(
                     value = uiState.query,
                     onValueChange = onQueryChange,
-                    placeholder = { Text("SmartSearch titles, OCR text, #tags, URLs...") },
+                    placeholder = { Text("Search notes, tags, images, links...") },
                     leadingIcon = {
                         Icon(
                             Icons.Rounded.Search,

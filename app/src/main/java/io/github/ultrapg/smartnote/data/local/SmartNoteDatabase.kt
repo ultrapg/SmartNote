@@ -21,14 +21,13 @@ import kotlinx.coroutines.Dispatchers
         AttachmentEntity::class,
         OcrResultEntity::class,
         LinkPreviewEntity::class,
-        ReminderEntity::class,
         ProcessingJobEntity::class,
         RecentSearchEntity::class,
         SearchVocabEntity::class,
         DismissedDuplicateEntity::class,
         NoteEmbeddingEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class SmartNoteDatabase : RoomDatabase() {
@@ -37,7 +36,6 @@ abstract class SmartNoteDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun attachmentDao(): AttachmentDao
     abstract fun linkPreviewDao(): LinkPreviewDao
-    abstract fun reminderDao(): ReminderDao
     abstract fun searchAndMaintenanceDao(): SearchAndMaintenanceDao
 
     suspend fun <R> inWriteTransaction(block: suspend () -> R): R {
@@ -58,7 +56,7 @@ abstract class SmartNoteDatabase : RoomDatabase() {
             )
                 .setDriver(BundledSQLiteDriver())
                 .setQueryCoroutineContext(Dispatchers.IO)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(ftsCallback())
                 .build()
         }
@@ -69,7 +67,7 @@ abstract class SmartNoteDatabase : RoomDatabase() {
             )
                 .setDriver(BundledSQLiteDriver())
                 .setQueryCoroutineContext(Dispatchers.IO)
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .addCallback(ftsCallback())
                 .build()
         }
@@ -88,6 +86,12 @@ abstract class SmartNoteDatabase : RoomDatabase() {
                 connection.execSQL(
                     "ALTER TABLE reminders ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0"
                 )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL("DROP TABLE IF EXISTS reminders")
             }
         }
 

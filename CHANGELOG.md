@@ -4,6 +4,25 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.13] - 2026-11-19
+
+### Changed & Removed
+- **Complete Removal of Reminders, Android 16 Now Bar & Wear OS Support (`SmartNoteDatabase.kt`, `SmartNoteApplication.kt`, `NoteModels.kt`, `NoteRepository.kt`, `BackupManager.kt`, `SmartNoteOperationsApi.kt`, `AndroidManifest.xml`, `NoteEditorScreen.kt`, `NotesOverviewScreen.kt`, `SettingsScreens.kt`)**:
+  - Removed Wear OS notification bridging (`WearableExtender`, `RemoteInput`, Wear OS actions) and Wear OS UI references.
+  - Completely removed the entire Reminders feature and Android 16 Live Updates / Now Bar integration: deleted the `reminder/` package, `ReminderPickerSheet`, `ReminderSettingsScreen`, reminder notification icons/receivers, editor reminder bell/status card, overview `Reminders` filter chip and create-pill option, and all reminder/notification/alarm/vibrate manifest declarations (`POST_NOTIFICATIONS`, `POST_PROMOTED_NOTIFICATIONS`, `SCHEDULE_EXACT_ALARM`, `VIBRATE`, and app boot receivers).
+  - Upgraded Room database to **`version = 3`** with safe non-destructive `MIGRATION_2_3` (`DROP TABLE IF EXISTS reminders`) while keeping `MIGRATION_1_2`, so upgrading preserves all existing notes, checklists, tags, attachments, OCR data, and link previews (`app/schemas/.../3.json`).
+  - Added startup cleanup (`cleanupRetiredReminderNotifications`) in `SmartNoteApplication` to cancel lingering notifications and remove retired reminder/Now Bar notification channels on upgrade.
+  - Bumped `.snbackup` `BackupManager` `schemaVersion = 3` while continuing to accept v1–v3 backup archives cleanly during restore.
+- **On-Demand `Generate tags` Button (`NoteEditorViewModel.kt`, `NoteEditorScreen.kt`)**:
+  - Added an on-demand tonal **`Generate tags`** pill button in the note editor and updated `ManageTagsSheet`, enabling manual 1-tap tag suggestions whenever the master **Enable AI Features** switch is ON (even when automatic SmartTags is turned OFF).
+- **Polished User-Facing Copy (`NotesOverviewScreen.kt`, `NoteEditorScreen.kt`, `SmartSearchScreen.kt`, `SmartCaptureActivity.kt`, `SmartNoteGlanceWidgets.kt`, `ArchiveAndTrashScreens.kt`, `SettingsScreens.kt`)**:
+  - Refined headlines, subtitles, status text, and settings descriptions across the app to sound natural and concise, removing repetitive `"offline"` marketing copy and internal implementation jargon (`FTS5`, `LiteRT`, `ML Kit`, `SimHash`, `Trigram`).
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 31 tests passed, 0 failures, 0 errors, 0 skipped** (including `migratesVersion1And2DatabasesCleanlyToVersion3DroppingRemindersTable` and `onDemandTitleAndTagGenerationWorkEndToEndInEditor`).
+- `testReleaseUnitTest`: **9 suites, 31 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `56,750,725` bytes (`54.12 MiB`), `SHA-256: 127386fae4e5f109c6404c1f0d209ba716cdaf4f6845eed2fca6507c952149b4`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.12] - 2026-11-19
 
 ### Added & Changed

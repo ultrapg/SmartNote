@@ -5,7 +5,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
 import io.github.ultrapg.smartnote.domain.model.AppSettings
@@ -36,8 +35,6 @@ class SettingsRepository(
         val AI_BACKEND_PREFERENCE = stringPreferencesKey("ai_backend_preference")
         val ENERGY_EFFICIENT_AI = booleanPreferencesKey("energy_efficient_ai")
         val BACKGROUND_ANALYSIS_ENABLED = booleanPreferencesKey("background_analysis_enabled")
-        val DEFAULT_SNOOZE_MINUTES = intPreferencesKey("default_snooze_minutes")
-        val LIVE_UPDATE_REMINDERS_ENABLED = booleanPreferencesKey("live_update_reminders_enabled")
     }
 
     @Volatile
@@ -89,9 +86,7 @@ class SettingsRepository(
                     AiBackendPreference.AUTO
                 ),
                 energyEfficientAi = prefs[Keys.ENERGY_EFFICIENT_AI] ?: true,
-                backgroundAnalysisEnabled = prefs[Keys.BACKGROUND_ANALYSIS_ENABLED] ?: true,
-                defaultSnoozeMinutes = (prefs[Keys.DEFAULT_SNOOZE_MINUTES] ?: 10).coerceIn(1, 120),
-                liveUpdateRemindersEnabled = prefs[Keys.LIVE_UPDATE_REMINDERS_ENABLED] ?: true
+                backgroundAnalysisEnabled = prefs[Keys.BACKGROUND_ANALYSIS_ENABLED] ?: true
             ).also { mapped ->
                 currentSnapshot = mapped
                 persistBootCache(mapped)
@@ -171,14 +166,6 @@ class SettingsRepository(
 
     suspend fun setBackgroundAnalysisEnabled(enabled: Boolean) {
         dataStore.edit { it[Keys.BACKGROUND_ANALYSIS_ENABLED] = enabled }
-    }
-
-    suspend fun setDefaultSnoozeMinutes(minutes: Int) {
-        dataStore.edit { it[Keys.DEFAULT_SNOOZE_MINUTES] = minutes.coerceIn(1, 120) }
-    }
-
-    suspend fun setLiveUpdateRemindersEnabled(enabled: Boolean) {
-        dataStore.edit { it[Keys.LIVE_UPDATE_REMINDERS_ENABLED] = enabled }
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(raw: String?, fallback: T): T {

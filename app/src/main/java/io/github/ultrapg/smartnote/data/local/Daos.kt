@@ -394,46 +394,6 @@ interface LinkPreviewDao {
 }
 
 @Dao
-interface ReminderDao {
-    @Query("SELECT * FROM reminders")
-    fun observeAllReminders(): Flow<List<ReminderEntity>>
-
-    @Query("SELECT * FROM reminders WHERE note_id = :noteId LIMIT 1")
-    fun observeReminderForNote(noteId: String): Flow<ReminderEntity?>
-
-    @Query("SELECT * FROM reminders WHERE note_id = :noteId LIMIT 1")
-    suspend fun getReminderForNote(noteId: String): ReminderEntity?
-
-    @Query("SELECT * FROM reminders WHERE id = :reminderId LIMIT 1")
-    suspend fun getReminderById(reminderId: String): ReminderEntity?
-
-    @Query(
-        """
-        SELECT r.* FROM reminders r
-        INNER JOIN notes n ON r.note_id = n.id
-        WHERE r.is_completed = 0 AND n.is_deleted = 0
-        ORDER BY r.trigger_at_ms ASC
-        """
-    )
-    suspend fun getAllActiveReminders(): List<ReminderEntity>
-
-    @Query("SELECT * FROM reminders")
-    suspend fun getAllRemindersSnapshot(): List<ReminderEntity>
-
-    @Upsert
-    suspend fun upsertReminder(reminder: ReminderEntity)
-
-    @Upsert
-    suspend fun upsertReminders(reminders: List<ReminderEntity>)
-
-    @Query("DELETE FROM reminders WHERE note_id = :noteId")
-    suspend fun deleteReminderForNote(noteId: String)
-
-    @Query("DELETE FROM reminders WHERE id = :reminderId")
-    suspend fun deleteReminderById(reminderId: String)
-}
-
-@Dao
 interface SearchAndMaintenanceDao {
     @Query("SELECT * FROM recent_searches ORDER BY searched_at_ms DESC LIMIT 12")
     fun observeRecentSearches(): Flow<List<RecentSearchEntity>>

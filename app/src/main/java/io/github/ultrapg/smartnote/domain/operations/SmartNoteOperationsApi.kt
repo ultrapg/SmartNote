@@ -7,14 +7,10 @@ import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.NoteSourceType
-import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.TagSource
-import io.github.ultrapg.smartnote.reminder.ReminderCalculator
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchFilterSpec
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
 import kotlinx.coroutines.flow.first
-import java.time.ZoneId
 import java.util.UUID
 
 data class AgentNoteMetadataDto(
@@ -29,7 +25,6 @@ data class AgentNoteMetadataDto(
     val checklistTotal: Int,
     val checklistCompleted: Int,
     val imageCount: Int,
-    val reminderIso: String?,
     val createdAtMs: Long,
     val updatedAtMs: Long
 )
@@ -45,7 +40,6 @@ data class AgentNoteDetailDto(
     val isPinned: Boolean,
     val isArchived: Boolean,
     val isDeleted: Boolean,
-    val reminderIso: String?,
     val createdAtMs: Long,
     val updatedAtMs: Long
 )
@@ -65,7 +59,6 @@ class SmartNoteOperationsApi(
     private val noteRepository: NoteRepository,
     private val tagRepository: TagRepository,
     private val searchEngine: SmartSearchEngine,
-    private val reminderScheduler: ReminderScheduler,
     private val settingsRepository: SettingsRepository,
     private val titleGenerator: SmartTitleGenerator = SmartTitleGenerator()
 ) {
@@ -153,7 +146,6 @@ class SmartNoteOperationsApi(
             isPinned = detail.isPinned,
             isArchived = detail.isArchived,
             isDeleted = detail.isDeleted,
-            reminderIso = detail.reminder?.takeIf { !it.isCompleted }?.localDateTimeIso,
             createdAtMs = detail.createdAtMs,
             updatedAtMs = detail.updatedAtMs
         )
@@ -304,26 +296,6 @@ class SmartNoteOperationsApi(
         return toMetadataDto(updated)
     }
 
-    suspend fun setNoteReminder(
-        noteId: String,
-        triggerAtMs: Long?,
-        repeatRule: RepeatRule = RepeatRule.NONE
-    ): AgentOperationResult {
-        val validId = validateId(noteId)
-        noteRepository.getNoteDetail(validId)
-            ?: throw SmartNoteOperationException("NOT_FOUND", "Note not found.")
-        if (triggerAtMs == null) {
-            reminderScheduler.cancelReminderForNote(validId)
-            return AgentOperationResult(true, "Reminder removed.", validId)
-        }
-        if (triggerAtMs < System.currentTimeMillis() - 60_000L) {
-            throw SmartNoteOperationException("INVALID_ARGUMENT", "Reminder time must be in the future.")
-        }
-        reminderScheduler.scheduleOrUpdateReminder(validId, triggerAtMs, repeatRule)
-        val formatted = ReminderCalculator.formatLocalIso(triggerAtMs, ZoneId.systemDefault().id)
-        return AgentOperationResult(true, "Reminder scheduled for $formatted.", validId)
-    }
-
     suspend fun setNoteArchived(
         noteId: String,
         archived: Boolean
@@ -376,7 +348,6 @@ class SmartNoteOperationsApi(
             checklistTotal = summary.checklistTotalCount,
             checklistCompleted = summary.checklistCheckedCount,
             imageCount = summary.imageCount,
-            reminderIso = summary.reminder?.takeIf { !it.isCompleted }?.localDateTimeIso,
             createdAtMs = summary.createdAtMs,
             updatedAtMs = summary.updatedAtMs
         )

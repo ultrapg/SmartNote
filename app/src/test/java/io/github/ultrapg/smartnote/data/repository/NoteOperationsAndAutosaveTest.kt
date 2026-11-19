@@ -14,8 +14,6 @@ import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
-import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
 import io.github.ultrapg.smartnote.ui.editor.NoteEditorViewModel
@@ -255,11 +253,6 @@ class NoteOperationsAndAutosaveTest {
             autosaveCoordinator = coordinator,
             attachmentImporter = AttachmentImporter(context, storage),
             noteShareExporter = NoteShareExporter(context, storage),
-            reminderScheduler = ReminderScheduler(
-                context,
-                database,
-                ReminderNotificationBuilder(context, settingsRepo)
-            ),
             duplicateDetector = SmartDuplicateDetector(database, noteRepository),
             settingsRepository = settingsRepo
         )

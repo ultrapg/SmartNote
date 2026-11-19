@@ -85,6 +85,9 @@ class LargeDatasetAndUiTest {
         db.noteBlockDao().insertBlocks(blocks)
         indexer.rebuildAll()
 
+        // Warm up cold JVM / FTS5 + trigram query path before strict latency check
+        search.search("Kotlin")
+
         val startMs = System.currentTimeMillis()
         val response = search.search("Quantum")
         val elapsedMs = System.currentTimeMillis() - startMs
@@ -109,9 +112,9 @@ class LargeDatasetAndUiTest {
         }
         composeRule.onNodeWithContentDescription("Back and save").performClick()
         composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("Capture your thoughts").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("Capture anything, offline").assertIsDisplayed()
+        composeRule.onNodeWithText("Capture your thoughts").assertIsDisplayed()
         assertTrue(
             runBlocking {
                 app.container.noteRepository.getAllSummariesSnapshot().isEmpty()
@@ -190,7 +193,7 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Filter tags...").assertIsDisplayed()
 
         composeRule.onNodeWithText("SmartSearch").performClick()
-        composeRule.onNodeWithText("SmartSearch titles, OCR text, #tags, URLs...").assertIsDisplayed()
+        composeRule.onNodeWithText("Search notes, tags, images, links...").assertIsDisplayed()
 
         // Navigate to Settings -> AI & Smart Features and toggle master AI setting
         composeRule.onNodeWithText("Notes").performClick()
@@ -214,9 +217,9 @@ class LargeDatasetAndUiTest {
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsNotEnabled()
-        composeRule.onNodeWithText("Offline OCR").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Text Recognition (OCR)").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("Duplicate Detection").performScrollTo().assertIsNotEnabled()
-        composeRule.onNodeWithText("Hybrid Semantic Search (LiteRT)").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Semantic Search").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsNotEnabled()
         runBlocking {
             val disabledState = app.container.settingsRepository.settingsFlow.first()
@@ -314,10 +317,10 @@ class LargeDatasetAndUiTest {
 
         composeRule.onNodeWithText("SmartSearch").performClick()
         composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("SmartSearch titles, OCR text, #tags, URLs...").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("Search notes, tags, images, links...").fetchSemanticsNodes().isNotEmpty()
         }
 
-        composeRule.onNodeWithText("SmartSearch titles, OCR text, #tags, URLs...")
+        composeRule.onNodeWithText("Search notes, tags, images, links...")
             .performTextInput("dersert and labs")
 
         composeRule.waitUntil(5_000L) {
@@ -417,7 +420,7 @@ class LargeDatasetAndUiTest {
     fun morphingCreatePillMenuRollsOutUpwardAndLaunchesOptions() {
         val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
 
-        composeRule.onNodeWithText("Capture anything, offline").assertIsDisplayed()
+        composeRule.onNodeWithText("Capture your thoughts").assertIsDisplayed()
         assertTrue(
             "Empty-state New checklist action chip should be removed",
             composeRule.onAllNodesWithText("New checklist").fetchSemanticsNodes().isEmpty()
@@ -426,7 +429,6 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithContentDescription("New note").performClick()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithContentDescription("Close create menu").fetchSemanticsNodes().isNotEmpty() &&
-                composeRule.onAllNodesWithText("Reminder").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithText("Image").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithText("Note").fetchSemanticsNodes().isNotEmpty()
@@ -434,11 +436,15 @@ class LargeDatasetAndUiTest {
         composeRule.waitForIdle()
 
         assertTrue(
+            "Reminder option should be completely removed from the create menu",
+            composeRule.onAllNodesWithText("Reminder").fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
             "Pill toggle should use X icon only without 'Close' text label",
             composeRule.onAllNodesWithText("Close").fetchSemanticsNodes().isEmpty()
         )
         val closeBounds = composeRule.onNodeWithContentDescription("Close create menu").getBoundsInRoot()
-        listOf("Reminder", "Image", "Checklist", "Note").forEach { optionLabel ->
+        listOf("Image", "Checklist", "Note").forEach { optionLabel ->
             composeRule.onNodeWithText(optionLabel).assertIsDisplayed()
             val optionBounds = composeRule.onNodeWithText(optionLabel).getBoundsInRoot()
             assertTrue(
@@ -455,29 +461,10 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Checklist item").assertIsDisplayed()
         composeRule.onNodeWithContentDescription("Back and save").performClick()
         composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
-        }
-
-        // Choosing Reminder opens the editor with the Note Reminder sheet open
-        composeRule.onNodeWithContentDescription("New note").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Reminder").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithText("Reminder").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Note Reminder").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithText("Note Reminder").assertIsDisplayed()
-        composeRule.onNodeWithText("Cancel").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithContentDescription("Back and save").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithContentDescription("Back and save").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Capture anything, offline").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("Capture your thoughts").fetchSemanticsNodes().isNotEmpty()
         }
         assertTrue(
-            "Cancelling untouched checklist/reminder creation must not leave ghost notes",
+            "Cancelling untouched checklist creation must not leave ghost notes",
             runBlocking { app.container.noteRepository.getAllSummariesSnapshot().isEmpty() }
         )
     }
@@ -533,7 +520,7 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Recently updated").assertIsDisplayed()
         composeRule.onNodeWithText("Recently created").assertIsDisplayed()
         composeRule.onNodeWithText("Title A–Z").assertIsDisplayed()
-        composeRule.onNodeWithText("Search SmartNote, OCR, #tags...").assertIsDisplayed()
+        composeRule.onNodeWithText("Search notes, tags...").assertIsDisplayed()
         val rootBounds = composeRule.onRoot().getBoundsInRoot()
         val sortBounds = composeRule.onNodeWithTag("overview_top_menu_bubble").getBoundsInRoot()
         assertTrue(
@@ -585,84 +572,55 @@ class LargeDatasetAndUiTest {
     }
 
     @Test
-    fun reworkedReminderAndTagMenusWorkEndToEndInEditor() {
+    fun onDemandTitleAndTagGenerationWorkEndToEndInEditor() {
         val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
         runBlocking {
             app.container.settingsRepository.setAiFeaturesEnabled(true)
             app.container.settingsRepository.setAutoTitleEnabled(false)
+            app.container.settingsRepository.setSmartTagsEnabled(false)
         }
-        openNewTextNoteFromPill()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
-        }
+        try {
+            openNewTextNoteFromPill()
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
+            }
 
-        // 1. Even with auto-title disabled by default, typing body reveals on-demand "Generate" button
-        composeRule.onNodeWithText("Start writing", substring = true)
-            .performTextInput("Dentist appointment tomorrow.\nBuy milk and coffee #Errand")
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithContentDescription("Generate title").fetchSemanticsNodes().isNotEmpty()
-        }
-        assertTrue(composeRule.onAllNodesWithText("Auto-title:", substring = true).fetchSemanticsNodes().isEmpty())
-        composeRule.onNodeWithContentDescription("Generate title").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Dentist appointment tomorrow", substring = true).fetchSemanticsNodes().size >= 2
-        }
+            assertTrue(
+                "Set reminder button should be removed from editor top bar",
+                composeRule.onAllNodesWithContentDescription("Set reminder").fetchSemanticsNodes().isEmpty()
+            )
 
-        // Open ManageTagsSheet via "Add tag", verify suggested tags and add "Health" in 1 tap
-        composeRule.onNodeWithContentDescription("Add tag").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Manage Tags").fetchSemanticsNodes().isNotEmpty() &&
-                composeRule.onAllNodesWithText("Health").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("Suggested for this note").assertIsDisplayed()
-        composeRule.onNodeWithText("Health").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("#Health").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithText("#Health").assertIsDisplayed()
+            // 1. Even with both automatic titling & SmartTags disabled, on-demand Generate buttons appear & work
+            composeRule.onNodeWithText("Start writing", substring = true)
+                .performTextInput("Dentist appointment tomorrow.\nBuy milk and coffee #Errand")
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithContentDescription("Generate title").fetchSemanticsNodes().isNotEmpty() &&
+                    composeRule.onAllNodesWithContentDescription("Generate tags").fetchSemanticsNodes().isNotEmpty()
+            }
+            assertTrue(composeRule.onAllNodesWithText("Auto-title:", substring = true).fetchSemanticsNodes().isEmpty())
+            composeRule.onNodeWithContentDescription("Generate title").performClick()
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithText("Dentist appointment tomorrow", substring = true).fetchSemanticsNodes().size >= 2
+            }
 
-        // 2. Open simplified ReminderPickerSheet: progressive disclosure hides Custom days until More options is opened
-        composeRule.onNodeWithContentDescription("Set reminder").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Note Reminder").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("From note:", substring = true).performScrollTo().assertIsDisplayed()
-        assertTrue(composeRule.onAllNodesWithText("Custom days").fetchSemanticsNodes().isEmpty())
+            // Tap on-demand "Generate tags" directly in the editor and confirm #Health is applied
+            composeRule.onNodeWithContentDescription("Generate tags").performClick()
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithText("#Health").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("#Health").assertIsDisplayed()
 
-        // Verify centered Time Picker Dialog opens cleanly without bottom-sheet clipping
-        composeRule.onNodeWithText("Time").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Select time").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithText("OK").performSemanticsAction(SemanticsActions.OnClick)
-
-        composeRule.onNodeWithText("Tomorrow 09:00").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.onNodeWithTag("reminder_more_options_toggle").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Custom days").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("Custom days").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithContentDescription("Wednesday").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithContentDescription("Wednesday").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.onNodeWithText("30m before").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.onNodeWithText("Priority alert").performSemanticsAction(SemanticsActions.OnClick)
-        composeRule.onNodeWithTag("save_reminder_button").performSemanticsAction(SemanticsActions.OnClick)
-
-        // Verify in-editor Reminder Status Card renders with alert/priority info and completes to next recurrence
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithTag("editor_reminder_status_card").fetchSemanticsNodes().isNotEmpty()
-        }
-        composeRule.onNodeWithTag("editor_reminder_status_card").assertIsDisplayed()
-        composeRule.onNodeWithText("Alert 30m before", substring = true).assertIsDisplayed()
-        composeRule.onNodeWithContentDescription("Complete reminder").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Wed,", substring = true).fetchSemanticsNodes().isNotEmpty()
+            // Open ManageTagsSheet cleanly and dismiss
+            composeRule.onNodeWithContentDescription("Add tag").performClick()
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithText("Manage Tags").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Done").performSemanticsAction(SemanticsActions.OnClick)
+        } finally {
+            runBlocking {
+                app.container.settingsRepository.setSmartTagsEnabled(true)
+            }
         }
     }
 

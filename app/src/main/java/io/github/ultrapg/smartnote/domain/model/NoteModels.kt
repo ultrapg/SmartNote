@@ -35,16 +35,6 @@ enum class LinkFetchStatus {
     FAILED
 }
 
-enum class RepeatRule {
-    NONE,
-    DAILY,
-    WEEKDAYS,
-    WEEKLY,
-    MONTHLY,
-    YEARLY,
-    CUSTOM_DAYS
-}
-
 enum class NoteSortOrder {
     UPDATED_DESC,
     CREATED_DESC,
@@ -54,7 +44,6 @@ enum class NoteSortOrder {
 enum class NoteFilterType {
     ALL,
     PINNED,
-    REMINDERS,
     IMAGES,
     CHECKLISTS,
     LINKS
@@ -63,8 +52,7 @@ enum class NoteFilterType {
 enum class NoteCreationOption {
     TEXT_NOTE,
     CHECKLIST,
-    IMAGE,
-    REMINDER
+    IMAGE
 }
 
 enum class ThemePalette {
@@ -117,9 +105,7 @@ data class AppSettings(
     val semanticRerankEnabled: Boolean = true,
     val aiBackendPreference: AiBackendPreference = AiBackendPreference.AUTO,
     val energyEfficientAi: Boolean = true,
-    val backgroundAnalysisEnabled: Boolean = true,
-    val defaultSnoozeMinutes: Int = 10,
-    val liveUpdateRemindersEnabled: Boolean = true
+    val backgroundAnalysisEnabled: Boolean = true
 ) {
     val effectiveSmartTagsEnabled: Boolean get() = aiFeaturesEnabled && smartTagsEnabled
     val effectiveAutoTitleEnabled: Boolean get() = aiFeaturesEnabled && autoTitleEnabled
@@ -152,24 +138,6 @@ data class TagInfo(
     val noteCount: Int,
     val suggestedCount: Int,
     val createdAtMs: Long
-)
-
-@Immutable
-data class ReminderInfo(
-    val id: String,
-    val noteId: String,
-    val triggerAtMs: Long,
-    val zoneId: String,
-    val localDateTimeIso: String,
-    val repeatRule: RepeatRule,
-    val isCompleted: Boolean,
-    val completedAtMs: Long? = null,
-    val snoozeCount: Int = 0,
-    val useLiveUpdate: Boolean = true,
-    val repeatDaysMask: Int = 0,
-    val repeatInterval: Int = 1,
-    val preAlertMinutes: Int = 0,
-    val isImportant: Boolean = false
 )
 
 @Immutable
@@ -236,7 +204,6 @@ data class NoteSummary(
     val primaryThumbnailPath: String?,
     val imageCount: Int,
     val tags: List<NoteTag>,
-    val reminder: ReminderInfo?,
     val hasLink: Boolean,
     val primaryLinkDomain: String?,
     val ocrSnippet: String? = null,
@@ -246,7 +213,7 @@ data class NoteSummary(
         get() = !isPinned && !isArchived && !isDeleted &&
             title.isBlank() && previewText.isBlank() &&
             checklistPreview.isEmpty() && imageCount == 0 &&
-            !hasLink && tags.isEmpty() && reminder == null
+            !hasLink && tags.isEmpty()
 }
 
 @Immutable
@@ -264,8 +231,7 @@ data class NoteDetail(
     val blocks: List<NoteBlock>,
     val tags: List<NoteTag>,
     val attachments: List<AttachmentInfo>,
-    val links: List<LinkPreviewInfo>,
-    val reminder: ReminderInfo?
+    val links: List<LinkPreviewInfo>
 )
 
 @Immutable

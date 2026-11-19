@@ -22,7 +22,6 @@ data class NoteEditorRoute(
     val noteId: String? = null,
     val startChecklist: Boolean = false,
     val autoPickImage: Boolean = false,
-    val autoOpenReminder: Boolean = false,
     val sourceQuickTile: Boolean = false
 )
 
@@ -46,9 +45,6 @@ data object SmartFeaturesSettingsRoute
 
 @Serializable
 data object AiSettingsRoute
-
-@Serializable
-data object ReminderSettingsRoute
 
 @Serializable
 data object IntegrationsSettingsRoute

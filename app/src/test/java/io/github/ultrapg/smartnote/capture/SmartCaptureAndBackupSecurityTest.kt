@@ -16,8 +16,6 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
-import io.github.ultrapg.smartnote.reminder.ReminderNotificationBuilder
-import io.github.ultrapg.smartnote.reminder.ReminderScheduler
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -68,9 +66,7 @@ class SmartCaptureAndBackupSecurityTest {
                 produceFile = { File(context.cacheDir, "cap_bk_${System.nanoTime()}.preferences_pb") }
             )
         )
-        val notifBuilder = ReminderNotificationBuilder(context, settingsRepo)
-        val remScheduler = ReminderScheduler(context, database, notifBuilder)
-        backupManager = BackupManager(context, database, storage, indexer, remScheduler)
+        backupManager = BackupManager(context, database, storage, indexer)
     }
 
     @After

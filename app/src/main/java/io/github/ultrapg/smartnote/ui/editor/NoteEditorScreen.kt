@@ -57,7 +57,6 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.automirrored.rounded.TextSnippet
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Archive
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -74,7 +73,6 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Unarchive
@@ -143,9 +141,7 @@ import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
-import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.TagSource
-import io.github.ultrapg.smartnote.reminder.ReminderCalculator
 import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
 import io.github.ultrapg.smartnote.ui.designsystem.components.VerticalLazyScrollbar
 import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
@@ -184,17 +180,12 @@ fun NoteEditorScreen(
     onApplyAutoTagsNow: () -> Unit = {},
     onConfirmSuggestedTag: (String) -> Unit,
     onDismissOrRemoveTag: (String) -> Unit,
-    onSaveReminder: (Long, RepeatRule, Boolean, Int, Int, Int, Boolean) -> Unit,
-    onCompleteReminder: () -> Unit = {},
-    onSnoozeReminder: (Int) -> Unit = {},
-    onRemoveReminder: () -> Unit,
     onDismissDuplicate: (io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo) -> Unit,
     onOpenDuplicateNote: (String) -> Unit,
     onFlushAutosave: () -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
     initialPickImage: Boolean = false,
-    initialOpenReminder: Boolean = false,
     onExitEditor: () -> Unit = onFlushAutosave,
     onEnsureTrailingEditableBlock: () -> String = { uiState.blocks.lastOrNull()?.id.orEmpty() }
 ) {
@@ -209,10 +200,8 @@ fun NoteEditorScreen(
 
     var showOverflowMenu by remember { mutableStateOf(false) }
     var showAddTagDialog by remember { mutableStateOf(false) }
-    var showReminderSheet by remember { mutableStateOf(false) }
     var didAutoLaunchImagePicker by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
     var awaitingInitialImagePick by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
-    var didAutoOpenReminder by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
     var fullscreenAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
     var ocrViewerAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
     val textFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
@@ -233,9 +222,7 @@ fun NoteEditorScreen(
         val target = pendingFocusTarget ?: return@LaunchedEffect
         val targetId = target.first
         yield()
-        val hasActiveReminder = uiState.reminder != null && !uiState.reminder.isCompleted
         val prefixItems = 1 +
-            (if (hasActiveReminder) 1 else 0) +
             (if (uiState.tags.isNotEmpty()) 1 else 0) +
             (if (uiState.duplicateMatches.isNotEmpty()) 1 else 0)
         val blockIdx = uiState.blocks.indexOfFirst { it.id == targetId }
@@ -266,7 +253,7 @@ fun NoteEditorScreen(
         }
     }
 
-    LaunchedEffect(initialPickImage, initialOpenReminder) {
+    LaunchedEffect(initialPickImage) {
         if (initialPickImage && !didAutoLaunchImagePicker) {
             didAutoLaunchImagePicker = true
             awaitingInitialImagePick = true
@@ -277,10 +264,6 @@ fun NoteEditorScreen(
             }.onFailure {
                 awaitingInitialImagePick = false
             }
-        }
-        if (initialOpenReminder && !didAutoOpenReminder) {
-            didAutoOpenReminder = true
-            showReminderSheet = true
         }
     }
 
@@ -326,7 +309,7 @@ fun NoteEditorScreen(
                     val statusLabel = when (uiState.autosaveStatus) {
                         AutosaveStatus.PENDING -> "Editing..."
                         AutosaveStatus.SAVING -> "Saving..."
-                        AutosaveStatus.SAVED -> "Saved offline"
+                        AutosaveStatus.SAVED -> "Saved"
                         AutosaveStatus.ERROR -> "Save error"
                         AutosaveStatus.IDLE -> ""
                     }
@@ -360,17 +343,6 @@ fun NoteEditorScreen(
                             contentDescription = if (uiState.isPinned) "Unpin note" else "Pin note",
                             tint = if (uiState.isPinned) {
                                 MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
-                    IconButton(onClick = { showReminderSheet = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Alarm,
-                            contentDescription = "Set reminder",
-                            tint = if (uiState.reminder != null && !uiState.reminder.isCompleted) {
-                                MaterialTheme.colorScheme.tertiary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             }
@@ -483,10 +455,11 @@ fun NoteEditorScreen(
     ) { innerPadding ->
         val topContentPad = 8.dp
         val bottomContentPad = innerPadding.calculateBottomPadding() + 24.dp
+        val showGenerateTagsButton = uiState.aiFeaturesEnabled && uiState.liveTagSuggestions.isNotEmpty()
         val isSingleCleanTextBlock = uiState.blocks.size == 1 &&
             uiState.blocks.first().type == NoteBlockType.TEXT &&
             uiState.tags.isEmpty() &&
-            uiState.reminder == null &&
+            !showGenerateTagsButton &&
             uiState.duplicateMatches.isEmpty() &&
             uiState.links.isEmpty()
 
@@ -610,20 +583,7 @@ fun NoteEditorScreen(
                 }
             }
 
-            uiState.reminder?.takeIf { !it.isCompleted }?.let { rem ->
-                item(key = "editor_reminder_banner") {
-                    EditorReminderStatusCard(
-                        reminder = rem,
-                        onOpenPicker = { showReminderSheet = true },
-                        onComplete = {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onCompleteReminder()
-                        }
-                    )
-                }
-            }
-
-            if (uiState.tags.isNotEmpty()) {
+            if (uiState.tags.isNotEmpty() || showGenerateTagsButton) {
                 item(key = "editor_meta_chips") {
                     FlowRow(
                         modifier = Modifier.animateContentSize(SmartNoteMotion.softSizeSpring()),
@@ -699,39 +659,46 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        Surface(
-                            onClick = { showAddTagDialog = true },
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Text("Tag", style = MaterialTheme.typography.labelLarge)
-                            }
-                        }
-
-                        if (uiState.liveTagSuggestions.isNotEmpty() && uiState.smartTagsEnabled) {
+                        if (uiState.tags.isNotEmpty()) {
                             Surface(
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onApplyAutoTagsNow()
-                                },
+                                onClick = { showAddTagDialog = true },
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
+                                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Text("Tag", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                        }
+
+                        if (showGenerateTagsButton) {
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onApplyAutoTagsNow()
+                                },
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.semantics { contentDescription = "Generate tags" }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
                                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                                    Text("Auto-tag (${uiState.liveTagSuggestions.size})", style = MaterialTheme.typography.labelLarge)
+                                    Text(
+                                        text = "Generate tags",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -913,7 +880,7 @@ fun NoteEditorScreen(
 
     if (showAddTagDialog) {
         ManageTagsSheet(
-            smartTagsEnabled = uiState.smartTagsEnabled,
+            aiFeaturesEnabled = uiState.aiFeaturesEnabled,
             liveSuggestions = uiState.liveTagSuggestions,
             existingNoteTags = uiState.tags.map { it.name },
             availableVocabulary = uiState.availableTags,
@@ -928,31 +895,6 @@ fun NoteEditorScreen(
                 scope.launch { listState.scrollToItem(0) }
             },
             onDismiss = { showAddTagDialog = false }
-        )
-    }
-
-    if (showReminderSheet) {
-        ReminderPickerSheet(
-            existingReminder = uiState.reminder,
-            detectedSuggestion = uiState.detectedReminderSuggestion,
-            onSaveReminder = { triggerMs, rule, liveUpdate, daysMask, interval, preAlertMins, important ->
-                showReminderSheet = false
-                onSaveReminder(triggerMs, rule, liveUpdate, daysMask, interval, preAlertMins, important)
-                scope.launch { listState.scrollToItem(0) }
-            },
-            onCompleteReminder = {
-                showReminderSheet = false
-                onCompleteReminder()
-            },
-            onSnoozeReminder = { mins ->
-                showReminderSheet = false
-                onSnoozeReminder(mins)
-            },
-            onDeleteReminder = {
-                showReminderSheet = false
-                onRemoveReminder()
-            },
-            onDismiss = { showReminderSheet = false }
         )
     }
 
@@ -1005,7 +947,7 @@ fun NoteEditorScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Extracted Text (Offline OCR)", style = MaterialTheme.typography.titleLarge)
+                    Text("Extracted Text", style = MaterialTheme.typography.titleLarge)
                     if (!att.ocrText.isNullOrBlank()) {
                         TextButton(
                             onClick = {
@@ -1292,108 +1234,10 @@ private fun LinkBlockCard(
     }
 }
 
-@Composable
-private fun EditorReminderStatusCard(
-    reminder: io.github.ultrapg.smartnote.domain.model.ReminderInfo,
-    onOpenPicker: () -> Unit,
-    onComplete: () -> Unit
-) {
-    val nowMs = System.currentTimeMillis()
-    val isOverdue = reminder.triggerAtMs <= nowMs
-    val isUrgent = isOverdue || reminder.isImportant
-    val bgColor = if (isUrgent) {
-        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f)
-    } else {
-        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
-    }
-    val fgColor = if (isUrgent) {
-        MaterialTheme.colorScheme.onErrorContainer
-    } else {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    }
-
-    Surface(
-        onClick = onOpenPicker,
-        shape = RoundedCornerShape(18.dp),
-        color = bgColor,
-        contentColor = fgColor,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("editor_reminder_status_card")
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Alarm,
-                contentDescription = null,
-                modifier = Modifier.size(20.dp)
-            )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    text = "${ReminderCalculator.formatHumanDateTime(reminder.triggerAtMs, nowMs)} · ${ReminderCalculator.formatRelativeCountdown(reminder.triggerAtMs, nowMs)}",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val extras = buildList {
-                    if (reminder.repeatRule != RepeatRule.NONE) {
-                        add(
-                            ReminderCalculator.formatRepeatSummary(
-                                reminder.repeatRule,
-                                reminder.repeatDaysMask,
-                                reminder.repeatInterval
-                            )
-                        )
-                    }
-                    if (reminder.preAlertMinutes > 0) {
-                        add("Alert ${ReminderCalculator.formatPreAlertLabel(reminder.preAlertMinutes)}")
-                    }
-                    if (reminder.isImportant) add("Priority")
-                }.joinToString(" · ")
-                if (extras.isNotBlank()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (reminder.repeatRule != RepeatRule.NONE) {
-                            Icon(Icons.Rounded.Repeat, contentDescription = null, modifier = Modifier.size(13.dp))
-                        }
-                        Text(
-                            text = extras,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = fgColor.copy(alpha = 0.85f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-            Surface(
-                onClick = onComplete,
-                shape = CircleShape,
-                color = fgColor.copy(alpha = 0.14f),
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.Check,
-                        contentDescription = "Complete reminder",
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun ManageTagsSheet(
-    smartTagsEnabled: Boolean,
+    aiFeaturesEnabled: Boolean,
     liveSuggestions: List<SmartTagSuggestion>,
     existingNoteTags: List<String>,
     availableVocabulary: List<String>,
@@ -1435,11 +1279,11 @@ private fun ManageTagsSheet(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                if (smartTagsEnabled && liveSuggestions.isNotEmpty()) {
+                if (aiFeaturesEnabled && liveSuggestions.isNotEmpty()) {
                     TextButton(onClick = onApplyAllAutoTags) {
                         Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Auto-tag")
+                        Text("Generate tags")
                     }
                 }
             }
@@ -1488,7 +1332,7 @@ private fun ManageTagsSheet(
                 }
             }
 
-            if (smartTagsEnabled && liveSuggestions.isNotEmpty()) {
+            if (aiFeaturesEnabled && liveSuggestions.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = "Suggested for this note",

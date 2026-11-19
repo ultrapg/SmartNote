@@ -2,15 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Local Notifications & Android 16+ Promoted Live Updates strictly for active reminders -->
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
-
-    <!-- Offline Alarm Scheduling & Reboot Resilience -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-
     <!-- Strictly gated behind opt-in Link Preview preference (default OFF) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -92,34 +83,6 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
-
-        <!-- Offline Reminder Receivers -->
-        <receiver
-            android:name=".reminder.ReminderBroadcastReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_TRIGGER" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_PRE_ALERT" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_COMPLETE" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_DISMISSED" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_SNOOZE" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_TODAY_SYNC" />
-                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_WEAR_APPEND" />
-            </intent-filter>
-        </receiver>
-
-        <receiver
-            android:name=".reminder.SystemTimeBootReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-                <action android:name="android.intent.action.TIME_SET" />
-                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
-                <action android:name="android.intent.action.DATE_CHANGED" />
-                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
-            </intent-filter>
-        </receiver>
 
         <!-- Quick Settings Tile -->
         <service
