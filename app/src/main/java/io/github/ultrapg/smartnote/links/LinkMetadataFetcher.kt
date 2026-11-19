@@ -27,7 +27,8 @@ data class LinkMetadataResult(
 class LinkMetadataFetcher(
     private val settingsRepository: SettingsRepository,
     private val client: OkHttpClient = defaultClient(),
-    private val attachmentStorage: AttachmentStorage? = null
+    private val attachmentStorage: AttachmentStorage? = null,
+    private val targetValidator: (String) -> Boolean = ::isPublicHttpTarget
 ) {
     private data class FetchedPayload(
         val finalUrl: String,
@@ -49,7 +50,7 @@ class LinkMetadataFetcher(
         val parsed = SmartLinkDetector.parseSingleUrl(rawUrl)
             ?: return@withContext LinkMetadataResult(null, null, succeeded = false)
 
-        if (!isPublicHttpTarget(parsed.canonicalUrl)) {
+        if (!targetValidator(parsed.canonicalUrl)) {
             return@withContext LinkMetadataResult(null, null, succeeded = false)
         }
 
@@ -78,7 +79,7 @@ class LinkMetadataFetcher(
             ?: extractMetaContent(html, "twitter:image")
             ?: extractMetaContent(html, "twitter:image:src")
         val resolvedImageUrl = resolvePreviewImageUrl(htmlPayload.finalUrl, rawImage)
-            ?.takeIf { isPublicHttpTarget(it) }
+            ?.takeIf { targetValidator(it) }
 
         val storage = attachmentStorage
         val localThumb = if (storage != null && resolvedImageUrl != null) {
@@ -120,7 +121,7 @@ class LinkMetadataFetcher(
     ): FetchedPayload? = runCatching {
         var currentUrl = startUrl
         for (hop in 0..MAX_REDIRECTS) {
-            if (!isPublicHttpTarget(currentUrl)) return@runCatching null
+            if (!targetValidator(currentUrl)) return@runCatching null
             val request = Request.Builder()
                 .url(currentUrl)
                 .header("User-Agent", USER_AGENT)

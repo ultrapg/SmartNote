@@ -70,6 +70,10 @@ object SmartNoteMotion {
     fun <T> expressivePopSpring(): SpringSpec<T> = spring(dampingRatio = 0.78f, stiffness = 520f)
     fun <T> expressiveMorphSpring(): SpringSpec<T> = spring(dampingRatio = 0.84f, stiffness = 460f)
     fun softPressSpring(): SpringSpec<Float> = spring(dampingRatio = 1.0f, stiffness = 700f)
+    fun <T> refinedMenuOpenSpring(): SpringSpec<T> = spring(dampingRatio = 0.88f, stiffness = 460f)
+    fun <T> refinedMenuCloseSpring(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 620f)
+    fun <T> refinedMenuMorphSpring(): SpringSpec<T> = spring(dampingRatio = 0.90f, stiffness = 480f)
+    fun <T> refinedIconSpring(): SpringSpec<T> = spring(dampingRatio = 0.88f, stiffness = 540f)
 }
 
 @Immutable

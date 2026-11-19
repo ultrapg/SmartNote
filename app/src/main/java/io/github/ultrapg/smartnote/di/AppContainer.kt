@@ -37,6 +37,7 @@ import io.github.ultrapg.smartnote.security.AppLockSessionTracker
 import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
+import io.github.ultrapg.smartnote.worker.NoteProcessingPipeline
 import io.github.ultrapg.smartnote.worker.NoteProcessingWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +152,25 @@ class AppContainer(
                 NoteProcessingWorker.enqueueForNote(context, noteId)
             },
             onNotesUiMutated = { notifyShellChanged() }
+        )
+    }
+
+    val noteProcessingPipeline: NoteProcessingPipeline by lazy {
+        NoteProcessingPipeline(
+            database = database,
+            noteRepository = noteRepository,
+            tagRepository = tagRepository,
+            settingsRepository = settingsRepository,
+            attachmentStorage = attachmentStorage,
+            searchIndexer = searchIndexer,
+            smartOcrCoordinator = smartOcrCoordinator,
+            imageLabelingEngine = imageLabelingEngine,
+            systemEntityAnalyzer = systemEntityAnalyzer,
+            linkMetadataFetcher = linkMetadataFetcher,
+            smartTitleGenerator = smartTitleGenerator,
+            smartTaggingCoordinator = smartTaggingCoordinator,
+            aiEngine = aiEngine,
+            applicationScope = applicationScope
         )
     }
 

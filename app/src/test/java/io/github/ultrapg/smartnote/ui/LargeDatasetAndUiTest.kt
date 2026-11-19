@@ -524,6 +524,20 @@ class LargeDatasetAndUiTest {
             )
         }
 
+        // Collapsing cleanly returns to the 56dp FAB and removes option rows from composition
+        composeRule.onNodeWithContentDescription("Close create menu").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("New note").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Image").fetchSemanticsNodes().isEmpty() &&
+                composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isEmpty() &&
+                composeRule.onAllNodesWithText("Note").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+
         // Choosing Checklist opens the editor directly in checklist mode
         composeRule.onNodeWithText("Checklist").performClick()
         composeRule.waitUntil(3_000L) {

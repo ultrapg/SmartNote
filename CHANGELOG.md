@@ -4,6 +4,24 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.18] - 2026-11-19
+
+### Added & Changed
+- **Full On-Device Auto-Tagging & Smart AI Pipeline for Android Share (`SmartCaptureActivity.kt`, `NoteProcessingPipeline.kt`, `NoteProcessingWorker.kt`, `SmartTagsEngine.kt`, `SmartTaggingCoordinator.kt`, `SmartTitleGenerator.kt`, `LinkMetadataFetcher.kt`, `AppContainer.kt`)**:
+  - Extracted a revision-deduplicated, per-note mutex-serialized `NoteProcessingPipeline` (`FULL_PIPELINE` + `contentRevision` guard) shared by `SmartCaptureActivity` (`launchImmediate(noteId)` right on save) and `NoteProcessingWorker` (using `OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST` on Android 12+ for durable background backup without double-processing).
+  - Reordered link preview fetching ahead of entity extraction, auto-title generation, SmartTags, and embeddings so opt-in `Fetch Link Previews` metadata (`pageTitle` and `description`) enriches `SmartTagsEngine` (`extraContextTexts`), `SmartTaggingCoordinator`, `SystemEntityAnalyzer`, `SmartTitleGenerator`, and LiteRT semantic embeddings.
+  - Enabled clean Stage 4 open-vocabulary topic fallback in `SmartTaggingCoordinator` when `allowNewTopicTags` is enabled and content, links, or link metadata are available, and added `GENERIC_MEDIA_FILENAME_REGEX` (`Screenshot_*`, `IMG_*`, `PXL_*`, etc.) to `SmartTitleGenerator.isPlaceholderOrBlankTitle(...)`.
+  - Upgraded `SmartCaptureActivity` with `sanitizeInitialSubject(...)` (filtering URLs, duplicate body text, and camera/screenshot filenames while surfacing `Auto:` placeholder hints), two-stage reactive SmartTags preview (instant `SmartTagsEngine` Pass 1 + debounced `SmartTaggingCoordinator` Pass 2 supporting `attachmentFilesOverride` for staged images, App Lock tag/profile privacy gating, Image Labeling, System Entities, LiteRT embeddings, and Gemini Nano `Off`/`Auto`/`Force`), plus an interactive **Generate title** (`Icons.Rounded.AutoAwesome`) cycling button in the Share sheet.
+- **Refined & Unified Overview Menu Animations (`NotesOverviewScreen.kt`, `SmartNoteTheme.kt`)**:
+  - Added near-critically damped menu motion springs to `SmartNoteMotion` (`refinedMenuOpenSpring`, `refinedMenuCloseSpring`, `refinedMenuMorphSpring`, `refinedIconSpring`).
+  - Rebuilt `ExpressiveMorphingCreateFab` & `CreatePillOptionRow` with a single `animateFloatAsState` progress value driving a custom `Layout` that morphs container width, height, corner radius (`16.dp` -> `28.dp`), elevation, GPU-only `+`/`X` icon rotation/scale, bottom-up cubic ease-out option emergence, early collapse dissolve, and bounded Material ripples in complete lockstep.
+  - Upgraded the top-bar `Sort` and `Overflow` pop-out bubble (`overview_top_menu_bubble`) and `TopBarBubbleTriggerButton` with placement-only horizontal `.offset` gliding (snapping cleanly to the tapped icon when opening fresh and gliding with `refinedMenuMorphSpring` when switching `Sort <-> Menu`), tightened scale/slide/fade curves, cross-switch row bounce suppression (`animateEntrance`), Material ripple feedback, and GPU cross-morphing between action icons and `Close`.
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 40 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **9 suites, 40 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `58,091,175` bytes (`55.40 MiB`), `SHA-256: e5ed66574c837c25ced4df3d4d2408c4231897697fb4d3bcdd4d78db3a75012e`, `versionCode = 19`, `versionName = "1.0.18"`, 0 Kotlin source warnings, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.17] - 2026-11-19
 
 ### Added & Changed

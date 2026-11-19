@@ -564,7 +564,8 @@ class SmartTagsEngine {
         includeTopicKeywords: Boolean = false,
         maxTags: Int = 4,
         minConfidence: Float = 0.68f,
-        preferExistingTags: Boolean = true
+        preferExistingTags: Boolean = true,
+        extraContextTexts: List<String> = emptyList()
     ): List<SmartTagSuggestion> {
         val cappedMaxTags = maxTags.coerceIn(1, 6)
         val effectiveMinConf = minConfidence.coerceIn(0.55f, 0.90f)
@@ -582,7 +583,10 @@ class SmartTagsEngine {
         val checklistItems = blocks.filter { it.type == NoteBlockType.CHECKLIST }.map { it.textContent }
         val checklistText = checklistItems.joinToString("\n")
         val combinedOcr = ocrTexts.joinToString("\n")
-        val allText = listOf(title, bodyText, checklistText, combinedOcr).joinToString("\n")
+        val combinedExtra = extraContextTexts.filter { it.isNotBlank() }.joinToString("\n")
+        val allText = listOf(title, bodyText, checklistText, combinedOcr, combinedExtra)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
         val allTextLower = foldToAsciiLower(allText)
 
         val existingUserTagsByLower = existingUserVocabulary
@@ -686,6 +690,7 @@ class SmartTagsEngine {
             }
         }
         accumulateText(title, 3.2f)
+        accumulateText(combinedExtra, 2.2f)
         accumulateText(links.joinToString(" ") { "${it.domain} ${it.rawUrl}" }, 2.0f)
         accumulateText(checklistText, 1.7f)
         accumulateText(bodyText, 1.5f)
@@ -848,6 +853,7 @@ class SmartTagsEngine {
                     bodyText = bodyText,
                     checklistText = checklistText,
                     ocrText = combinedOcr,
+                    extraContextText = combinedExtra,
                     alreadyCoveredLower = coveredLower,
                     maxCount = minOf(2, cappedMaxTags)
                 )
@@ -884,6 +890,7 @@ class SmartTagsEngine {
         bodyText: String,
         checklistText: String,
         ocrText: String,
+        extraContextText: String,
         alreadyCoveredLower: Set<String>,
         maxCount: Int
     ): List<Pair<String, Float>> {
@@ -897,7 +904,7 @@ class SmartTagsEngine {
             var isDistinctiveProperTerm: Boolean = false
         )
 
-        val rawCombined = listOf(title, bodyText, checklistText, ocrText).joinToString(" ")
+        val rawCombined = listOf(title, bodyText, checklistText, ocrText, extraContextText).joinToString(" ")
         val isGermanNote = isLikelyGermanText(rawCombined)
         val candidates = LinkedHashMap<String, TopicAccumulator>()
         val rawWordRegex = Regex("""[\p{L}][\p{L}\p{N}_-]{2,26}""")
@@ -958,6 +965,7 @@ class SmartTagsEngine {
         }
 
         feedLines(title, 2.2f, detectHeadings = false, fromTitle = true, fromBodyOrChecklist = false)
+        feedLines(extraContextText, 1.6f, detectHeadings = false, fromTitle = true, fromBodyOrChecklist = true)
         feedLines(bodyText, 1.35f, detectHeadings = true, fromTitle = false, fromBodyOrChecklist = true)
         feedLines(checklistText, 1.45f, detectHeadings = false, fromTitle = false, fromBodyOrChecklist = true)
         feedLines(ocrText, 0.90f, detectHeadings = false, fromTitle = false, fromBodyOrChecklist = true)

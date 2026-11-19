@@ -6,6 +6,19 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.ai.AiHardwareCapabilities
+import io.github.ultrapg.smartnote.ai.ClassifiedTextEntity
+import io.github.ultrapg.smartnote.ai.DetectedImageLabel
+import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
+import io.github.ultrapg.smartnote.ai.GeminiNanoCapabilities
+import io.github.ultrapg.smartnote.ai.ImageLabelingAvailability
+import io.github.ultrapg.smartnote.ai.ImageLabelingEngine
+import io.github.ultrapg.smartnote.ai.LiteRtRuntimeBridge
+import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
+import io.github.ultrapg.smartnote.ai.SmartNoteAiEngine
+import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
+import io.github.ultrapg.smartnote.ai.SystemEntityAvailability
+import io.github.ultrapg.smartnote.ai.SystemEntityAnalyzer
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.backup.RestoreMode
 import io.github.ultrapg.smartnote.backup.SafeZipExtractor
@@ -14,14 +27,33 @@ import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
+import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
+import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.NoteSourceType
+import io.github.ultrapg.smartnote.domain.model.OcrStatus
+import io.github.ultrapg.smartnote.links.LinkMetadataFetcher
+import io.github.ultrapg.smartnote.ocr.OcrEngine
+import io.github.ultrapg.smartnote.ocr.OcrOutcome
+import io.github.ultrapg.smartnote.ocr.SmartOcrCoordinator
 import io.github.ultrapg.smartnote.search.SearchIndexer
+import io.github.ultrapg.smartnote.search.SmartSearchEngine
+import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
+import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
+import io.github.ultrapg.smartnote.tags.SmartTagsEngine
+import io.github.ultrapg.smartnote.worker.NoteProcessingOutcome
+import io.github.ultrapg.smartnote.worker.NoteProcessingPipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.runTest
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,7 +78,11 @@ class SmartCaptureAndBackupSecurityTest {
     private lateinit var database: SmartNoteDatabase
     private lateinit var storage: AttachmentStorage
     private lateinit var importer: AttachmentImporter
+    private lateinit var indexer: SearchIndexer
+    private lateinit var tagRepo: TagRepository
     private lateinit var noteRepository: NoteRepository
+    private lateinit var settingsRepo: SettingsRepository
+    private lateinit var dsFile: File
     private lateinit var backupManager: BackupManager
     private lateinit var scope: CoroutineScope
 
@@ -57,13 +93,14 @@ class SmartCaptureAndBackupSecurityTest {
         database = SmartNoteDatabase.createInMemory(context)
         storage = AttachmentStorage(context)
         importer = AttachmentImporter(context, storage)
-        val indexer = SearchIndexer(database)
-        val tagRepo = TagRepository(database, indexer)
+        indexer = SearchIndexer(database)
+        tagRepo = TagRepository(database, indexer)
         noteRepository = NoteRepository(database, storage, indexer, tagRepo)
-        val settingsRepo = SettingsRepository(
+        dsFile = File(context.cacheDir, "cap_bk_${System.nanoTime()}.preferences_pb")
+        settingsRepo = SettingsRepository(
             androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
                 scope = scope,
-                produceFile = { File(context.cacheDir, "cap_bk_${System.nanoTime()}.preferences_pb") }
+                produceFile = { dsFile }
             )
         )
         backupManager = BackupManager(context, database, storage, indexer)
@@ -73,6 +110,7 @@ class SmartCaptureAndBackupSecurityTest {
     fun tearDown() {
         scope.cancel()
         database.close()
+        dsFile.delete()
         storage.attachmentsDir.deleteRecursively()
         storage.thumbnailsDir.deleteRecursively()
     }
@@ -209,5 +247,207 @@ class SmartCaptureAndBackupSecurityTest {
 
         backupFile.delete()
         tamperedFile.delete()
+    }
+
+    @Test
+    fun sanitizeInitialSubjectFiltersUrlsDuplicatesAndCameraFilenames() {
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("   ", "hello"))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("https://example.com/a", ""))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("www.example.com", ""))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("Same body text", "same body text"))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("Screenshot_20261119_115500.png", ""))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("IMG_20261119_120000.jpg", ""))
+        assertEquals("", SmartCaptureActivity.sanitizeInitialSubject("PXL_20261119_120000123", ""))
+        assertEquals(
+            "Quarterly Planning Deck",
+            SmartCaptureActivity.sanitizeInitialSubject("Quarterly Planning Deck", "Check attached PDF notes")
+        )
+    }
+
+    @Test
+    fun shareCapturePipelineRunsOcrLinkPreviewAutoTitleSmartTagsAndDeduplicatesByRevision() = runTest {
+        settingsRepo.setAutoTitleEnabled(true)
+        settingsRepo.setFetchLinkPreviews(true)
+        settingsRepo.setAllowNewTopicTags(true)
+
+        var ocrCalls = 0
+        val fakeOcr = object : OcrEngine {
+            override suspend fun recognizeFile(file: File): OcrOutcome {
+                ocrCalls++
+                return OcrOutcome(
+                    text = "Coffee Beans  $14.50\nSupermarket Receipt\nSubtotal EUR 12.18\nTotal EUR 14.50",
+                    confidence = 0.91f,
+                    succeeded = true
+                )
+            }
+        }
+        val fakeLabeler = object : ImageLabelingEngine {
+            override suspend fun checkAvailability(forceRefresh: Boolean) = ImageLabelingAvailability.AVAILABLE
+            override suspend fun labelImageFile(file: File) = listOf(
+                DetectedImageLabel("Receipt", 0.92f)
+            )
+        }
+        val readyEntities = object : SystemEntityAnalyzer {
+            override fun checkAvailability() = SystemEntityAvailability.AVAILABLE
+            override suspend fun extractEntities(text: String) = emptyList<ClassifiedTextEntity>()
+        }
+        val cpuBridge = object : LiteRtRuntimeBridge {
+            override fun probeCapabilities() = AiHardwareCapabilities(
+                socDescription = "Test SoC",
+                npuDeviceSupported = false,
+                npuRuntimeReady = false,
+                availableAccelerators = setOf(AiHardwareBackend.CPU)
+            )
+            override fun initialize(targetBackend: AiHardwareBackend) = Result.success(targetBackend)
+            override fun runProjection(input128: FloatArray) = Result.success(FloatArray(64) { 0f })
+            override fun close() {}
+        }
+        val unavailableNano = object : OnDeviceGenAiAssistant {
+            override suspend fun checkAvailability() = GeminiNanoAvailability.UNAVAILABLE
+            override suspend fun probeCapabilities(forceRefresh: Boolean) = GeminiNanoCapabilities()
+            override fun triggerBackgroundDownloadIfNeeded() {}
+            override suspend fun generateTitleCandidates(
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                linkHints: List<String>,
+                primaryImageBitmap: Bitmap?
+            ) = emptyList<String>()
+            override suspend fun generateTags(
+                title: String,
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                existingVocabulary: List<String>,
+                existingNoteTags: Set<String>
+            ) = emptyList<SmartTagSuggestion>()
+            override fun close() {}
+        }
+        val fakeHttpClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val html = """
+                    <html><head>
+                      <meta property="og:title" content="Crispy Garlic Pasta Recipe — Chefkoch" />
+                      <meta name="description" content="Easy pasta dinner recipe with garlic, olive oil, and parmesan." />
+                    </head></html>
+                """.trimIndent()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body(html.toResponseBody("text/html; charset=utf-8".toMediaType()))
+                    .build()
+            }
+            .build()
+
+        val aiEngine = SmartNoteAiEngine(
+            database = database,
+            settingsRepository = settingsRepo,
+            runtimeBridge = cpuBridge,
+            applicationScope = scope,
+            idleUnloadMs = 0L,
+            geminiNanoAssistant = unavailableNano,
+            imageLabelingEngine = fakeLabeler,
+            systemEntityAnalyzer = readyEntities
+        )
+        val coordinator = SmartTaggingCoordinator(
+            smartTagsEngine = SmartTagsEngine(),
+            aiEngine = aiEngine,
+            systemEntityAnalyzer = readyEntities,
+            imageLabelingEngine = fakeLabeler,
+            geminiNanoAssistant = unavailableNano,
+            attachmentStorage = storage
+        )
+        val pipeline = NoteProcessingPipeline(
+            database = database,
+            noteRepository = noteRepository,
+            tagRepository = tagRepo,
+            settingsRepository = settingsRepo,
+            attachmentStorage = storage,
+            searchIndexer = indexer,
+            smartOcrCoordinator = SmartOcrCoordinator(fakeOcr, unavailableNano),
+            imageLabelingEngine = fakeLabeler,
+            systemEntityAnalyzer = readyEntities,
+            linkMetadataFetcher = LinkMetadataFetcher(settingsRepo, fakeHttpClient, storage) { true },
+            smartTitleGenerator = SmartTitleGenerator(aiEngine, unavailableNano),
+            smartTaggingCoordinator = coordinator,
+            aiEngine = aiEngine,
+            applicationScope = scope
+        )
+
+        // 1. Shared image note runs OCR -> Auto-Title -> Image+OCR SmartTags -> FTS5, and deduplicates repeat runs
+        val sampleImg = java.nio.file.Files.createTempFile("IMG_20261119_", ".jpg").toFile()
+        try {
+            val bmp = Bitmap.createBitmap(180, 240, Bitmap.Config.ARGB_8888)
+            FileOutputStream(sampleImg).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+            bmp.recycle()
+
+            val staged = importer.stageIncomingUris("sess_pipe", listOf(Uri.fromFile(sampleImg)))
+            val imgNoteId = java.util.UUID.randomUUID().toString()
+            val committed = importer.commitStagedAttachments(imgNoteId, staged)
+            noteRepository.createNote(
+                id = imgNoteId,
+                title = "",
+                blocks = listOf(
+                    NoteBlock("bi1", imgNoteId, 0, NoteBlockType.IMAGE, attachmentId = committed.first().id)
+                ),
+                sourceType = NoteSourceType.SHARE_IMAGE,
+                attachments = committed,
+                scheduleBackgroundWork = false
+            )
+
+            assertEquals(NoteProcessingOutcome.COMPLETED, pipeline.processNote(imgNoteId))
+            assertEquals(1, ocrCalls)
+
+            val processedImg = noteRepository.getNoteDetail(imgNoteId)!!
+            assertTrue(processedImg.title.isNotBlank())
+            assertEquals(OcrStatus.COMPLETED, processedImg.attachments.first().ocrStatus)
+            val imgTagNames = processedImg.tags.map { it.name }
+            assertTrue("Expected Receipt tag on shared receipt image, got $imgTagNames", "Receipt" in imgTagNames)
+
+            val searchEngine = SmartSearchEngine(database, noteRepository)
+            assertTrue(searchEngine.search("Supermarket").results.any { it.note.id == imgNoteId })
+
+            // Repeat invocation on same revision must skip without re-running OCR
+            assertEquals(NoteProcessingOutcome.SKIPPED_ALREADY_CURRENT, pipeline.processNote(imgNoteId))
+            assertEquals(1, ocrCalls)
+        } finally {
+            sampleImg.delete()
+        }
+
+        // 2. Shared URL note feeds fetched webpage title & description into Auto-Title and SmartTags
+        val urlNoteId = noteRepository.createNote(
+            title = "",
+            blocks = listOf(
+                NoteBlock("bu1", "u", 0, NoteBlockType.LINK, textContent = "chefkoch.de", linkUrl = "https://chefkoch.de/rezepte/123")
+            ),
+            sourceType = NoteSourceType.SHARE_URL,
+            scheduleBackgroundWork = false
+        )
+        assertEquals(NoteProcessingOutcome.COMPLETED, pipeline.processNote(urlNoteId))
+        val processedUrl = noteRepository.getNoteDetail(urlNoteId)!!
+        assertEquals(LinkFetchStatus.FETCHED, processedUrl.links.first().fetchStatus)
+        assertEquals("Crispy Garlic Pasta Recipe", processedUrl.title)
+        assertTrue(
+            "Expected Recipe tag from fetched webpage metadata + domain, got ${processedUrl.tags.map { it.name }}",
+            processedUrl.tags.any { it.name == "Recipe" }
+        )
+
+        // 3. Shared non-taxonomy text note with allowNewTopicTags = true gets open-vocabulary topic tags cleanly
+        val topicNoteId = noteRepository.createNote(
+            title = "Sourdough fermentation schedule",
+            blocks = listOf(
+                NoteBlock("bt1", "t", 0, NoteBlockType.TEXT, "Feed sourdough starter at 28C and stretch sourdough dough overnight")
+            ),
+            sourceType = NoteSourceType.SHARE_TEXT,
+            scheduleBackgroundWork = false
+        )
+        assertEquals(NoteProcessingOutcome.COMPLETED, pipeline.processNote(topicNoteId))
+        val processedTopic = noteRepository.getNoteDetail(topicNoteId)!!
+        assertTrue(
+            "Expected Sourdough open-topic tag on shared note, got ${processedTopic.tags.map { it.name }}",
+            processedTopic.tags.any { it.name == "Sourdough" }
+        )
     }
 }

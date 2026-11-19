@@ -11,13 +11,13 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -116,6 +117,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
@@ -126,7 +128,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import kotlin.math.roundToInt
 import coil.compose.AsyncImage
 import io.github.ultrapg.smartnote.domain.model.NoteCreationOption
 import io.github.ultrapg.smartnote.domain.model.NoteFilterType
@@ -187,6 +193,7 @@ fun NotesOverviewScreen(
     val context = LocalContext.current
     var activeTopMenu by remember { mutableStateOf(OverviewTopMenu.NONE) }
     var displayedTopMenu by remember { mutableStateOf(OverviewTopMenu.OVERFLOW) }
+    var lastTransitionWasCrossSwitch by remember { mutableStateOf(false) }
     if (activeTopMenu != OverviewTopMenu.NONE) {
         displayedTopMenu = activeTopMenu
     }
@@ -198,12 +205,14 @@ fun NotesOverviewScreen(
     val allDisplayedNotes = uiState.pinnedNotes + uiState.otherNotes
 
     BackHandler(enabled = isCreateMenuExpanded || activeTopMenu != OverviewTopMenu.NONE) {
+        lastTransitionWasCrossSwitch = false
         isCreateMenuExpanded = false
         activeTopMenu = OverviewTopMenu.NONE
     }
 
     LaunchedEffect(inSelectionMode) {
         if (inSelectionMode) {
+            lastTransitionWasCrossSwitch = false
             isCreateMenuExpanded = false
             activeTopMenu = OverviewTopMenu.NONE
         }
@@ -298,8 +307,11 @@ fun NotesOverviewScreen(
                 ) {
                     val isTopMenuOpen = activeTopMenu != OverviewTopMenu.NONE
                     val inactiveAlpha by animateFloatAsState(
-                        targetValue = if (isTopMenuOpen) 0.45f else 1f,
-                        animationSpec = tween(if (reducedMotion) 60 else 150),
+                        targetValue = if (isTopMenuOpen) 0.42f else 1f,
+                        animationSpec = tween(
+                            durationMillis = if (reducedMotion) 60 else 180,
+                            easing = FastOutSlowInEasing
+                        ),
                         label = "top_bar_inactive_alpha"
                     )
 
@@ -318,6 +330,7 @@ fun NotesOverviewScreen(
                         ) {
                             IconButton(
                                 onClick = {
+                                    lastTransitionWasCrossSwitch = false
                                     isCreateMenuExpanded = false
                                     activeTopMenu = OverviewTopMenu.NONE
                                     onOpenSearch()
@@ -337,6 +350,7 @@ fun NotesOverviewScreen(
                                     .height(48.dp)
                                     .alpha(inactiveAlpha)
                                     .clickable {
+                                        lastTransitionWasCrossSwitch = false
                                         isCreateMenuExpanded = false
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenSearch()
@@ -355,6 +369,7 @@ fun NotesOverviewScreen(
 
                             IconButton(
                                 onClick = {
+                                    lastTransitionWasCrossSwitch = false
                                     isCreateMenuExpanded = false
                                     activeTopMenu = OverviewTopMenu.NONE
                                     onToggleLayoutMode()
@@ -381,10 +396,12 @@ fun NotesOverviewScreen(
                                 onClick = {
                                     isCreateMenuExpanded = false
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    activeTopMenu = if (activeTopMenu == OverviewTopMenu.SORT) {
-                                        OverviewTopMenu.NONE
+                                    if (activeTopMenu == OverviewTopMenu.SORT) {
+                                        lastTransitionWasCrossSwitch = false
+                                        activeTopMenu = OverviewTopMenu.NONE
                                     } else {
-                                        OverviewTopMenu.SORT
+                                        lastTransitionWasCrossSwitch = activeTopMenu == OverviewTopMenu.OVERFLOW
+                                        activeTopMenu = OverviewTopMenu.SORT
                                     }
                                 }
                             )
@@ -399,10 +416,12 @@ fun NotesOverviewScreen(
                                 onClick = {
                                     isCreateMenuExpanded = false
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    activeTopMenu = if (activeTopMenu == OverviewTopMenu.OVERFLOW) {
-                                        OverviewTopMenu.NONE
+                                    if (activeTopMenu == OverviewTopMenu.OVERFLOW) {
+                                        lastTransitionWasCrossSwitch = false
+                                        activeTopMenu = OverviewTopMenu.NONE
                                     } else {
-                                        OverviewTopMenu.OVERFLOW
+                                        lastTransitionWasCrossSwitch = activeTopMenu == OverviewTopMenu.SORT
+                                        activeTopMenu = OverviewTopMenu.OVERFLOW
                                     }
                                 }
                             )
@@ -638,8 +657,8 @@ fun NotesOverviewScreen(
         }
         AnimatedVisibility(
             visible = isCreateMenuExpanded || activeTopMenu != OverviewTopMenu.NONE,
-            enter = fadeIn(tween(if (reducedMotion) 70 else 180)),
-            exit = fadeOut(tween(if (reducedMotion) 60 else 130))
+            enter = fadeIn(tween(durationMillis = if (reducedMotion) 70 else 200, easing = LinearOutSlowInEasing)),
+            exit = fadeOut(tween(durationMillis = if (reducedMotion) 60 else 150, easing = FastOutLinearInEasing))
         ) {
             Box(
                 modifier = Modifier
@@ -649,6 +668,7 @@ fun NotesOverviewScreen(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = {
+                            lastTransitionWasCrossSwitch = false
                             isCreateMenuExpanded = false
                             activeTopMenu = OverviewTopMenu.NONE
                         }
@@ -657,41 +677,46 @@ fun NotesOverviewScreen(
         }
 
         val showTopMenuBubble = activeTopMenu != OverviewTopMenu.NONE && !inSelectionMode && uiState.activeTagName == null
-        val bubbleEndPadding by animateDpAsState(
-            targetValue = if (displayedTopMenu == OverviewTopMenu.SORT) 60.dp else 16.dp,
-            animationSpec = if (reducedMotion) tween(70) else SmartNoteMotion.expressiveMorphSpring(),
-            label = "top_menu_bubble_end"
+        val bubbleExtraEndShift by animateDpAsState(
+            targetValue = if (displayedTopMenu == OverviewTopMenu.SORT) 44.dp else 0.dp,
+            animationSpec = if (reducedMotion || !lastTransitionWasCrossSwitch) {
+                snap()
+            } else {
+                SmartNoteMotion.refinedMenuMorphSpring()
+            },
+            label = "top_menu_bubble_shift"
         )
-        val bubblePivotX = if (displayedTopMenu == OverviewTopMenu.SORT) 0.84f else 0.86f
+        val bubblePivotX = if (displayedTopMenu == OverviewTopMenu.SORT) 0.84f else 0.88f
 
         AnimatedVisibility(
             visible = showTopMenuBubble,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(top = innerPadding.calculateTopPadding() + 4.dp, end = bubbleEndPadding),
+                .padding(top = innerPadding.calculateTopPadding() + 4.dp, end = 16.dp)
+                .offset { IntOffset(-bubbleExtraEndShift.roundToPx(), 0) },
             enter = if (reducedMotion) {
                 fadeIn(tween(80))
             } else {
                 scaleIn(
-                    initialScale = 0.62f,
+                    initialScale = 0.82f,
                     transformOrigin = TransformOrigin(bubblePivotX, 0f),
-                    animationSpec = SmartNoteMotion.expressivePopSpring()
+                    animationSpec = SmartNoteMotion.refinedMenuOpenSpring()
                 ) + slideInVertically(
-                    initialOffsetY = { -it / 10 },
-                    animationSpec = SmartNoteMotion.expressivePopSpring()
-                ) + fadeIn(tween(120, easing = LinearOutSlowInEasing))
+                    initialOffsetY = { -16 },
+                    animationSpec = SmartNoteMotion.refinedMenuOpenSpring()
+                ) + fadeIn(tween(140, easing = LinearOutSlowInEasing))
             },
             exit = if (reducedMotion) {
                 fadeOut(tween(70))
             } else {
                 scaleOut(
-                    targetScale = 0.78f,
+                    targetScale = 0.88f,
                     transformOrigin = TransformOrigin(bubblePivotX, 0f),
-                    animationSpec = tween(120, easing = FastOutLinearInEasing)
+                    animationSpec = tween(135, easing = FastOutSlowInEasing)
                 ) + slideOutVertically(
-                    targetOffsetY = { -it / 12 },
-                    animationSpec = tween(120, easing = FastOutLinearInEasing)
-                ) + fadeOut(tween(95))
+                    targetOffsetY = { -12 },
+                    animationSpec = tween(135, easing = FastOutSlowInEasing)
+                ) + fadeOut(tween(115, easing = FastOutLinearInEasing))
             }
         ) {
             Surface(
@@ -719,20 +744,21 @@ fun NotesOverviewScreen(
                         } else {
                             val movingRight = targetState == OverviewTopMenu.OVERFLOW
                             val slideIn = slideInHorizontally(
-                                animationSpec = SmartNoteMotion.expressiveMorphSpring(),
-                                initialOffsetX = { fullW -> if (movingRight) fullW / 4 else -fullW / 4 }
+                                animationSpec = SmartNoteMotion.refinedMenuMorphSpring(),
+                                initialOffsetX = { fullW -> if (movingRight) fullW / 7 else -fullW / 7 }
                             )
                             val slideOut = slideOutHorizontally(
                                 animationSpec = tween(110, easing = FastOutLinearInEasing),
-                                targetOffsetX = { fullW -> if (movingRight) -fullW / 5 else fullW / 5 }
+                                targetOffsetX = { fullW -> if (movingRight) -fullW / 9 else fullW / 9 }
                             )
-                            (slideIn + fadeIn(tween(130, easing = LinearOutSlowInEasing))) togetherWith
-                                (slideOut + fadeOut(tween(80))) using
-                                SizeTransform(clip = true) { _, _ -> SmartNoteMotion.expressiveMorphSpring() }
+                            (slideIn + fadeIn(tween(150, delayMillis = 30, easing = LinearOutSlowInEasing))) togetherWith
+                                (slideOut + fadeOut(tween(85, easing = FastOutLinearInEasing))) using
+                                SizeTransform(clip = true) { _, _ -> SmartNoteMotion.refinedMenuMorphSpring() }
                         }
                     },
                     label = "top_menu_bubble_content"
                 ) { menu ->
+                    val animateItems = !lastTransitionWasCrossSwitch
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -752,9 +778,11 @@ fun NotesOverviewScreen(
                                         label = label,
                                         selected = uiState.sortOrder == order,
                                         itemIndex = idx,
+                                        animateEntrance = animateItems,
                                         reducedMotion = reducedMotion,
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            lastTransitionWasCrossSwitch = false
                                             activeTopMenu = OverviewTopMenu.NONE
                                             onSelectSort(order)
                                         }
@@ -766,8 +794,10 @@ fun NotesOverviewScreen(
                                     icon = Icons.Rounded.Archive,
                                     label = "Archive",
                                     itemIndex = 0,
+                                    animateEntrance = animateItems,
                                     reducedMotion = reducedMotion,
                                     onClick = {
+                                        lastTransitionWasCrossSwitch = false
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenArchive()
                                     }
@@ -776,8 +806,10 @@ fun NotesOverviewScreen(
                                     icon = Icons.Rounded.DeleteOutline,
                                     label = "Recycle Bin",
                                     itemIndex = 1,
+                                    animateEntrance = animateItems,
                                     reducedMotion = reducedMotion,
                                     onClick = {
+                                        lastTransitionWasCrossSwitch = false
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenRecycleBin()
                                     }
@@ -786,8 +818,10 @@ fun NotesOverviewScreen(
                                     icon = Icons.Rounded.ContentCopy,
                                     label = "Review Duplicates",
                                     itemIndex = 2,
+                                    animateEntrance = animateItems,
                                     reducedMotion = reducedMotion,
                                     onClick = {
+                                        lastTransitionWasCrossSwitch = false
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenDuplicates()
                                     }
@@ -800,8 +834,10 @@ fun NotesOverviewScreen(
                                     icon = Icons.Rounded.Settings,
                                     label = "Settings",
                                     itemIndex = 3,
+                                    animateEntrance = animateItems,
                                     reducedMotion = reducedMotion,
                                     onClick = {
+                                        lastTransitionWasCrossSwitch = false
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenSettings()
                                     }
@@ -828,25 +864,30 @@ private fun TopBarBubbleTriggerButton(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val badgeProgress by animateFloatAsState(
+    val openProgress by animateFloatAsState(
         targetValue = if (isOpen) 1f else 0f,
-        animationSpec = if (reducedMotion) tween(60) else SmartNoteMotion.expressivePopSpring(),
-        label = "top_bar_trigger_badge_progress"
+        animationSpec = if (reducedMotion) {
+            tween(durationMillis = 60, easing = FastOutSlowInEasing)
+        } else {
+            SmartNoteMotion.refinedIconSpring()
+        },
+        label = "top_bar_trigger_open_progress"
     )
     val otherDimAlpha by animateFloatAsState(
-        targetValue = if (isOtherMenuOpen) 0.52f else 1f,
-        animationSpec = tween(if (reducedMotion) 60 else 140),
+        targetValue = if (isOtherMenuOpen) 0.50f else 1f,
+        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 160, easing = FastOutSlowInEasing),
         label = "top_bar_trigger_other_alpha"
     )
-    val iconRotation by animateFloatAsState(
-        targetValue = if (isOpen) 90f else 0f,
-        animationSpec = if (reducedMotion) tween(60) else SmartNoteMotion.expressivePopSpring(),
-        label = "top_bar_trigger_rotation"
-    )
+    val clampedProgress = openProgress.coerceIn(0f, 1f)
+
     IconButton(
         onClick = onClick,
         interactionSource = interactionSource,
-        modifier = Modifier.expressivePressable(interactionSource, pressedScale = 0.92f)
+        modifier = Modifier
+            .expressivePressable(interactionSource, pressedScale = 0.92f)
+            .semantics {
+                contentDescription = if (isOpen) closeContentDescription else openContentDescription
+            }
     ) {
         Box(
             modifier = Modifier
@@ -854,47 +895,47 @@ private fun TopBarBubbleTriggerButton(
                 .graphicsLayer { alpha = otherDimAlpha },
             contentAlignment = Alignment.Center
         ) {
-            if (badgeProgress > 0.01f) {
+            if (clampedProgress > 0.01f) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .graphicsLayer {
-                            val s = 0.55f + (0.45f * badgeProgress)
+                            val s = 0.62f + (0.38f * clampedProgress)
                             scaleX = s
                             scaleY = s
-                            alpha = badgeProgress.coerceIn(0f, 1f)
+                            alpha = clampedProgress
                         }
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 )
             }
-            AnimatedContent(
-                targetState = isOpen,
-                transitionSpec = {
-                    if (reducedMotion) {
-                        fadeIn(tween(60)) togetherWith fadeOut(tween(50))
-                    } else {
-                        (scaleIn(initialScale = 0.72f, animationSpec = SmartNoteMotion.expressivePopSpring()) + fadeIn(tween(110))) togetherWith
-                            (scaleOut(targetScale = 0.72f, animationSpec = tween(90)) + fadeOut(tween(90)))
+            if (clampedProgress < 0.65f) {
+                Icon(
+                    imageVector = openIcon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer {
+                        val s = 1f - (0.22f * clampedProgress)
+                        alpha = (1f - clampedProgress * 1.6f).coerceIn(0f, 1f)
+                        rotationZ = 45f * clampedProgress
+                        scaleX = s
+                        scaleY = s
                     }
-                },
-                label = "top_bar_trigger_icon"
-            ) { open ->
-                if (open) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = closeContentDescription,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation - 90f }
-                    )
-                } else {
-                    Icon(
-                        imageVector = openIcon,
-                        contentDescription = openContentDescription,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation }
-                    )
-                }
+                )
+            }
+            if (clampedProgress > 0.15f) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.graphicsLayer {
+                        val s = 0.76f + (0.24f * clampedProgress)
+                        alpha = ((clampedProgress - 0.2f) * 1.35f).coerceIn(0f, 1f)
+                        rotationZ = -45f * (1f - clampedProgress)
+                        scaleX = s
+                        scaleY = s
+                    }
+                )
             }
         }
     }
@@ -906,33 +947,36 @@ private fun PopOutBubbleMenuItem(
     label: String,
     selected: Boolean = false,
     itemIndex: Int = 0,
+    animateEntrance: Boolean = true,
     reducedMotion: Boolean = false,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val enterProgress = remember { Animatable(if (reducedMotion) 1f else 0f) }
+    val enterProgress = remember {
+        Animatable(if (reducedMotion || !animateEntrance) 1f else 0f)
+    }
     LaunchedEffect(Unit) {
-        if (reducedMotion) {
+        if (reducedMotion || !animateEntrance) {
             enterProgress.snapTo(1f)
         } else {
-            val staggerMs = (itemIndex * 22L).coerceAtMost(90L)
+            val staggerMs = (itemIndex * 16L).coerceAtMost(56L)
             if (staggerMs > 0L) delay(staggerMs)
-            enterProgress.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing))
+            enterProgress.animateTo(1f, animationSpec = SmartNoteMotion.refinedMenuOpenSpring())
         }
     }
     val containerColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        animationSpec = tween(if (reducedMotion) 60 else 140),
+        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 150, easing = FastOutSlowInEasing),
         label = "bubble_item_bg"
     )
     val contentColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
-        animationSpec = tween(if (reducedMotion) 60 else 140),
+        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 150, easing = FastOutSlowInEasing),
         label = "bubble_item_fg"
     )
     val iconColor by animateColorAsState(
         targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(if (reducedMotion) 60 else 140),
+        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 150, easing = FastOutSlowInEasing),
         label = "bubble_item_icon"
     )
 
@@ -945,16 +989,16 @@ private fun PopOutBubbleMenuItem(
             .heightIn(min = 44.dp)
             .graphicsLayer {
                 if (!reducedMotion) {
-                    val p = enterProgress.value
+                    val p = enterProgress.value.coerceIn(0f, 1f)
                     alpha = p
-                    translationY = (1f - p) * 8f * density
+                    translationY = (1f - enterProgress.value) * 6f * density
                 }
             }
-            .expressivePressable(interactionSource, pressedScale = 0.97f)
+            .expressivePressable(interactionSource, pressedScale = 0.975f)
             .clip(RoundedCornerShape(18.dp))
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                indication = androidx.compose.material3.ripple(),
                 onClick = onClick
             )
     ) {
@@ -997,107 +1041,142 @@ private fun ExpressiveMorphingCreateFab(
     reducedMotion: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val containerWidth by animateDpAsState(
-        targetValue = if (expanded) 176.dp else 56.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
-        label = "create_pill_width"
+    val progress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = when {
+            reducedMotion -> tween(
+                durationMillis = if (expanded) 85 else 70,
+                easing = FastOutSlowInEasing
+            )
+            expanded -> spring(
+                dampingRatio = 0.90f,
+                stiffness = 440f,
+                visibilityThreshold = 0.002f
+            )
+            else -> spring(
+                dampingRatio = 1.0f,
+                stiffness = 600f,
+                visibilityThreshold = 0.002f
+            )
+        },
+        label = "create_pill_progress"
     )
-    val cornerRadius by animateDpAsState(
-        targetValue = if (expanded) 28.dp else 16.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
-        label = "create_pill_corner"
-    )
-    val iconRotation by animateFloatAsState(
-        targetValue = if (expanded) 45f else 0f,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressivePopSpring(),
-        label = "create_pill_icon_rotation"
-    )
-    val iconSize by animateDpAsState(
-        targetValue = if (expanded) 30.dp else 26.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
-        label = "create_pill_icon_size"
-    )
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val cornerRadius = lerp(16.dp, 28.dp, clampedProgress)
+    val tonalElevation = lerp(3.dp, 6.dp, clampedProgress)
+    val shadowElevation = lerp(6.dp, 12.dp, clampedProgress)
+    val showOptions = expanded || clampedProgress > 0.01f
+    val toggleInteractionSource = remember { MutableInteractionSource() }
 
     Surface(
-        modifier = modifier.width(containerWidth),
+        modifier = modifier,
         shape = RoundedCornerShape(cornerRadius),
         color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        tonalElevation = 3.dp,
-        shadowElevation = 6.dp
+        tonalElevation = tonalElevation,
+        shadowElevation = shadowElevation
     ) {
-        Column(horizontalAlignment = Alignment.End) {
-            AnimatedVisibility(
-                visible = expanded,
-                enter = if (reducedMotion) {
-                    fadeIn(tween(80))
-                } else {
-                    expandVertically(
-                        animationSpec = SmartNoteMotion.expressiveMorphSpring(),
-                        expandFrom = Alignment.Bottom
-                    ) + fadeIn(tween(130, easing = LinearOutSlowInEasing))
-                },
-                exit = if (reducedMotion) {
-                    fadeOut(tween(70))
-                } else {
-                    shrinkVertically(
-                        animationSpec = tween(140, easing = FastOutLinearInEasing),
-                        shrinkTowards = Alignment.Bottom
-                    ) + fadeOut(tween(95))
-                }
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    CreatePillOptionRow(
-                        icon = Icons.Rounded.Image,
-                        label = "Image",
-                        rowIndex = 0,
-                        reducedMotion = reducedMotion,
-                        onClick = { onSelectOption(NoteCreationOption.IMAGE) }
-                    )
-                    CreatePillOptionRow(
-                        icon = Icons.Rounded.CheckBox,
-                        label = "Checklist",
-                        rowIndex = 1,
-                        reducedMotion = reducedMotion,
-                        onClick = { onSelectOption(NoteCreationOption.CHECKLIST) }
-                    )
-                    CreatePillOptionRow(
-                        icon = Icons.AutoMirrored.Rounded.NoteAdd,
-                        label = "Note",
-                        rowIndex = 2,
-                        reducedMotion = reducedMotion,
-                        onClick = { onSelectOption(NoteCreationOption.TEXT_NOTE) }
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(cornerRadius))
-                    .clickable { onExpandedChange(!expanded) }
-                    .semantics(mergeDescendants = true) {
-                        contentDescription = if (expanded) "Close create menu" else "New note"
-                    }
-            ) {
+        Layout(
+            content = {
                 Box(
                     modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .size(56.dp),
-                    contentAlignment = Alignment.Center
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(cornerRadius))
+                        .clickable(
+                            interactionSource = toggleInteractionSource,
+                            indication = androidx.compose.material3.ripple(
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.16f)
+                            )
+                        ) { onExpandedChange(!expanded) }
+                        .semantics(mergeDescendants = true) {
+                            contentDescription = if (expanded) "Close create menu" else "New note"
+                        }
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = null,
+                    Box(
                         modifier = Modifier
-                            .size(iconSize)
-                            .graphicsLayer { rotationZ = iconRotation }
+                            .align(Alignment.CenterEnd)
+                            .size(56.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(26.dp)
+                                .graphicsLayer {
+                                    rotationZ = 45f * clampedProgress
+                                    val iconScale = 1f + (0.14f * clampedProgress)
+                                    scaleX = iconScale
+                                    scaleY = iconScale
+                                }
+                        )
+                    }
+                }
+                if (showOptions) {
+                    Column(
+                        modifier = Modifier
+                            .width(184.dp)
+                            .padding(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        CreatePillOptionRow(
+                            icon = Icons.Rounded.Image,
+                            label = "Image",
+                            rowIndex = 0,
+                            pillProgress = clampedProgress,
+                            isExpanding = expanded,
+                            reducedMotion = reducedMotion,
+                            onClick = { onSelectOption(NoteCreationOption.IMAGE) }
+                        )
+                        CreatePillOptionRow(
+                            icon = Icons.Rounded.CheckBox,
+                            label = "Checklist",
+                            rowIndex = 1,
+                            pillProgress = clampedProgress,
+                            isExpanding = expanded,
+                            reducedMotion = reducedMotion,
+                            onClick = { onSelectOption(NoteCreationOption.CHECKLIST) }
+                        )
+                        CreatePillOptionRow(
+                            icon = Icons.AutoMirrored.Rounded.NoteAdd,
+                            label = "Note",
+                            rowIndex = 2,
+                            pillProgress = clampedProgress,
+                            isExpanding = expanded,
+                            reducedMotion = reducedMotion,
+                            onClick = { onSelectOption(NoteCreationOption.TEXT_NOTE) }
+                        )
+                    }
+                }
+            }
+        ) { measurables, constraints ->
+            val collapsedPx = 56.dp.roundToPx()
+            val toggleMeasurable = measurables[0]
+            if (measurables.size == 1) {
+                val togglePlaceable = toggleMeasurable.measure(Constraints.fixed(collapsedPx, collapsedPx))
+                layout(collapsedPx, collapsedPx) {
+                    togglePlaceable.placeRelative(0, 0)
+                }
+            } else {
+                val optionsPlaceable = measurables[1].measure(constraints.copy(minWidth = 0, minHeight = 0))
+                val expandedW = maxOf(collapsedPx, optionsPlaceable.width)
+                val expandedH = collapsedPx + optionsPlaceable.height
+                val rawFraction = progress.coerceAtLeast(0f)
+                val curW = (collapsedPx + (expandedW - collapsedPx) * rawFraction)
+                    .roundToInt()
+                    .coerceAtLeast(collapsedPx)
+                val curH = (collapsedPx + (expandedH - collapsedPx) * rawFraction)
+                    .roundToInt()
+                    .coerceAtLeast(collapsedPx)
+                val togglePlaceable = toggleMeasurable.measure(Constraints.fixed(curW, collapsedPx))
+                layout(curW, curH) {
+                    optionsPlaceable.placeRelative(
+                        x = curW - expandedW,
+                        y = curH - collapsedPx - optionsPlaceable.height
+                    )
+                    togglePlaceable.placeRelative(
+                        x = 0,
+                        y = curH - collapsedPx
                     )
                 }
             }
@@ -1109,21 +1188,28 @@ private fun ExpressiveMorphingCreateFab(
 private fun CreatePillOptionRow(
     icon: ImageVector,
     label: String,
-    rowIndex: Int = 0,
-    reducedMotion: Boolean = false,
+    rowIndex: Int,
+    pillProgress: Float,
+    isExpanding: Boolean,
+    reducedMotion: Boolean,
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    val enterProgress = remember { Animatable(if (reducedMotion) 1f else 0f) }
-    LaunchedEffect(Unit) {
-        if (reducedMotion) {
-            enterProgress.snapTo(1f)
-        } else {
-            val bottomUpStaggerMs = ((2 - rowIndex).coerceAtLeast(0) * 20L)
-            if (bottomUpStaggerMs > 0L) delay(bottomUpStaggerMs)
-            enterProgress.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing))
+    val itemPhase = when {
+        reducedMotion -> pillProgress
+        isExpanding -> {
+            val start = when (rowIndex) {
+                2 -> 0.10f
+                1 -> 0.22f
+                else -> 0.34f
+            }
+            val raw = ((pillProgress - start) / 0.60f).coerceIn(0f, 1f)
+            val inv = 1f - raw
+            1f - (inv * inv * inv)
         }
+        else -> ((pillProgress - 0.42f) / 0.56f).coerceIn(0f, 1f)
     }
+
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f),
@@ -1131,17 +1217,25 @@ private fun CreatePillOptionRow(
             .fillMaxWidth()
             .heightIn(min = 46.dp)
             .graphicsLayer {
-                if (!reducedMotion) {
-                    val p = enterProgress.value
-                    alpha = p
-                    translationY = (1f - p) * 10f * density
+                if (reducedMotion) {
+                    alpha = pillProgress
+                } else {
+                    alpha = itemPhase
+                    translationY = (1f - itemPhase) * 8f * density
+                    val s = 0.94f + (0.06f * itemPhase)
+                    scaleX = s
+                    scaleY = s
+                    transformOrigin = TransformOrigin(0.85f, 1f)
                 }
             }
             .expressivePressable(interactionSource, pressedScale = 0.96f)
             .clip(CircleShape)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null,
+                indication = androidx.compose.material3.ripple(
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.14f)
+                ),
+                enabled = isExpanding,
                 onClick = onClick
             )
     ) {

@@ -19,6 +19,7 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.links.DetectedLink
 import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
+import java.io.File
 import java.util.Locale
 
 data class TagGenerationOutcome(
@@ -47,7 +48,9 @@ class SmartTaggingCoordinator(
         existingUserVocabulary: List<String>,
         allSummaries: List<NoteSummary>,
         settings: AppSettings,
-        isExplicitManualTrigger: Boolean
+        isExplicitManualTrigger: Boolean,
+        extraContextTexts: List<String> = emptyList(),
+        attachmentFilesOverride: Map<String, File> = emptyMap()
     ): TagGenerationOutcome {
         if (!settings.aiFeaturesEnabled) return TagGenerationOutcome(emptyList())
 
@@ -57,32 +60,39 @@ class SmartTaggingCoordinator(
         val dismissedLower = dismissedTagNames.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
         val excludedLower = existingLower + dismissedLower
 
+        val nonBlankExtra = extraContextTexts.map { it.trim() }.filter { it.isNotBlank() }
         val combinedText = buildString {
             if (title.isNotBlank()) append(title).append('\n')
             blocks.forEach { if (it.textContent.isNotBlank()) append(it.textContent).append('\n') }
             ocrTexts.forEach { if (it.isNotBlank()) append(it).append('\n') }
+            nonBlankExtra.forEach { append(it).append('\n') }
         }.trim()
 
         val noteContentLen = title.trim().length +
             blocks.sumOf { it.textContent.trim().length } +
-            ocrTexts.sumOf { it.trim().length }
+            ocrTexts.sumOf { it.trim().length } +
+            nonBlankExtra.sumOf { it.length }
         val hasImages = attachments.isNotEmpty()
         val hasScreenshot = attachments.any { it.isScreenshot }
 
+        val storage = attachmentStorage
+        fun resolveAttachmentFile(att: AttachmentInfo): File? =
+            attachmentFilesOverride[att.id] ?: storage?.resolvePrivateFile(att.relativeFilePath)
+
         // 1. Optional ML Kit Image Labeling (auto-skipped if disabled or unavailable)
         val labeler = imageLabelingEngine
-        val storage = attachmentStorage
         val imageLabels: List<DetectedImageLabel> = if (
             settings.effectiveUseImageLabeling &&
             hasImages &&
             labeler != null &&
-            storage != null
+            (storage != null || attachmentFilesOverride.isNotEmpty())
         ) {
             val availability = labeler.checkAvailability()
             if (availability != ImageLabelingAvailability.UNAVAILABLE) {
                 val merged = LinkedHashMap<String, DetectedImageLabel>()
                 for (att in attachments.take(2)) {
-                    val file = storage.resolvePrivateFile(att.relativeFilePath)
+                    val file = resolveAttachmentFile(att) ?: continue
+                    if (!file.exists()) continue
                     labeler.labelImageFile(file).forEach { lbl ->
                         val key = lbl.text.lowercase(Locale.ROOT)
                         val prev = merged[key]
@@ -157,7 +167,8 @@ class SmartTaggingCoordinator(
             includeTopicKeywords = false,
             maxTags = engineRequestLimit,
             minConfidence = minConf,
-            preferExistingTags = settings.preferExistingTags
+            preferExistingTags = settings.preferExistingTags,
+            extraContextTexts = nonBlankExtra
         )
         val localFiltered = localRaw.filter { it.name.lowercase(Locale.ROOT) !in excludedLower }
 
@@ -202,18 +213,23 @@ class SmartTaggingCoordinator(
 
         val nanoSuggestions = if (shouldInvokeNano) {
             val userProseChars = blocks.sumOf { it.textContent.trim().length }
-            val primaryBitmap = if (hasImages && (forceNanoTags || userProseChars < 160) && storage != null) {
+            val primaryFile = attachments.firstOrNull()?.let(::resolveAttachmentFile)?.takeIf { it.exists() }
+            val primaryBitmap = if (hasImages && (forceNanoTags || userProseChars < 160) && primaryFile != null) {
                 SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
-                    storage.resolvePrivateFile(attachments.first().relativeFilePath),
+                    primaryFile,
                     maxDimPx = 512
                 )
             } else {
                 null
             }
+            val nanoNoteText = buildString {
+                blocks.forEach { if (it.textContent.isNotBlank()) append(it.textContent).append('\n') }
+                nonBlankExtra.forEach { append(it).append('\n') }
+            }.trim()
             try {
                 assistant.generateTags(
                     title = title,
-                    noteText = blocks.joinToString("\n") { it.textContent },
+                    noteText = nanoNoteText,
                     ocrTexts = ocrTexts,
                     imageLabels = imageLabels.map { it.text },
                     existingVocabulary = existingUserVocabulary,
@@ -259,9 +275,14 @@ class SmartTaggingCoordinator(
             .sortedByDescending { it.confidence }
             .take(maxTags)
 
-        // 8. Strict Stage 4 open-vocabulary fallback ONLY when user opted into new topics,
-        // manually pressed Generate tags, and neither local rules nor Gemini Nano found any tag
-        if (combinedList.isEmpty() && isExplicitManualTrigger && settings.allowNewTopicTags) {
+        // 8. Strict Stage 4 open-vocabulary fallback when user allows new topic tags
+        val allowOpenTopicFallback = settings.allowNewTopicTags && (
+            isExplicitManualTrigger ||
+                noteContentLen >= 18 ||
+                links.isNotEmpty() ||
+                nonBlankExtra.isNotEmpty()
+            )
+        if (combinedList.isEmpty() && allowOpenTopicFallback) {
             combinedList = smartTagsEngine.suggestTags(
                 title = title,
                 blocks = blocks,
@@ -276,7 +297,8 @@ class SmartTaggingCoordinator(
                 includeTopicKeywords = true,
                 maxTags = engineRequestLimit,
                 minConfidence = minConf,
-                preferExistingTags = settings.preferExistingTags
+                preferExistingTags = settings.preferExistingTags,
+                extraContextTexts = nonBlankExtra
             ).filter { it.name.lowercase(Locale.ROOT) !in excludedLower }
                 .take(maxTags)
         }

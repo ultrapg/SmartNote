@@ -751,7 +751,13 @@ class SmartTitleGenerator(
             if (t.equals("Shared image", ignoreCase = true)) return true
             if (Regex("^\\d+ shared images$", RegexOption.IGNORE_CASE).matches(t)) return true
             if (t.startsWith("Link from ", ignoreCase = true)) return true
+            if (GENERIC_MEDIA_FILENAME_REGEX.matches(t)) return true
             return false
         }
+
+        private val GENERIC_MEDIA_FILENAME_REGEX = Regex(
+            "^(?:screenshot|screen[_-]?cap|img|pxl|dsc|dcim|photo|image|picture|media)[_-]?\\d[\\w.-]*$",
+            RegexOption.IGNORE_CASE
+        )
     }
 }
