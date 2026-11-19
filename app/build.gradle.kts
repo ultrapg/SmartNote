@@ -19,8 +19,8 @@ android {
         applicationId = "io.github.ultrapg.smartnote"
         minSdk = 28
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.0.13"
+        versionCode = 15
+        versionName = "1.0.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -183,6 +183,8 @@ dependencies {
     implementation(libs.okhttp)
 
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.play.services.mlkit.image.labeling)
+    implementation(libs.mlkit.genai.prompt)
     implementation(libs.litert)
     implementation(libs.litert.gpu)
 

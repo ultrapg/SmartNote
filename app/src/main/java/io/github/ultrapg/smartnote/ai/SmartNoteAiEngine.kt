@@ -50,7 +50,8 @@ data class AiDiagnosticsState(
     val fallbackReason: String? = null,
     val isModelLoaded: Boolean = false,
     val lastInferenceMs: Long = 0L,
-    val energySavingActive: Boolean = false
+    val energySavingActive: Boolean = false,
+    val geminiNanoAvailability: GeminiNanoAvailability = GeminiNanoAvailability.UNAVAILABLE
 )
 
 interface LiteRtRuntimeBridge {
@@ -200,7 +201,8 @@ class SmartNoteAiEngine(
     private val settingsRepository: SettingsRepository,
     private val runtimeBridge: LiteRtRuntimeBridge,
     private val applicationScope: CoroutineScope,
-    private val idleUnloadMs: Long = 60_000L
+    private val idleUnloadMs: Long = 60_000L,
+    private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null
 ) {
     private val aiDispatcher: ExecutorCoroutineDispatcher = Executors
         .newSingleThreadExecutor { runnable ->
@@ -217,6 +219,7 @@ class SmartNoteAiEngine(
 
     suspend fun refreshDiagnostics(): AiDiagnosticsState {
         val settings = settingsRepository.settingsFlow.first()
+        val nanoStatus = geminiNanoAssistant?.checkAvailability() ?: GeminiNanoAvailability.UNAVAILABLE
         return withContext(aiDispatcher) {
             val caps = runtimeBridge.probeCapabilities()
             val cur = _diagnostics.value
@@ -227,7 +230,8 @@ class SmartNoteAiEngine(
                 npuRuntimeReady = caps.npuRuntimeReady,
                 detectedAccelerators = caps.availableAccelerators,
                 energySavingActive = settings.energyEfficientAi &&
-                    (caps.isPowerSaveMode || caps.thermalStatus >= 3)
+                    (caps.isPowerSaveMode || caps.thermalStatus >= 3),
+                geminiNanoAvailability = nanoStatus
             )
             _diagnostics.value = updated
             updated

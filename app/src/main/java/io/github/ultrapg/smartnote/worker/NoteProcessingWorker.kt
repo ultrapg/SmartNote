@@ -8,13 +8,15 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.ultrapg.smartnote.SmartNoteApplication
+import io.github.ultrapg.smartnote.ai.DetectedImageLabel
 import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
+import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
+import java.util.Locale
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
 import io.github.ultrapg.smartnote.data.local.ProcessingJobEntity
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
-import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.domain.util.TextHashing
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
@@ -104,6 +106,34 @@ class NoteProcessingWorker(
             val currentRevision = container.database.noteDao().getNoteById(noteId)?.contentRevision ?: targetRevision
             if (currentRevision != targetRevision) return Result.success()
 
+            val imageLabels = if (settings.aiFeaturesEnabled && settings.effectiveOcrEnabled && detail.attachments.isNotEmpty()) {
+                val mergedLabels = LinkedHashMap<String, DetectedImageLabel>()
+                for (att in detail.attachments.take(2)) {
+                    val file = container.attachmentStorage.resolvePrivateFile(att.relativeFilePath)
+                    container.imageLabelingEngine.labelImageFile(file).forEach { lbl ->
+                        val key = lbl.text.lowercase(Locale.ROOT)
+                        val prev = mergedLabels[key]
+                        if (prev == null || lbl.confidence > prev.confidence) {
+                            mergedLabels[key] = lbl
+                        }
+                    }
+                }
+                mergedLabels.values.sortedByDescending { it.confidence }.take(6)
+            } else {
+                emptyList()
+            }
+
+            val combinedForEntities = buildString {
+                if (detail.title.isNotBlank()) append(detail.title).append('\n')
+                detail.blocks.forEach { if (it.textContent.isNotBlank()) append(it.textContent).append('\n') }
+                ocrTexts.forEach { if (it.isNotBlank()) append(it).append('\n') }
+            }.trim()
+            val systemEntities = if (settings.aiFeaturesEnabled && combinedForEntities.isNotBlank()) {
+                container.systemEntityAnalyzer.extractEntities(combinedForEntities)
+            } else {
+                emptyList()
+            }
+
             // 2. Opt-in network Link Metadata Preview (strictly skipped when fetchLinkPreviews == false)
             if (settings.fetchLinkPreviews && detail.links.isNotEmpty()) {
                 val updatedLinks = detail.links.mapNotNull { link ->
@@ -127,12 +157,30 @@ class NoteProcessingWorker(
             // 3. Auto-title generation after OCR / optional link metadata when blank or generic share placeholder
             if (settings.effectiveAutoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
                 val refreshedLinks = container.noteRepository.getNoteDetail(noteId)?.links ?: detail.links
-                val generatedTitle = container.smartTitleGenerator.generateSmartTitle(
-                    blocks = detail.blocks,
-                    ocrTexts = ocrTexts,
-                    links = refreshedLinks,
-                    allowNeuralScoring = settings.aiFeaturesEnabled
-                )
+                val sparseText = detail.blocks.sumOf { it.textContent.trim().length } < 20 && ocrTexts.all { it.isBlank() }
+                val primaryBitmap = if (settings.aiFeaturesEnabled && sparseText && detail.attachments.isNotEmpty()) {
+                    SafeOcrBitmapLoader.decodeDownsampledBitmap(
+                        container.attachmentStorage.resolvePrivateFile(detail.attachments.first().relativeFilePath),
+                        maxDimPx = 512
+                    )
+                } else {
+                    null
+                }
+                val generatedTitle = try {
+                    container.smartTitleGenerator.generateSmartTitle(
+                        blocks = detail.blocks,
+                        ocrTexts = ocrTexts,
+                        links = refreshedLinks,
+                        allowNeuralScoring = settings.aiFeaturesEnabled,
+                        systemEntities = systemEntities,
+                        imageLabels = imageLabels.map { it.text },
+                        primaryImageBitmap = primaryBitmap
+                    )
+                } finally {
+                    if (primaryBitmap != null && !primaryBitmap.isRecycled) {
+                        primaryBitmap.recycle()
+                    }
+                }
                 if (generatedTitle.isNotBlank()) {
                     container.noteRepository.applyGeneratedTitleIfUnmodified(
                         noteId = noteId,
@@ -163,8 +211,8 @@ class NoteProcessingWorker(
 
             if (settings.effectiveSmartTagsEnabled) {
                 val existingUserVocab = container.tagRepository.getAllTagsSnapshot().map { it.name }
-                val (userTagProfiles, userTagNoteIds) = buildUserTagContext(
-                    container = container,
+                val (userTagProfiles, userTagNoteIds) = SmartTagsEngine.buildUserTagContext(
+                    summaries = container.noteRepository.getAllSummariesSnapshot(includeArchived = true),
                     excludeNoteId = noteId
                 )
                 val semanticTagScores = if (settings.aiFeaturesEnabled && combinedForEmbedding.isNotBlank()) {
@@ -178,7 +226,20 @@ class NoteProcessingWorker(
                 } else {
                     emptyMap()
                 }
-                val suggestions = container.smartTagsEngine.suggestTags(
+                val nanoTags = if (settings.aiFeaturesEnabled) {
+                    val existingLower = detail.tags.map { it.name.lowercase(Locale.ROOT) }.toSet()
+                    container.geminiNanoAssistant.generateTags(
+                        title = currentTitleForTags,
+                        noteText = detail.blocks.joinToString("\n") { it.textContent },
+                        ocrTexts = ocrTexts,
+                        imageLabels = imageLabels.map { it.text },
+                        existingVocabulary = existingUserVocab,
+                        existingNoteTags = existingLower
+                    )
+                } else {
+                    emptyList()
+                }
+                val ruleSuggestions = container.smartTagsEngine.suggestTags(
                     title = currentTitleForTags,
                     blocks = detail.blocks,
                     ocrTexts = ocrTexts,
@@ -186,8 +247,13 @@ class NoteProcessingWorker(
                     hasScreenshot = hasScreenshot,
                     existingUserVocabulary = existingUserVocab,
                     semanticTagScores = semanticTagScores,
-                    userTagProfiles = userTagProfiles
+                    userTagProfiles = userTagProfiles,
+                    systemEntities = systemEntities,
+                    imageLabels = imageLabels
                 )
+                val suggestions = (ruleSuggestions + nanoTags)
+                    .distinctBy { it.name.lowercase(Locale.ROOT) }
+                    .take(4)
                 container.tagRepository.applySuggestedTags(
                     noteId = noteId,
                     suggestions = suggestions.map { it.name to it.confidence }
@@ -235,63 +301,8 @@ class NoteProcessingWorker(
         }
     }
 
-    private suspend fun buildUserTagContext(
-        container: io.github.ultrapg.smartnote.di.AppContainer,
-        excludeNoteId: String
-    ): Pair<Map<String, Map<String, Float>>, Map<String, List<String>>> {
-        val summaries = container.noteRepository.getAllSummariesSnapshot(includeArchived = true)
-        val rawTokenCounts = LinkedHashMap<String, MutableMap<String, Int>>()
-        val tagNoteIds = LinkedHashMap<String, MutableList<String>>()
-        val tagDocCounts = HashMap<String, Int>()
-
-        for (summary in summaries) {
-            if (summary.id == excludeNoteId || summary.isDeleted) continue
-            val userTags = summary.tags.filter { it.source == TagSource.USER }
-            if (userTags.isEmpty()) continue
-
-            val noteTokens = TextHashing.tokenizeWords("${summary.title} ${summary.previewText}")
-                .map { SmartTagsEngine.foldToAsciiLower(it) }
-                .filter { it.length >= 3 && it !in USER_PROFILE_STOPWORDS }
-                .distinct()
-
-            for (tag in userTags) {
-                val ids = tagNoteIds.getOrPut(tag.name) { mutableListOf() }
-                if (ids.size < 16) ids += summary.id
-                tagDocCounts[tag.name] = (tagDocCounts[tag.name] ?: 0) + 1
-                val counts = rawTokenCounts.getOrPut(tag.name) { mutableMapOf() }
-                for (tok in noteTokens) {
-                    counts[tok] = (counts[tok] ?: 0) + 1
-                }
-            }
-        }
-
-        val profiles = LinkedHashMap<String, Map<String, Float>>()
-        for ((tagName, counts) in rawTokenCounts) {
-            val docCount = (tagDocCounts[tagName] ?: 1).coerceAtLeast(1)
-            val weighted = counts.entries
-                .sortedByDescending { it.value }
-                .take(12)
-                .associate { (tok, count) ->
-                    val salience = (1.0f + (count.toFloat() / docCount.toFloat())).coerceIn(1.0f, 2.5f)
-                    tok to salience
-                }
-            if (weighted.isNotEmpty()) {
-                profiles[tagName] = weighted
-            }
-        }
-        return profiles to tagNoteIds
-    }
-
     companion object {
         const val KEY_NOTE_ID = "note_id"
-
-        private val USER_PROFILE_STOPWORDS = setOf(
-            "the", "and", "for", "with", "from", "that", "this", "have", "are", "was", "were",
-            "you", "your", "not", "but", "can", "will", "just", "about", "into", "more", "some",
-            "der", "die", "das", "und", "fuer", "mit", "von", "auf", "ein", "eine", "einen",
-            "ist", "sind", "war", "nicht", "auch", "noch", "nur", "oder", "aber", "als", "bei",
-            "note", "notes", "notiz", "notizen", "http", "https", "www", "com"
-        )
 
         fun enqueueForNote(context: Context, noteId: String) {
             val request = OneTimeWorkRequestBuilder<NoteProcessingWorker>()

@@ -9,11 +9,16 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -287,6 +292,21 @@ fun NoteEditorScreen(
     }
 
     val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
+    val combinedContentLen = remember(uiState.title, uiState.blocks, uiState.attachments) {
+        uiState.title.trim().length +
+            uiState.blocks.sumOf { it.textContent.trim().length } +
+            uiState.attachments.values.sumOf { it.ocrText?.trim()?.length ?: 0 }
+    }
+    val hasTagSourceContent = combinedContentLen >= 8 ||
+        uiState.links.isNotEmpty() ||
+        uiState.attachments.isNotEmpty()
+    val showGenerateTagsButton = uiState.aiFeaturesEnabled &&
+        (uiState.liveTagSuggestions.isNotEmpty() || (hasTagSourceContent && uiState.tags.size < 3))
+
+    LaunchedEffect(uiState.feedbackMessageEvent?.first) {
+        val event = uiState.feedbackMessageEvent ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(event.second)
+    }
 
     val headingColor = MaterialTheme.colorScheme.primary
     val codeBackground = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
@@ -455,7 +475,6 @@ fun NoteEditorScreen(
     ) { innerPadding ->
         val topContentPad = 8.dp
         val bottomContentPad = innerPadding.calculateBottomPadding() + 24.dp
-        val showGenerateTagsButton = uiState.aiFeaturesEnabled && uiState.liveTagSuggestions.isNotEmpty()
         val isSingleCleanTextBlock = uiState.blocks.size == 1 &&
             uiState.blocks.first().type == NoteBlockType.TEXT &&
             uiState.tags.isEmpty() &&
@@ -521,42 +540,75 @@ fun NoteEditorScreen(
                         )
                         val hasTitleSourceContent = remember(uiState.blocks, uiState.attachments, uiState.links) {
                             uiState.blocks.any { it.textContent.isNotBlank() || !it.linkUrl.isNullOrBlank() } ||
-                                uiState.attachments.values.any { !it.ocrText.isNullOrBlank() } ||
+                                uiState.attachments.isNotEmpty() ||
                                 uiState.links.isNotEmpty()
                         }
-                        if (uiState.aiFeaturesEnabled && hasTitleSourceContent) {
-                            if (!uiState.autoTitleEnabled && uiState.title.isBlank()) {
-                                Surface(
-                                    onClick = onGenerateSmartTitle,
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.semantics { contentDescription = "Generate title" }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        AnimatedVisibility(
+                            visible = uiState.aiFeaturesEnabled && hasTitleSourceContent,
+                            enter = if (reducedMotion) {
+                                fadeIn(tween(80))
+                            } else {
+                                scaleIn(
+                                    initialScale = 0.84f,
+                                    animationSpec = SmartNoteMotion.expressivePopSpring()
+                                ) + fadeIn(tween(120))
+                            },
+                            exit = if (reducedMotion) {
+                                fadeOut(tween(70))
+                            } else {
+                                scaleOut(targetScale = 0.84f, animationSpec = tween(100)) + fadeOut(tween(100))
+                            }
+                        ) {
+                            val showFullPill = !uiState.autoTitleEnabled && uiState.title.isBlank()
+                            AnimatedContent(
+                                targetState = showFullPill,
+                                transitionSpec = {
+                                    if (reducedMotion) {
+                                        fadeIn(tween(70)) togetherWith fadeOut(tween(60))
+                                    } else {
+                                        (scaleIn(
+                                            initialScale = 0.88f,
+                                            animationSpec = SmartNoteMotion.expressivePopSpring()
+                                        ) + fadeIn(tween(120))) togetherWith
+                                            (scaleOut(targetScale = 0.88f, animationSpec = tween(90)) + fadeOut(tween(90))) using
+                                            SizeTransform(clip = false) { _, _ -> SmartNoteMotion.expressiveMorphSpring() }
+                                    }
+                                },
+                                label = "title_generate_button_morph"
+                            ) { usePill ->
+                                if (usePill) {
+                                    Surface(
+                                        onClick = onGenerateSmartTitle,
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.semantics { contentDescription = "Generate title" }
                                     ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.AutoAwesome,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(15.dp)
+                                            )
+                                            Text(
+                                                text = "Generate",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    IconButton(onClick = onGenerateSmartTitle) {
                                         Icon(
                                             imageVector = Icons.Rounded.AutoAwesome,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                        Text(
-                                            text = "Generate",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Medium
+                                            contentDescription = "Generate title",
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
-                                }
-                            } else {
-                                IconButton(onClick = onGenerateSmartTitle) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AutoAwesome,
-                                        contentDescription = "Generate title",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
                                 }
                             }
                         }
@@ -677,11 +729,28 @@ fun NoteEditorScreen(
                             }
                         }
 
-                        if (showGenerateTagsButton) {
+                        AnimatedVisibility(
+                            visible = showGenerateTagsButton,
+                            enter = if (reducedMotion) {
+                                fadeIn(tween(80))
+                            } else {
+                                scaleIn(
+                                    initialScale = 0.85f,
+                                    animationSpec = SmartNoteMotion.expressivePopSpring()
+                                ) + fadeIn(tween(120))
+                            },
+                            exit = if (reducedMotion) {
+                                fadeOut(tween(70))
+                            } else {
+                                scaleOut(targetScale = 0.85f, animationSpec = tween(100)) + fadeOut(tween(100))
+                            }
+                        ) {
                             Surface(
                                 onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onApplyAutoTagsNow()
+                                    if (!uiState.isGeneratingTags) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        onApplyAutoTagsNow()
+                                    }
                                 },
                                 shape = CircleShape,
                                 color = MaterialTheme.colorScheme.secondaryContainer,
@@ -695,7 +764,7 @@ fun NoteEditorScreen(
                                 ) {
                                     Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Text(
-                                        text = "Generate tags",
+                                        text = if (uiState.isGeneratingTags) "Generating..." else "Generate tags",
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.Medium
                                     )
@@ -881,6 +950,8 @@ fun NoteEditorScreen(
     if (showAddTagDialog) {
         ManageTagsSheet(
             aiFeaturesEnabled = uiState.aiFeaturesEnabled,
+            hasTagSourceContent = hasTagSourceContent,
+            isGeneratingTags = uiState.isGeneratingTags,
             liveSuggestions = uiState.liveTagSuggestions,
             existingNoteTags = uiState.tags.map { it.name },
             availableVocabulary = uiState.availableTags,
@@ -1238,6 +1309,8 @@ private fun LinkBlockCard(
 @Composable
 private fun ManageTagsSheet(
     aiFeaturesEnabled: Boolean,
+    hasTagSourceContent: Boolean = false,
+    isGeneratingTags: Boolean = false,
     liveSuggestions: List<SmartTagSuggestion>,
     existingNoteTags: List<String>,
     availableVocabulary: List<String>,
@@ -1279,11 +1352,14 @@ private fun ManageTagsSheet(
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
-                if (aiFeaturesEnabled && liveSuggestions.isNotEmpty()) {
-                    TextButton(onClick = onApplyAllAutoTags) {
+                if (aiFeaturesEnabled && (liveSuggestions.isNotEmpty() || hasTagSourceContent)) {
+                    TextButton(
+                        enabled = !isGeneratingTags,
+                        onClick = onApplyAllAutoTags
+                    ) {
                         Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Generate tags")
+                        Text(if (isGeneratingTags) "Generating..." else "Generate tags")
                     }
                 }
             }

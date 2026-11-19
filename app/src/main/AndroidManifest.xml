@@ -16,6 +16,10 @@
         android:theme="@style/Theme.SmartNote"
         tools:targetApi="36">
 
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ica" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import io.github.ultrapg.smartnote.BuildConfig
 import io.github.ultrapg.smartnote.R
 import io.github.ultrapg.smartnote.ai.AiDiagnosticsState
+import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.backup.RestoreMode
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
@@ -350,6 +351,7 @@ fun AiProcessingSettingsScreen(
     onRefreshDiagnostics: () -> Unit,
     onRunSelfTest: () -> Unit,
     onUnloadModel: () -> Unit,
+    onPrepareGeminiNano: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -463,6 +465,17 @@ fun AiProcessingSettingsScreen(
             ) {
                 DiagRow("SoC / Platform", diagnostics.socDescription)
                 DiagRow("OCR Engine", diagnostics.ocrBackend.name)
+                DiagRow("Image Labeling", "ML Kit (when available)")
+                DiagRow("System Entity Recognition", "Android TextClassifier")
+                DiagRow(
+                    "Gemini Nano (On-Device)",
+                    when (diagnostics.geminiNanoAvailability) {
+                        GeminiNanoAvailability.AVAILABLE -> "Ready"
+                        GeminiNanoAvailability.DOWNLOADABLE -> "Available to download"
+                        GeminiNanoAvailability.DOWNLOADING -> "Downloading..."
+                        GeminiNanoAvailability.UNAVAILABLE -> "Not supported on this device"
+                    }
+                )
                 DiagRow("Lexical Search", diagnostics.lexicalSearchBackend.name)
                 DiagRow("Active LiteRT Backend", diagnostics.activeNeuralBackend.name)
                 DiagRow(
@@ -489,6 +502,18 @@ fun AiProcessingSettingsScreen(
                         color = MaterialTheme.colorScheme.tertiary
                     )
                 }
+            }
+        }
+
+        if (diagnostics.geminiNanoAvailability == GeminiNanoAvailability.DOWNLOADABLE && aiEnabled) {
+            OutlinedButton(
+                onClick = {
+                    onPrepareGeminiNano()
+                    onRefreshDiagnostics()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Prepare Gemini Nano")
             }
         }
 

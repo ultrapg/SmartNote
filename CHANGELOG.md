@@ -4,6 +4,27 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.14] - 2026-11-19
+
+### Added & Changed
+- **Upgraded Tag Generation + System `TextClassifier`, ML Kit Image Labeling & On-Device Gemini Nano (`SmartTagsEngine.kt`, `SystemEntityAnalyzer.kt`, `ImageLabelingEngine.kt`, `OnDeviceGenAiAssistant.kt`, `NoteEditorViewModel.kt`, `NoteProcessingWorker.kt`, `AppContainer.kt`)**:
+  - Added 3 modular on-device intelligence adapters: Android System `TextClassifier` (`AndroidSystemEntityAnalyzer`) for flight numbers, tracking numbers, addresses, and contact signals; Play Services ML Kit Image Labeling (`MlKitImageLabelingEngine`, `com.google.android.gms:play-services-mlkit-image-labeling:16.0.8`) for automatic visual object/scene tagging; and ML Kit GenAI Prompt / Gemini Nano (`MlKitGeminiNanoAssistant`, `com.google.mlkit:genai-prompt:1.0.0-beta5`) with safe availability probing, non-blocking background download when downloadable, and multimodal photo fallback when supported on device.
+  - Expanded `SmartTagsEngine` to 32 bilingual EN/DE categories (adding `Personal`, `Tech`, `Pets`, `Photography`, and `Quotes`), expanded domain rules, German plural/inflection stemming, lower single-strong-anchor threshold, shared personal user-tag profile builder (`buildUserTagContext`), and Stage 4 open-vocabulary topic keyword extraction for explicit on-demand generation while preserving strict weak-filler rejection.
+  - Upgraded on-demand `Generate tags` in `NoteEditorViewModel` and `NoteEditorScreen` to merge System `TextClassifier` entities, ML Kit Image Labeling labels, personal tag profiles, LiteRT neural semantic affinities, optional Gemini Nano tags, and open-vocabulary topic keywords—available directly in the editor and `ManageTagsSheet` whenever a note has content or images.
+  - Surfaced live diagnostics for **Gemini Nano (On-Device)**, **Image Labeling**, and **System Entity Recognition** plus a **`Prepare Gemini Nano`** button (when downloadable) inside `AiProcessingSettingsScreen` (`SettingsScreens.kt`).
+- **Upgraded Bilingual & Multi-Candidate Title Generation (`SmartTitleGenerator.kt`, `NoteEditorViewModel.kt`)**:
+  - Added `generateTitleCandidates` returning up to 4 distinct clean candidates, enabling repeated taps on the editor's ✨ title button to cycle cleanly through alternatives.
+  - Added bilingual EN/DE conversational filler-prefix stripping, subordinate/coordinating clause compression, dangling trailing function-word cleanup, inline `#hashtag` removal, meta/date/greeting line penalties, German shopping/packing & Workout/Watchlist checklist synthesis, keyphrase summaries, System `TextClassifier` flight-number synthesis (`"Flight LH402"`), ML Kit Image Labeling visual photo titles, and optional Gemini Nano synthesis when supported.
+- **Refined Expressive Pop-Out Menu & AI Button Animations (`SmartNoteTheme.kt`, `NotesOverviewScreen.kt`, `NoteEditorScreen.kt`)**:
+  - Added `SmartNoteMotion.expressivePopSpring()` and `SmartNoteMotion.expressiveMorphSpring()`.
+  - Added an animated dimmed backdrop scrim behind open overview top-bar bubbles and the expanded `+` pill menu, removed vertical clip truncation on the pop-out bubble (`scaleIn` + `slideInVertically` + subtle border), added directional horizontal slide + smooth `SizeTransform` height morphing when switching between `Sort` and `Menu`, staggered row entrances, tactile press scaling, and spring badge/rotation animations on top-bar trigger icons.
+  - Added spring scale+fade animations and pill <-> ✨ icon morphing on the editor's `Generate` title and `Generate tags` buttons with `"Generating..."` progress label and empty-result snackbar feedback.
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 33 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **9 suites, 33 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,861,782` bytes (`55.18 MiB`), `SHA-256: 2bcf8f7f2de4bd316afe8e75153454cbcaa712dfd505f35966132586e7f12ba2`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.13] - 2026-11-19
 
 ### Changed & Removed

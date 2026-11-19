@@ -3,10 +3,14 @@ package io.github.ultrapg.smartnote.ui.overview
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -14,7 +18,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -627,10 +636,15 @@ fun NotesOverviewScreen(
                 }
             }
         }
-        if (isCreateMenuExpanded || activeTopMenu != OverviewTopMenu.NONE) {
+        AnimatedVisibility(
+            visible = isCreateMenuExpanded || activeTopMenu != OverviewTopMenu.NONE,
+            enter = fadeIn(tween(if (reducedMotion) 70 else 180)),
+            exit = fadeOut(tween(if (reducedMotion) 60 else 130))
+        ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (themeMeta.isDark) 0.36f else 0.14f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
@@ -644,11 +658,11 @@ fun NotesOverviewScreen(
 
         val showTopMenuBubble = activeTopMenu != OverviewTopMenu.NONE && !inSelectionMode && uiState.activeTagName == null
         val bubbleEndPadding by animateDpAsState(
-            targetValue = if (displayedTopMenu == OverviewTopMenu.SORT) 56.dp else 16.dp,
-            animationSpec = if (reducedMotion) tween(70) else SmartNoteMotion.softPlacementSpring(),
+            targetValue = if (displayedTopMenu == OverviewTopMenu.SORT) 60.dp else 16.dp,
+            animationSpec = if (reducedMotion) tween(70) else SmartNoteMotion.expressiveMorphSpring(),
             label = "top_menu_bubble_end"
         )
-        val bubblePivotX = if (displayedTopMenu == OverviewTopMenu.SORT) 0.82f else 0.86f
+        val bubblePivotX = if (displayedTopMenu == OverviewTopMenu.SORT) 0.84f else 0.86f
 
         AnimatedVisibility(
             visible = showTopMenuBubble,
@@ -659,25 +673,25 @@ fun NotesOverviewScreen(
                 fadeIn(tween(80))
             } else {
                 scaleIn(
-                    initialScale = 0.72f,
+                    initialScale = 0.62f,
                     transformOrigin = TransformOrigin(bubblePivotX, 0f),
-                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 480f)
-                ) + expandVertically(
-                    expandFrom = Alignment.Top,
-                    animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f)
-                ) + fadeIn(tween(110))
+                    animationSpec = SmartNoteMotion.expressivePopSpring()
+                ) + slideInVertically(
+                    initialOffsetY = { -it / 10 },
+                    animationSpec = SmartNoteMotion.expressivePopSpring()
+                ) + fadeIn(tween(120, easing = LinearOutSlowInEasing))
             },
             exit = if (reducedMotion) {
                 fadeOut(tween(70))
             } else {
                 scaleOut(
-                    targetScale = 0.82f,
+                    targetScale = 0.78f,
                     transformOrigin = TransformOrigin(bubblePivotX, 0f),
-                    animationSpec = tween(110)
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    animationSpec = tween(120)
-                ) + fadeOut(tween(90))
+                    animationSpec = tween(120, easing = FastOutLinearInEasing)
+                ) + slideOutVertically(
+                    targetOffsetY = { -it / 12 },
+                    animationSpec = tween(120, easing = FastOutLinearInEasing)
+                ) + fadeOut(tween(95))
             }
         ) {
             Surface(
@@ -690,14 +704,32 @@ fun NotesOverviewScreen(
                 } else {
                     MaterialTheme.colorScheme.surfaceContainerHigh
                 },
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (themeMeta.isDark) 0.28f else 0.35f)
+                ),
                 tonalElevation = 4.dp,
-                shadowElevation = 10.dp
+                shadowElevation = 12.dp
             ) {
                 AnimatedContent(
                     targetState = displayedTopMenu,
                     transitionSpec = {
-                        fadeIn(tween(if (reducedMotion) 60 else 120)) togetherWith
-                            fadeOut(tween(if (reducedMotion) 50 else 80))
+                        if (reducedMotion) {
+                            fadeIn(tween(60)) togetherWith fadeOut(tween(50))
+                        } else {
+                            val movingRight = targetState == OverviewTopMenu.OVERFLOW
+                            val slideIn = slideInHorizontally(
+                                animationSpec = SmartNoteMotion.expressiveMorphSpring(),
+                                initialOffsetX = { fullW -> if (movingRight) fullW / 4 else -fullW / 4 }
+                            )
+                            val slideOut = slideOutHorizontally(
+                                animationSpec = tween(110, easing = FastOutLinearInEasing),
+                                targetOffsetX = { fullW -> if (movingRight) -fullW / 5 else fullW / 5 }
+                            )
+                            (slideIn + fadeIn(tween(130, easing = LinearOutSlowInEasing))) togetherWith
+                                (slideOut + fadeOut(tween(80))) using
+                                SizeTransform(clip = true) { _, _ -> SmartNoteMotion.expressiveMorphSpring() }
+                        }
                     },
                     label = "top_menu_bubble_content"
                 ) { menu ->
@@ -709,7 +741,7 @@ fun NotesOverviewScreen(
                     ) {
                         when (menu) {
                             OverviewTopMenu.SORT -> {
-                                NoteSortOrder.entries.forEach { order ->
+                                NoteSortOrder.entries.forEachIndexed { idx, order ->
                                     val (label, icon) = when (order) {
                                         NoteSortOrder.UPDATED_DESC -> "Recently updated" to Icons.Rounded.Schedule
                                         NoteSortOrder.CREATED_DESC -> "Recently created" to Icons.Rounded.History
@@ -719,6 +751,8 @@ fun NotesOverviewScreen(
                                         icon = icon,
                                         label = label,
                                         selected = uiState.sortOrder == order,
+                                        itemIndex = idx,
+                                        reducedMotion = reducedMotion,
                                         onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             activeTopMenu = OverviewTopMenu.NONE
@@ -731,6 +765,8 @@ fun NotesOverviewScreen(
                                 PopOutBubbleMenuItem(
                                     icon = Icons.Rounded.Archive,
                                     label = "Archive",
+                                    itemIndex = 0,
+                                    reducedMotion = reducedMotion,
                                     onClick = {
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenArchive()
@@ -739,6 +775,8 @@ fun NotesOverviewScreen(
                                 PopOutBubbleMenuItem(
                                     icon = Icons.Rounded.DeleteOutline,
                                     label = "Recycle Bin",
+                                    itemIndex = 1,
+                                    reducedMotion = reducedMotion,
                                     onClick = {
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenRecycleBin()
@@ -747,6 +785,8 @@ fun NotesOverviewScreen(
                                 PopOutBubbleMenuItem(
                                     icon = Icons.Rounded.ContentCopy,
                                     label = "Review Duplicates",
+                                    itemIndex = 2,
+                                    reducedMotion = reducedMotion,
                                     onClick = {
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenDuplicates()
@@ -759,6 +799,8 @@ fun NotesOverviewScreen(
                                 PopOutBubbleMenuItem(
                                     icon = Icons.Rounded.Settings,
                                     label = "Settings",
+                                    itemIndex = 3,
+                                    reducedMotion = reducedMotion,
                                     onClick = {
                                         activeTopMenu = OverviewTopMenu.NONE
                                         onOpenSettings()
@@ -785,28 +827,55 @@ private fun TopBarBubbleTriggerButton(
     closeContentDescription: String,
     onClick: () -> Unit
 ) {
-    val badgeColor by animateColorAsState(
-        targetValue = if (isOpen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-        animationSpec = tween(if (reducedMotion) 60 else 150),
-        label = "top_bar_trigger_badge"
+    val interactionSource = remember { MutableInteractionSource() }
+    val badgeProgress by animateFloatAsState(
+        targetValue = if (isOpen) 1f else 0f,
+        animationSpec = if (reducedMotion) tween(60) else SmartNoteMotion.expressivePopSpring(),
+        label = "top_bar_trigger_badge_progress"
     )
-    IconButton(onClick = onClick) {
+    val otherDimAlpha by animateFloatAsState(
+        targetValue = if (isOtherMenuOpen) 0.52f else 1f,
+        animationSpec = tween(if (reducedMotion) 60 else 140),
+        label = "top_bar_trigger_other_alpha"
+    )
+    val iconRotation by animateFloatAsState(
+        targetValue = if (isOpen) 90f else 0f,
+        animationSpec = if (reducedMotion) tween(60) else SmartNoteMotion.expressivePopSpring(),
+        label = "top_bar_trigger_rotation"
+    )
+    IconButton(
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = Modifier.expressivePressable(interactionSource, pressedScale = 0.92f)
+    ) {
         Box(
             modifier = Modifier
                 .size(38.dp)
-                .clip(CircleShape)
-                .background(badgeColor)
-                .alpha(if (isOtherMenuOpen) 0.65f else 1f),
+                .graphicsLayer { alpha = otherDimAlpha },
             contentAlignment = Alignment.Center
         ) {
+            if (badgeProgress > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            val s = 0.55f + (0.45f * badgeProgress)
+                            scaleX = s
+                            scaleY = s
+                            alpha = badgeProgress.coerceIn(0f, 1f)
+                        }
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                )
+            }
             AnimatedContent(
                 targetState = isOpen,
                 transitionSpec = {
                     if (reducedMotion) {
                         fadeIn(tween(60)) togetherWith fadeOut(tween(50))
                     } else {
-                        (scaleIn(initialScale = 0.85f, animationSpec = tween(120)) + fadeIn(tween(120))) togetherWith
-                            (scaleOut(targetScale = 0.85f, animationSpec = tween(90)) + fadeOut(tween(90)))
+                        (scaleIn(initialScale = 0.72f, animationSpec = SmartNoteMotion.expressivePopSpring()) + fadeIn(tween(110))) togetherWith
+                            (scaleOut(targetScale = 0.72f, animationSpec = tween(90)) + fadeOut(tween(90)))
                     }
                 },
                 label = "top_bar_trigger_icon"
@@ -815,13 +884,15 @@ private fun TopBarBubbleTriggerButton(
                     Icon(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = closeContentDescription,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation - 90f }
                     )
                 } else {
                     Icon(
                         imageVector = openIcon,
                         contentDescription = openContentDescription,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.graphicsLayer { rotationZ = iconRotation }
                     )
                 }
             }
@@ -834,25 +905,58 @@ private fun PopOutBubbleMenuItem(
     icon: ImageVector,
     label: String,
     selected: Boolean = false,
+    itemIndex: Int = 0,
+    reducedMotion: Boolean = false,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val enterProgress = remember { Animatable(if (reducedMotion) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (reducedMotion) {
+            enterProgress.snapTo(1f)
+        } else {
+            val staggerMs = (itemIndex * 22L).coerceAtMost(90L)
+            if (staggerMs > 0L) delay(staggerMs)
+            enterProgress.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing))
+        }
+    }
+    val containerColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        animationSpec = tween(if (reducedMotion) 60 else 140),
+        label = "bubble_item_bg"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(if (reducedMotion) 60 else 140),
+        label = "bubble_item_fg"
+    )
+    val iconColor by animateColorAsState(
+        targetValue = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        animationSpec = tween(if (reducedMotion) 60 else 140),
+        label = "bubble_item_icon"
+    )
+
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            Color.Transparent
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+        color = containerColor,
+        contentColor = contentColor,
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
+            .graphicsLayer {
+                if (!reducedMotion) {
+                    val p = enterProgress.value
+                    alpha = p
+                    translationY = (1f - p) * 8f * density
+                }
+            }
+            .expressivePressable(interactionSource, pressedScale = 0.97f)
             .clip(RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -862,11 +966,7 @@ private fun PopOutBubbleMenuItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                tint = iconColor,
                 modifier = Modifier.size(20.dp)
             )
             Text(
@@ -899,22 +999,22 @@ private fun ExpressiveMorphingCreateFab(
 ) {
     val containerWidth by animateDpAsState(
         targetValue = if (expanded) 176.dp else 56.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
         label = "create_pill_width"
     )
     val cornerRadius by animateDpAsState(
         targetValue = if (expanded) 28.dp else 16.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
         label = "create_pill_corner"
     )
     val iconRotation by animateFloatAsState(
         targetValue = if (expanded) 45f else 0f,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressivePopSpring(),
         label = "create_pill_icon_rotation"
     )
     val iconSize by animateDpAsState(
         targetValue = if (expanded) 30.dp else 26.dp,
-        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.expressiveMorphSpring(),
         label = "create_pill_icon_size"
     )
 
@@ -933,17 +1033,17 @@ private fun ExpressiveMorphingCreateFab(
                     fadeIn(tween(80))
                 } else {
                     expandVertically(
-                        animationSpec = SmartNoteMotion.softSizeSpring(),
+                        animationSpec = SmartNoteMotion.expressiveMorphSpring(),
                         expandFrom = Alignment.Bottom
-                    ) + fadeIn(tween(130))
+                    ) + fadeIn(tween(130, easing = LinearOutSlowInEasing))
                 },
                 exit = if (reducedMotion) {
                     fadeOut(tween(70))
                 } else {
                     shrinkVertically(
-                        animationSpec = SmartNoteMotion.softSizeSpring(),
+                        animationSpec = tween(140, easing = FastOutLinearInEasing),
                         shrinkTowards = Alignment.Bottom
-                    ) + fadeOut(tween(90))
+                    ) + fadeOut(tween(95))
                 }
             ) {
                 Column(
@@ -955,16 +1055,22 @@ private fun ExpressiveMorphingCreateFab(
                     CreatePillOptionRow(
                         icon = Icons.Rounded.Image,
                         label = "Image",
+                        rowIndex = 0,
+                        reducedMotion = reducedMotion,
                         onClick = { onSelectOption(NoteCreationOption.IMAGE) }
                     )
                     CreatePillOptionRow(
                         icon = Icons.Rounded.CheckBox,
                         label = "Checklist",
+                        rowIndex = 1,
+                        reducedMotion = reducedMotion,
                         onClick = { onSelectOption(NoteCreationOption.CHECKLIST) }
                     )
                     CreatePillOptionRow(
                         icon = Icons.AutoMirrored.Rounded.NoteAdd,
                         label = "Note",
+                        rowIndex = 2,
+                        reducedMotion = reducedMotion,
                         onClick = { onSelectOption(NoteCreationOption.TEXT_NOTE) }
                     )
                 }
@@ -1003,16 +1109,41 @@ private fun ExpressiveMorphingCreateFab(
 private fun CreatePillOptionRow(
     icon: ImageVector,
     label: String,
+    rowIndex: Int = 0,
+    reducedMotion: Boolean = false,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val enterProgress = remember { Animatable(if (reducedMotion) 1f else 0f) }
+    LaunchedEffect(Unit) {
+        if (reducedMotion) {
+            enterProgress.snapTo(1f)
+        } else {
+            val bottomUpStaggerMs = ((2 - rowIndex).coerceAtLeast(0) * 20L)
+            if (bottomUpStaggerMs > 0L) delay(bottomUpStaggerMs)
+            enterProgress.animateTo(1f, animationSpec = tween(150, easing = FastOutSlowInEasing))
+        }
+    }
     Surface(
         shape = CircleShape,
         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.08f),
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 46.dp)
+            .graphicsLayer {
+                if (!reducedMotion) {
+                    val p = enterProgress.value
+                    alpha = p
+                    translationY = (1f - p) * 10f * density
+                }
+            }
+            .expressivePressable(interactionSource, pressedScale = 0.96f)
             .clip(CircleShape)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),

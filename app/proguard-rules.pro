@@ -34,9 +34,11 @@
 -dontwarn com.google.ai.edge.litert.**
 -dontwarn org.tensorflow.lite.**
 
-# ML Kit Bundled Text Recognition
+# ML Kit Bundled Text Recognition & Optional Play Services / GenAI
 -keep class com.google.mlkit.** { *; }
+-keep class com.google.mlkit.genai.** { *; }
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.mlkit.**
+-dontwarn com.google.mlkit.genai.**
 -dontwarn com.google.android.gms.**
 -dontwarn javax.annotation.**

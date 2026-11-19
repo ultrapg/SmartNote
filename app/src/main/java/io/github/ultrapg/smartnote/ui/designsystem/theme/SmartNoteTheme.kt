@@ -67,6 +67,8 @@ object SmartNoteSoftMotionScheme : MotionScheme {
 object SmartNoteMotion {
     fun <T> softPlacementSpring(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 520f)
     fun <T> softSizeSpring(): SpringSpec<T> = spring(dampingRatio = 1.0f, stiffness = 550f)
+    fun <T> expressivePopSpring(): SpringSpec<T> = spring(dampingRatio = 0.78f, stiffness = 520f)
+    fun <T> expressiveMorphSpring(): SpringSpec<T> = spring(dampingRatio = 0.84f, stiffness = 460f)
     fun softPressSpring(): SpringSpec<Float> = spring(dampingRatio = 1.0f, stiffness = 700f)
 }
 

@@ -5,8 +5,14 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import io.github.ultrapg.smartnote.ai.AndroidLiteRtRuntimeBridge
+import io.github.ultrapg.smartnote.ai.AndroidSystemEntityAnalyzer
+import io.github.ultrapg.smartnote.ai.ImageLabelingEngine
+import io.github.ultrapg.smartnote.ai.MlKitGeminiNanoAssistant
+import io.github.ultrapg.smartnote.ai.MlKitImageLabelingEngine
+import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
 import io.github.ultrapg.smartnote.ai.SmartNoteAiEngine
 import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
+import io.github.ultrapg.smartnote.ai.SystemEntityAnalyzer
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.capture.AttachmentImporter
 import io.github.ultrapg.smartnote.capture.NoteShareExporter
@@ -62,6 +68,18 @@ class AppContainer(
         MlKitBundledOcrEngine(context)
     }
 
+    val systemEntityAnalyzer: SystemEntityAnalyzer by lazy {
+        AndroidSystemEntityAnalyzer(context)
+    }
+
+    val imageLabelingEngine: ImageLabelingEngine by lazy {
+        MlKitImageLabelingEngine()
+    }
+
+    val geminiNanoAssistant: OnDeviceGenAiAssistant by lazy {
+        MlKitGeminiNanoAssistant(applicationScope)
+    }
+
     val smartTagsEngine: SmartTagsEngine by lazy {
         SmartTagsEngine()
     }
@@ -75,12 +93,13 @@ class AppContainer(
             database = database,
             settingsRepository = settingsRepository,
             runtimeBridge = AndroidLiteRtRuntimeBridge(context),
-            applicationScope = applicationScope
+            applicationScope = applicationScope,
+            geminiNanoAssistant = geminiNanoAssistant
         )
     }
 
     val smartTitleGenerator: SmartTitleGenerator by lazy {
-        SmartTitleGenerator(aiEngine)
+        SmartTitleGenerator(aiEngine, geminiNanoAssistant)
     }
 
     val appShortcutsManager: AppShortcutsManager by lazy {

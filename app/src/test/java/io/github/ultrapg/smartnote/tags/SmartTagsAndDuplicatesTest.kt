@@ -1,7 +1,10 @@
 package io.github.ultrapg.smartnote.tags
 
 import android.content.Context
+import android.view.textclassifier.TextClassifier
 import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.ai.ClassifiedTextEntity
+import io.github.ultrapg.smartnote.ai.DetectedImageLabel
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
@@ -207,5 +210,103 @@ class SmartTagsAndDuplicatesTest {
         ).map { it.name }
         assertTrue("ClientACME" in learnedProfileSuggestions)
         assertTrue("Research" in learnedProfileSuggestions)
+    }
+
+    @Test
+    fun smartTagsSupportsNewCategoriesTopicsSystemEntitiesAndImageLabels() {
+        val pets = smartTagsEngine.suggestTags(
+            title = "Tierarzt",
+            blocks = listOf(NoteBlock("p1", "n1", 0, NoteBlockType.TEXT, "Katzenfutter holen und mit Katzen zum Tierarzt")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Pets" in pets)
+
+        val tech = smartTagsEngine.suggestTags(
+            title = "Setup",
+            blocks = listOf(NoteBlock("t1", "n2", 0, NoteBlockType.TEXT, "Mechanische Tastatur, Monitor und Linux Homelab NAS")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Tech" in tech)
+
+        val photography = smartTagsEngine.suggestTags(
+            title = "Kamera",
+            blocks = listOf(NoteBlock("ph1", "n3", 0, NoteBlockType.TEXT, "Fujifilm Objektiv mit Stativ testen")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Photography" in photography)
+
+        val personal = smartTagsEngine.suggestTags(
+            title = "Wochenende",
+            blocks = listOf(NoteBlock("pe1", "n4", 0, NoteBlockType.TEXT, "Mama anrufen und Familie besuchen")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Personal" in personal)
+
+        val quotes = smartTagsEngine.suggestTags(
+            title = "Zitat",
+            blocks = listOf(NoteBlock("q1", "n5", 0, NoteBlockType.TEXT, "Ein schönes Gedicht und Motto merken")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Quotes" in quotes)
+
+        // Open-vocabulary topic keywords work for explicit on-demand generation while still rejecting generic filler
+        val topicTags = smartTagsEngine.suggestTags(
+            title = "Sourdough fermentation schedule",
+            blocks = listOf(NoteBlock("tp1", "n6", 0, NoteBlockType.TEXT, "Feed sourdough starter at 28C and stretch dough")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList(),
+            includeTopicKeywords = true
+        ).map { it.name }
+        assertTrue("Expected Sourdough open-topic tag, got $topicTags", "Sourdough" in topicTags)
+
+        val fillerOnly = smartTagsEngine.suggestTags(
+            title = "Total notes change",
+            blocks = listOf(NoteBlock("tp2", "n7", 0, NoteBlockType.TEXT, "Just a quick review finish today tomorrow")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList(),
+            includeTopicKeywords = true
+        )
+        assertTrue("Generic filler must not trigger open-vocabulary topic tags: $fillerOnly", fillerOnly.isEmpty())
+
+        // Android System TextClassifier entities & ML Kit Image Labeling signals
+        val systemAndImageTags = smartTagsEngine.suggestTags(
+            title = "Gate info",
+            blocks = listOf(NoteBlock("se1", "n8", 0, NoteBlockType.TEXT, "Track package 1Z999AA101 before boarding LH402")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList(),
+            systemEntities = listOf(
+                ClassifiedTextEntity(TextClassifier.TYPE_FLIGHT_NUMBER, "LH402", 0.92f),
+                ClassifiedTextEntity("tracking_number", "1Z999AA101", 0.90f)
+            ),
+            imageLabels = listOf(
+                DetectedImageLabel("Dog", 0.89f),
+                DetectedImageLabel("Telescope", 0.91f)
+            )
+        ).map { it.name }
+        assertTrue("Travel" in systemAndImageTags)
+        assertTrue("Shopping" in systemAndImageTags)
+        assertTrue("Pets" in systemAndImageTags)
+        assertTrue("Telescope" in systemAndImageTags)
     }
 }

@@ -1,7 +1,12 @@
 package io.github.ultrapg.smartnote.tags
 
+import android.view.textclassifier.TextClassifier
+import io.github.ultrapg.smartnote.ai.ClassifiedTextEntity
+import io.github.ultrapg.smartnote.ai.DetectedImageLabel
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.NoteSummary
+import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.domain.util.TextHashing
 import io.github.ultrapg.smartnote.links.DetectedLink
 import java.util.Locale
@@ -39,6 +44,11 @@ class SmartTagsEngine {
         "amazon.de" to listOf("Shopping"),
         "ebay.com" to listOf("Shopping"),
         "ebay.de" to listOf("Shopping"),
+        "rewe.de" to listOf("Shopping"),
+        "dm.de" to listOf("Shopping"),
+        "idealo.de" to listOf("Shopping"),
+        "geizhals.de" to listOf("Shopping"),
+        "kleinanzeigen.de" to listOf("Shopping"),
         "ikea.com" to listOf("Home", "Shopping"),
         "chefkoch.de" to listOf("Recipe"),
         "allrecipes.com" to listOf("Recipe"),
@@ -47,6 +57,8 @@ class SmartTagsEngine {
         "airbnb.com" to listOf("Travel"),
         "bahn.de" to listOf("Travel"),
         "expedia.com" to listOf("Travel"),
+        "skyscanner.com" to listOf("Travel"),
+        "lufthansa.com" to listOf("Travel"),
         "imdb.com" to listOf("Watchlist"),
         "letterboxd.com" to listOf("Watchlist"),
         "themoviedb.org" to listOf("Watchlist"),
@@ -58,6 +70,11 @@ class SmartTagsEngine {
         "medium.com" to listOf("Reading"),
         "substack.com" to listOf("Reading"),
         "reddit.com" to listOf("Reading"),
+        "heise.de" to listOf("Tech"),
+        "theverge.com" to listOf("Tech"),
+        "notebookcheck.com" to listOf("Tech"),
+        "komoot.com" to listOf("Fitness"),
+        "strava.com" to listOf("Fitness"),
         "steampowered.com" to listOf("Gaming"),
         "twitch.tv" to listOf("Gaming"),
         "linkedin.com" to listOf("Work"),
@@ -134,9 +151,11 @@ class SmartTagsEngine {
                 "standup" to 2.0f, "deadline" to 1.9f, "deliverable" to 1.9f, "roadmap" to 1.9f,
                 "stakeholder" to 1.9f, "milestone" to 1.8f, "meilenstein" to 1.9f, "quarterly" to 1.7f,
                 "jira" to 2.1f, "ticket" to 1.4f, "project" to 1.4f, "projekt" to 1.8f,
-                "client" to 1.5f, "kunde" to 1.6f, "colleague" to 1.8f, "kollege" to 1.8f
+                "client" to 1.5f, "kunde" to 1.6f, "colleague" to 1.8f, "kollege" to 1.8f,
+                "bewerbung" to 2.2f, "interview" to 2.0f, "lebenslauf" to 2.3f, "onboarding" to 2.0f,
+                "quartal" to 1.8f, "gehaltserhoehung" to 2.2f
             ),
-            compoundRoots = setOf("arbeit", "projekt", "meilenstein")
+            compoundRoots = setOf("arbeit", "projekt", "meilenstein", "bewerbung")
         ),
         CategorySpec(
             tagName = "Meeting",
@@ -163,9 +182,11 @@ class SmartTagsEngine {
                 "bananas" to 1.8f, "bananen" to 1.8f, "cheese" to 1.8f, "kaese" to 1.8f,
                 "butter" to 1.8f, "rice" to 1.7f, "reis" to 1.7f, "pasta" to 1.6f,
                 "detergent" to 2.0f, "waschmittel" to 2.0f, "toothpaste" to 2.0f, "zahnpasta" to 2.0f,
-                "wishlist" to 2.0f, "wunschliste" to 2.1f, "bestellen" to 1.7f
+                "wishlist" to 2.0f, "wunschliste" to 2.1f, "bestellen" to 1.7f, "bestellung" to 2.1f,
+                "rewe" to 2.2f, "edeka" to 2.2f, "aldi" to 2.2f, "lidl" to 2.2f, "rossmann" to 2.2f,
+                "jacke" to 1.8f, "jacket" to 1.8f, "schuhe" to 1.9f, "shoes" to 1.9f
             ),
-            compoundRoots = setOf("einkauf", "supermarkt", "wunschliste", "grocery"),
+            compoundRoots = setOf("einkauf", "supermarkt", "wunschliste", "grocery", "bestellung"),
             phrases = mapOf("shopping list" to 3.2f, "grocery list" to 3.2f, "buy later" to 1.8f)
         ),
         CategorySpec(
@@ -178,9 +199,11 @@ class SmartTagsEngine {
                 "bank" to 1.8f, "iban" to 2.3f, "konto" to 1.9f, "salary" to 2.1f,
                 "gehalt" to 2.1f, "subtotal" to 1.9f, "total" to 1.1f, "usd" to 1.8f,
                 "eur" to 1.8f, "euro" to 1.8f, "refund" to 2.0f, "ueberweisung" to 2.2f,
-                "investment" to 2.1f, "etf" to 2.1f
+                "investment" to 2.1f, "etf" to 2.1f, "abo" to 2.0f, "subscription" to 2.1f,
+                "versicherung" to 2.2f, "insurance" to 2.2f, "depot" to 2.0f, "aktien" to 2.1f,
+                "nebenkosten" to 2.2f, "stromkosten" to 2.2f
             ),
-            compoundRoots = setOf("steuer", "finanz", "ueberweisung", "rechnung", "konto"),
+            compoundRoots = setOf("steuer", "finanz", "ueberweisung", "rechnung", "konto", "versicherung"),
             phrases = mapOf("bank transfer" to 2.8f, "tax return" to 3.0f)
         ),
         CategorySpec(
@@ -206,7 +229,9 @@ class SmartTagsEngine {
                 "luggage" to 2.2f, "gepaeck" to 2.2f, "koffer" to 2.1f,
                 "airport" to 2.2f, "flughafen" to 2.2f, "terminal" to 1.5f,
                 "train" to 1.7f, "bahn" to 1.9f, "reservation" to 1.8f, "reservierung" to 1.9f,
-                "checkin" to 2.0f, "booking" to 1.9f, "buchung" to 2.0f, "packliste" to 2.4f
+                "checkin" to 2.0f, "booking" to 1.9f, "buchung" to 2.0f, "packliste" to 2.4f,
+                "ausflug" to 2.1f, "trip" to 1.9f, "mietwagen" to 2.3f, "ferienwohnung" to 2.4f,
+                "visum" to 2.2f, "visa" to 1.7f
             ),
             compoundRoots = setOf("flug", "hotel", "urlaub", "reise", "koffer", "buchung", "airport"),
             phrases = mapOf("boarding pass" to 3.0f, "packing list" to 2.8f, "hotel booking" to 2.8f)
@@ -221,9 +246,11 @@ class SmartTagsEngine {
                 "medikament" to 2.3f, "medikamente" to 2.3f, "medication" to 2.3f,
                 "vitamins" to 2.1f, "vitamine" to 2.1f, "symptom" to 2.2f, "symptome" to 2.2f,
                 "pharmacy" to 2.3f, "apotheke" to 2.4f, "sleep" to 1.5f, "schlaf" to 1.6f,
-                "hydration" to 1.9f, "therapie" to 2.1f, "impfung" to 2.2f, "krankenhaus" to 2.3f
+                "hydration" to 1.9f, "therapie" to 2.1f, "impfung" to 2.2f, "krankenhaus" to 2.3f,
+                "vorsorge" to 2.2f, "checkup" to 2.2f, "blutbild" to 2.3f, "allergie" to 2.2f,
+                "krankenkasse" to 2.3f, "physiotherapie" to 2.4f, "optiker" to 2.2f
             ),
-            compoundRoots = setOf("arzt", "zahnarzt", "apotheke", "medikament", "gesundheit", "krankenhaus"),
+            compoundRoots = setOf("arzt", "zahnarzt", "apotheke", "medikament", "gesundheit", "krankenhaus", "therapie"),
             phrases = mapOf("doctor appointment" to 3.2f, "dental appointment" to 3.0f, "blood pressure" to 2.6f)
         ),
         CategorySpec(
@@ -237,7 +264,9 @@ class SmartTagsEngine {
                 "teaspoon" to 2.3f, "teeloeffel" to 2.3f, "tbsp" to 2.2f, "tsp" to 2.2f,
                 "oven" to 1.9f, "backofen" to 2.1f, "chop" to 1.8f, "garlic" to 1.9f,
                 "knoblauch" to 1.9f, "olive" to 1.5f, "flour" to 1.9f, "mehl" to 1.9f,
-                "sauce" to 1.8f, "pasta" to 1.7f
+                "sauce" to 1.8f, "pasta" to 1.7f, "abendessen" to 1.8f, "dinner" to 1.7f,
+                "mittagessen" to 1.8f, "lunch" to 1.6f, "fruehstueck" to 1.8f, "breakfast" to 1.7f,
+                "suppe" to 1.9f, "soup" to 1.9f, "pfanne" to 2.0f, "dessert" to 1.9f
             ),
             compoundRoots = setOf("rezept", "zutaten", "backofen", "knoblauch")
         ),
@@ -250,9 +279,11 @@ class SmartTagsEngine {
                 "pruefung" to 2.4f, "homework" to 2.2f, "hausaufgabe" to 2.3f, "hausaufgaben" to 2.3f,
                 "chapter" to 1.8f, "kapitel" to 1.8f, "syllabus" to 2.3f, "theorem" to 2.2f,
                 "quiz" to 2.0f, "flashcards" to 2.2f, "karteikarten" to 2.3f,
-                "summary" to 1.4f, "zusammenfassung" to 2.0f, "lernen" to 2.1f, "course" to 1.6f
+                "summary" to 1.4f, "zusammenfassung" to 2.0f, "lernen" to 2.1f, "course" to 1.6f,
+                "hausarbeit" to 2.4f, "essay" to 2.1f, "referat" to 2.3f, "seminar" to 2.1f,
+                "semester" to 2.1f, "dozent" to 2.2f, "bachelor" to 2.0f
             ),
-            compoundRoots = setOf("vorlesung", "klausur", "pruefung", "hausaufgabe", "karteikarten")
+            compoundRoots = setOf("vorlesung", "klausur", "pruefung", "hausaufgabe", "karteikarten", "hausarbeit")
         ),
         CategorySpec(
             tagName = "Ideas",
@@ -305,9 +336,12 @@ class SmartTagsEngine {
                 "cardio" to 2.3f, "running" to 2.0f, "joggen" to 2.2f, "laufen" to 1.8f,
                 "training" to 2.1f, "krafttraining" to 2.5f, "calories" to 2.0f, "kalorien" to 2.0f,
                 "protein" to 1.9f, "yoga" to 2.2f, "stretching" to 2.1f, "marathon" to 2.3f,
-                "sport" to 2.0f, "steps" to 1.4f
+                "sport" to 2.0f, "steps" to 1.4f, "bouldering" to 2.4f, "bouldern" to 2.4f,
+                "climbing" to 2.2f, "klettern" to 2.2f, "cycling" to 2.2f, "radfahren" to 2.2f,
+                "rennrad" to 2.3f, "swimming" to 2.1f, "schwimmen" to 2.1f, "wandern" to 2.0f,
+                "hiking" to 2.0f
             ),
-            compoundRoots = setOf("fitness", "workout", "training")
+            compoundRoots = setOf("fitness", "workout", "training", "boulder")
         ),
         CategorySpec(
             tagName = "Reading",
@@ -362,9 +396,11 @@ class SmartTagsEngine {
                 "cleaning" to 2.2f, "putzen" to 2.4f, "laundry" to 2.3f, "waesche" to 2.3f,
                 "repair" to 2.0f, "reparatur" to 2.2f, "furniture" to 2.2f, "moebel" to 2.3f,
                 "rent" to 2.0f, "miete" to 2.2f, "garden" to 2.0f, "garten" to 2.1f,
-                "plants" to 1.9f, "pflanzen" to 2.0f, "ikea" to 2.2f, "kueche" to 1.9f
+                "plants" to 1.9f, "pflanzen" to 2.0f, "ikea" to 2.2f, "kueche" to 1.9f,
+                "heizung" to 2.2f, "handwerker" to 2.3f, "hausmeister" to 2.3f,
+                "balkon" to 1.9f, "renovieren" to 2.3f, "werkzeug" to 2.1f, "baumarkt" to 2.2f
             ),
-            compoundRoots = setOf("haushalt", "wohnung", "reparatur", "moebel")
+            compoundRoots = setOf("haushalt", "wohnung", "reparatur", "moebel", "renovier")
         ),
         CategorySpec(
             tagName = "Car",
@@ -397,9 +433,75 @@ class SmartTagsEngine {
                 "birthday" to 2.5f, "geburtstag" to 2.6f, "party" to 2.2f, "feier" to 2.1f,
                 "wedding" to 2.5f, "hochzeit" to 2.6f, "invitation" to 2.2f, "einladung" to 2.3f,
                 "gift" to 1.8f, "geschenk" to 2.1f, "anniversary" to 2.3f, "jubilaeum" to 2.3f,
-                "festival" to 2.2f, "tickets" to 1.8f
+                "festival" to 2.2f, "tickets" to 1.8f, "weihnachten" to 2.4f, "christmas" to 2.4f,
+                "silvester" to 2.3f, "einweihungsfeier" to 2.5f
             ),
-            compoundRoots = setOf("geburtstag", "hochzeit", "einladung", "veranstaltung", "geschenk")
+            compoundRoots = setOf("geburtstag", "hochzeit", "einladung", "veranstaltung", "geschenk", "weihnacht")
+        ),
+        CategorySpec(
+            tagName = "Personal",
+            prototypeText = "family mom dad parents friends sister brother visit call mama papa familie eltern freunde",
+            weightedTerms = mapOf(
+                "family" to 2.3f, "familie" to 2.4f, "mama" to 2.3f, "mom" to 2.2f,
+                "papa" to 2.3f, "dad" to 2.2f, "eltern" to 2.3f, "parents" to 2.2f,
+                "freunde" to 2.1f, "friends" to 2.1f, "freund" to 1.7f, "friend" to 1.7f,
+                "schwester" to 2.1f, "sister" to 2.1f, "bruder" to 2.1f, "brother" to 2.1f,
+                "partner" to 1.8f, "besuchen" to 1.7f, "anrufen" to 1.8f
+            ),
+            compoundRoots = setOf("familie", "eltern", "freunde"),
+            phrases = mapOf(
+                "call mom" to 2.9f, "call dad" to 2.9f,
+                "mama anrufen" to 3.1f, "papa anrufen" to 3.1f
+            )
+        ),
+        CategorySpec(
+            tagName = "Tech",
+            prototypeText = "laptop macbook thinkpad monitor keyboard headphones smartphone router wifi nas server printer firmware",
+            weightedTerms = mapOf(
+                "laptop" to 2.3f, "macbook" to 2.4f, "thinkpad" to 2.4f, "monitor" to 2.1f,
+                "keyboard" to 2.2f, "tastatur" to 2.3f, "headphones" to 2.2f, "kopfhoerer" to 2.3f,
+                "smartphone" to 2.2f, "iphone" to 2.3f, "pixel" to 1.9f, "samsung" to 2.0f,
+                "router" to 2.2f, "wifi" to 2.1f, "wlan" to 2.2f, "nas" to 2.2f,
+                "server" to 2.0f, "linux" to 2.2f, "windows" to 1.8f, "ssd" to 2.2f,
+                "nvme" to 2.3f, "gpu" to 2.1f, "cpu" to 2.0f, "bluetooth" to 2.1f,
+                "printer" to 2.1f, "drucker" to 2.2f, "akku" to 2.0f, "battery" to 1.8f,
+                "firmware" to 2.3f, "hardware" to 2.1f, "homelab" to 2.4f, "smartwatch" to 2.2f
+            ),
+            compoundRoots = setOf("tastatur", "kopfhoerer", "smartphone", "drucker", "firmware", "homelab")
+        ),
+        CategorySpec(
+            tagName = "Pets",
+            prototypeText = "dog cat pet vet leash puppy kitten aquarium hund katze haustier tierarzt futter gassi",
+            weightedTerms = mapOf(
+                "dog" to 2.2f, "hund" to 2.4f, "hunde" to 2.4f, "cat" to 2.2f,
+                "katze" to 2.4f, "katzen" to 2.4f, "pet" to 2.2f, "haustier" to 2.5f,
+                "vet" to 2.4f, "tierarzt" to 2.6f, "tierklinik" to 2.6f, "futter" to 2.1f,
+                "hundefutter" to 2.6f, "katzenfutter" to 2.6f, "leash" to 2.2f, "leine" to 1.8f,
+                "gassi" to 2.4f, "puppy" to 2.3f, "welpe" to 2.4f, "kitten" to 2.3f,
+                "aquarium" to 2.3f
+            ),
+            compoundRoots = setOf("haustier", "tierarzt", "hunde", "katzen", "futter")
+        ),
+        CategorySpec(
+            tagName = "Photography",
+            prototypeText = "photography photo camera lens aperture shutter lightroom portrait tripod fujifilm canon nikon foto kamera objektiv",
+            weightedTerms = mapOf(
+                "photography" to 2.6f, "fotografie" to 2.6f, "photo" to 1.9f, "foto" to 2.1f,
+                "fotos" to 2.1f, "camera" to 2.3f, "kamera" to 2.4f, "lens" to 2.2f,
+                "objektiv" to 2.4f, "aperture" to 2.3f, "blende" to 2.2f, "shutter" to 2.2f,
+                "lightroom" to 2.4f, "tripod" to 2.3f, "stativ" to 2.3f, "fujifilm" to 2.5f,
+                "canon" to 2.2f, "nikon" to 2.4f, "sony" to 1.9f
+            ),
+            compoundRoots = setOf("fotograf", "kamera", "objektiv")
+        ),
+        CategorySpec(
+            tagName = "Quotes",
+            prototypeText = "quote quotes poem aphorism proverb mantra motto wisdom zitat zitate gedicht sprichwort weisheit",
+            weightedTerms = mapOf(
+                "quote" to 2.4f, "quotes" to 2.5f, "zitat" to 2.5f, "zitate" to 2.5f,
+                "poem" to 2.4f, "gedicht" to 2.5f, "aphorism" to 2.5f, "proverb" to 2.4f,
+                "sprichwort" to 2.5f, "mantra" to 2.4f, "motto" to 2.3f, "weisheit" to 2.3f
+            )
         )
     )
 
@@ -425,7 +527,10 @@ class SmartTagsEngine {
         hasScreenshot: Boolean,
         existingUserVocabulary: List<String>,
         semanticTagScores: Map<String, Float> = emptyMap(),
-        userTagProfiles: Map<String, Map<String, Float>> = emptyMap()
+        userTagProfiles: Map<String, Map<String, Float>> = emptyMap(),
+        systemEntities: List<ClassifiedTextEntity> = emptyList(),
+        imageLabels: List<DetectedImageLabel> = emptyList(),
+        includeTopicKeywords: Boolean = false
     ): List<SmartTagSuggestion> {
         val scores = LinkedHashMap<String, Pair<Float, String>>()
 
@@ -486,6 +591,50 @@ class SmartTagsEngine {
             }
             if (matchedDomainTags == null) {
                 addScore("Bookmark", 0.68f, "Saved web link")
+            }
+        }
+
+        // Stage 1B: Android System TextClassifier entity signals
+        var contactSignals = 0
+        for (entity in systemEntities) {
+            when (entity.type) {
+                TextClassifier.TYPE_FLIGHT_NUMBER -> {
+                    addScore("Travel", 0.88f, "Detected flight number")
+                }
+                "tracking_number" -> {
+                    addScore("Shopping", 0.84f, "Detected tracking number")
+                }
+                TextClassifier.TYPE_ADDRESS -> {
+                    if (allTextLower.contains("hotel") || allTextLower.contains("flight") || allTextLower.contains("flug") || allTextLower.contains("urlaub")) {
+                        addScore("Travel", 0.76f, "Detected travel address")
+                    } else {
+                        addScore("Places", 0.74f, "Detected address")
+                    }
+                }
+                TextClassifier.TYPE_EMAIL,
+                TextClassifier.TYPE_PHONE -> {
+                    contactSignals++
+                }
+            }
+        }
+        if (contactSignals >= 2) {
+            addScore("Personal", 0.72f, "Detected contact info")
+        }
+
+        // Stage 1C: ML Kit Image Labeling visual category & object signals
+        for (label in imageLabels) {
+            val lowerLabel = label.text.trim().lowercase(Locale.ROOT)
+            if (lowerLabel.isBlank()) continue
+            val mappedCategory = IMAGE_LABEL_CATEGORY_MAP[lowerLabel]
+                ?: IMAGE_LABEL_CATEGORY_MAP.entries.firstOrNull { (key, _) -> lowerLabel.contains(key) }?.value
+            if (mappedCategory != null) {
+                addScore(mappedCategory, (0.70f + (label.confidence * 0.16f)).coerceAtMost(0.88f), "Detected in image")
+            } else if (label.confidence >= 0.78f && lowerLabel !in GENERIC_VISUAL_LABEL_BLOCKLIST) {
+                val cleanLabel = formatTopicToken(label.text.trim())
+                if (cleanLabel.length in 3..20) {
+                    val conf = (0.68f + (label.confidence - 0.78f) * 0.6f).coerceAtMost(0.84f)
+                    addScore(cleanLabel, conf, "Detected in image")
+                }
             }
         }
 
@@ -581,9 +730,9 @@ class SmartTagsEngine {
                 }
             }
 
-            val qualified = (distinctHits >= 2 && rawSum >= 2.6f && hasStrongAnchor) ||
+            val qualified = (distinctHits >= 2 && rawSum >= 2.5f && hasStrongAnchor) ||
                 (distinctHits >= 3 && rawSum >= 2.8f) ||
-                (hasStrongAnchor && rawSum >= 3.4f)
+                (hasStrongAnchor && rawSum >= 3.15f)
 
             if (qualified) {
                 val normalizedConfidence = (0.55f + (rawSum / 14f)).coerceIn(0.62f, 0.96f)
@@ -607,6 +756,26 @@ class SmartTagsEngine {
             }
         }
 
+        // Stage 4: Open-vocabulary salient topic keywords for explicit on-demand generation
+        if (includeTopicKeywords) {
+            val strongMatches = scores.entries.count { it.value.first >= 0.65f }
+            if (strongMatches < 2) {
+                val needed = (2 - strongMatches).coerceAtLeast(1)
+                val coveredLower = scores.keys.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
+                val topics = extractSalientTopicKeywords(
+                    title = title,
+                    bodyText = bodyText,
+                    checklistText = checklistText,
+                    ocrText = combinedOcr,
+                    alreadyCoveredLower = coveredLower,
+                    maxCount = needed
+                )
+                topics.forEach { (topicName, topicConf) ->
+                    addScore(topicName, topicConf, "Key topic")
+                }
+            }
+        }
+
         return scores.entries
             .map { (name, pair) ->
                 SmartTagSuggestion(
@@ -621,8 +790,209 @@ class SmartTagsEngine {
             .take(4)
     }
 
+    private fun extractSalientTopicKeywords(
+        title: String,
+        bodyText: String,
+        checklistText: String,
+        ocrText: String,
+        alreadyCoveredLower: Set<String>,
+        maxCount: Int
+    ): List<Pair<String, Float>> {
+        if (maxCount <= 0) return emptyList()
+        data class TopicAccumulator(
+            var score: Float = 0f,
+            var displaySample: String = "",
+            var mentions: Int = 0
+        )
+
+        val candidates = LinkedHashMap<String, TopicAccumulator>()
+        val rawWordRegex = Regex("""[\p{L}][\p{L}\p{N}_-]{2,26}""")
+
+        fun feedLines(raw: String, lineWeight: Float, detectHeadings: Boolean) {
+            if (raw.isBlank()) return
+            for (line in raw.lineSequence()) {
+                val trimmed = line.trim()
+                if (trimmed.isBlank()) continue
+                val isHeading = detectHeadings && trimmed.startsWith("#") && trimmed.getOrNull(1)?.let { it == '#' || it.isWhitespace() } == true
+                val cleaned = trimmed.replace(URL_IN_TEXT_REGEX, " ")
+                val lineMultiplier = if (isHeading) 2.2f else lineWeight
+
+                rawWordRegex.findAll(cleaned).forEachIndexed { idx, match ->
+                    val token = match.value.trim('_', '-')
+                    if (token.length !in 4..24) return@forEachIndexed
+                    if (token.count { it.isDigit() } > token.length / 2) return@forEachIndexed
+                    if (looksLikeHexColor(token)) return@forEachIndexed
+
+                    val folded = foldToAsciiLower(token)
+                    if (folded.length < 4 || folded in TOPIC_STOPWORDS || folded in alreadyCoveredLower) {
+                        return@forEachIndexed
+                    }
+                    // Group inflections lightly by folded stem key when long enough
+                    val stemKey = when {
+                        folded.length >= 7 && folded.endsWith("ing") -> folded.dropLast(3)
+                        folded.length >= 6 && folded.endsWith("s") && !folded.endsWith("ss") -> folded.dropLast(1)
+                        else -> folded
+                    }
+                    if (stemKey in alreadyCoveredLower || stemKey in TOPIC_STOPWORDS) return@forEachIndexed
+
+                    var boost = lineMultiplier
+                    // Mid-line proper noun / German noun boost
+                    val hasInitialCap = token.first().isUpperCase()
+                    val isAcronymOrCamel = token.count { it.isUpperCase() } in 2..4
+                    if (idx > 0 && hasInitialCap) boost += 1.0f
+                    if (isAcronymOrCamel) boost += 0.6f
+                    if (token.length >= 7) boost += 0.45f
+
+                    val acc = candidates.getOrPut(folded) { TopicAccumulator(displaySample = formatTopicToken(token)) }
+                    acc.score += boost
+                    acc.mentions++
+                    if (isAcronymOrCamel || (hasInitialCap && !acc.displaySample.first().isUpperCase())) {
+                        acc.displaySample = formatTopicToken(token)
+                    }
+                }
+            }
+        }
+
+        feedLines(title, 2.8f, detectHeadings = false)
+        feedLines(bodyText, 1.35f, detectHeadings = true)
+        feedLines(checklistText, 1.45f, detectHeadings = false)
+        feedLines(ocrText, 0.95f, detectHeadings = false)
+
+        return candidates.entries
+            .mapNotNull { (_, acc) ->
+                val totalScore = acc.score + ((acc.mentions - 1).coerceAtLeast(0) * 0.65f)
+                if (totalScore >= 2.75f) {
+                    val conf = (0.65f + (totalScore - 2.75f) * 0.045f).coerceIn(0.66f, 0.78f)
+                    acc.displaySample to conf
+                } else {
+                    null
+                }
+            }
+            .sortedByDescending { it.second }
+            .distinctBy { it.first.lowercase(Locale.ROOT) }
+            .take(maxCount)
+    }
+
     companion object {
         private val HEX_ONLY_REGEX = Regex("^[0-9a-fA-F]+$")
+        private val URL_IN_TEXT_REGEX = Regex("""https?://\S+""", RegexOption.IGNORE_CASE)
+
+        private val GENERIC_VISUAL_LABEL_BLOCKLIST = setOf(
+            "product", "font", "rectangle", "material property", "text", "line", "pattern",
+            "symmetry", "screenshot", "brand", "logo", "event", "art", "design", "circle",
+            "square", "color", "darkness", "light", "indoor", "outdoor", "thing", "object",
+            "parallel", "space", "paper", "document"
+        )
+
+        private val IMAGE_LABEL_CATEGORY_MAP = mapOf(
+            "dog" to "Pets", "cat" to "Pets", "pet" to "Pets", "puppy" to "Pets",
+            "kitten" to "Pets", "animal" to "Pets",
+            "food" to "Recipe", "dish" to "Recipe", "meal" to "Recipe", "dessert" to "Recipe",
+            "baking" to "Recipe", "cuisine" to "Recipe", "drink" to "Recipe", "coffee" to "Recipe",
+            "fruit" to "Recipe", "vegetable" to "Recipe", "cake" to "Recipe",
+            "plant" to "Home", "flower" to "Home", "furniture" to "Home", "room" to "Home",
+            "kitchen" to "Home", "house" to "Home", "interior" to "Home", "table" to "Home",
+            "car" to "Car", "vehicle" to "Car", "wheel" to "Car", "automotive" to "Car",
+            "laptop" to "Tech", "computer" to "Tech", "keyboard" to "Tech", "monitor" to "Tech",
+            "mobile phone" to "Tech", "smartphone" to "Tech", "electronics" to "Tech",
+            "mountain" to "Travel", "beach" to "Travel", "airplane" to "Travel", "luggage" to "Travel",
+            "landmark" to "Travel", "vacation" to "Travel", "nature" to "Travel", "sky" to "Travel",
+            "book" to "Reading", "library" to "Reading", "newspaper" to "Reading", "publication" to "Reading",
+            "camera" to "Photography", "lens" to "Photography", "photography" to "Photography",
+            "gym" to "Fitness", "bicycle" to "Fitness", "hiking" to "Fitness", "sports" to "Fitness",
+            "running" to "Fitness",
+            "guitar" to "Music", "piano" to "Music", "musical instrument" to "Music", "concert" to "Music",
+            "receipt" to "Receipt", "invoice" to "Receipt"
+        )
+
+        private val USER_PROFILE_STOPWORDS = setOf(
+            "the", "and", "for", "with", "from", "that", "this", "have", "are", "was", "were",
+            "you", "your", "not", "but", "can", "will", "just", "about", "into", "more", "some",
+            "der", "die", "das", "und", "fuer", "mit", "von", "auf", "ein", "eine", "einen",
+            "ist", "sind", "war", "nicht", "auch", "noch", "nur", "oder", "aber", "als", "bei",
+            "note", "notes", "notiz", "notizen", "http", "https", "www", "com"
+        )
+
+        private val TOPIC_STOPWORDS = USER_PROFILE_STOPWORDS + setOf(
+            "that", "with", "this", "from", "have", "been", "being", "were", "will", "would",
+            "could", "should", "shall", "might", "must", "need", "needs", "needed", "want",
+            "wants", "make", "made", "making", "take", "took", "give", "gave", "keep", "kept",
+            "know", "think", "thought", "look", "looking", "find", "found", "going", "getting",
+            "using", "used", "work", "working", "very", "much", "many", "most", "such", "than",
+            "then", "them", "they", "their", "there", "these", "those", "where", "when", "what",
+            "which", "while", "whose", "whom", "here", "over", "under", "again", "still", "also",
+            "only", "back", "down", "after", "before", "until", "since", "between", "through",
+            "because", "about", "today", "tomorrow", "yesterday", "tonight", "week", "month",
+            "year", "time", "times", "good", "great", "best", "nice", "easy", "fast", "quick",
+            "total", "change", "changes", "review", "finish", "finished", "check", "checked",
+            "update", "updated", "start", "started", "list", "item", "items", "stuff", "thing",
+            "things", "part", "plan", "idea", "test", "example", "sample", "details", "info",
+            "body", "text", "remains", "untitled", "remember", "forget", "please", "thank",
+            "thanks", "hello", "eine", "einem", "einer", "eines", "dieser", "diese", "dieses",
+            "habe", "haben", "hatte", "hatten", "wird", "werden", "wurde", "wurden", "kann",
+            "koennen", "konnte", "muss", "muessen", "musste", "soll", "sollen", "sollte", "will",
+            "wollen", "wollte", "moechte", "kein", "keine", "keinen", "keinem", "oder", "aber",
+            "denn", "weil", "dass", "wenn", "wann", "dann", "schon", "wieder", "immer", "etwas",
+            "nichts", "alles", "alle", "viele", "mehr", "sehr", "ganz", "einfach", "schnell",
+            "heute", "morgen", "gestern", "woche", "monat", "jahr", "zeit", "bitte", "danke",
+            "hallo", "vergessen", "brauche", "brauchen", "machen", "fertig", "pruefen", "liste",
+            "dinge", "sachen", "thema", "punkt", "punkte", "unter", "ueber", "durch", "gegen",
+            "ohne", "zwischen", "nach", "seit", "bevor", "sobald", "damit", "appointment", "termin"
+        )
+
+        fun buildUserTagContext(
+            summaries: List<NoteSummary>,
+            excludeNoteId: String
+        ): Pair<Map<String, Map<String, Float>>, Map<String, List<String>>> {
+            val rawTokenCounts = LinkedHashMap<String, MutableMap<String, Int>>()
+            val tagNoteIds = LinkedHashMap<String, MutableList<String>>()
+            val tagDocCounts = HashMap<String, Int>()
+
+            for (summary in summaries) {
+                if (summary.id == excludeNoteId || summary.isDeleted) continue
+                val userTags = summary.tags.filter { it.source == TagSource.USER }
+                if (userTags.isEmpty()) continue
+
+                val noteTokens = TextHashing.tokenizeWords("${summary.title} ${summary.previewText}")
+                    .map { foldToAsciiLower(it) }
+                    .filter { it.length >= 3 && it !in USER_PROFILE_STOPWORDS }
+                    .distinct()
+
+                for (tag in userTags) {
+                    val ids = tagNoteIds.getOrPut(tag.name) { mutableListOf() }
+                    if (ids.size < 16) ids += summary.id
+                    tagDocCounts[tag.name] = (tagDocCounts[tag.name] ?: 0) + 1
+                    val counts = rawTokenCounts.getOrPut(tag.name) { mutableMapOf() }
+                    for (tok in noteTokens) {
+                        counts[tok] = (counts[tok] ?: 0) + 1
+                    }
+                }
+            }
+
+            val profiles = LinkedHashMap<String, Map<String, Float>>()
+            for ((tagName, counts) in rawTokenCounts) {
+                val docCount = (tagDocCounts[tagName] ?: 1).coerceAtLeast(1)
+                val weighted = counts.entries
+                    .sortedByDescending { it.value }
+                    .take(12)
+                    .associate { (tok, count) ->
+                        val salience = (1.0f + (count.toFloat() / docCount.toFloat())).coerceIn(1.0f, 2.5f)
+                        tok to salience
+                    }
+                if (weighted.isNotEmpty()) {
+                    profiles[tagName] = weighted
+                }
+            }
+            return profiles to tagNoteIds
+        }
+
+        private fun formatTopicToken(raw: String): String {
+            val upperCount = raw.count { it.isUpperCase() }
+            if (upperCount >= 2 && raw.length <= 20) return raw.take(24)
+            return raw.replaceFirstChar { ch ->
+                if (ch.isLowerCase()) ch.titlecase(Locale.ROOT) else ch.toString()
+            }.take(24)
+        }
 
         fun foldToAsciiLower(raw: String): String {
             val lower = raw.lowercase(Locale.ROOT)
@@ -656,14 +1026,22 @@ class SmartTagsEngine {
                 if (base.length >= 5) {
                     when {
                         base.endsWith("ies") && base.length >= 6 -> variants += base.dropLast(3) + "y"
+                        base.endsWith("innen") && base.length >= 8 -> variants += base.dropLast(5)
                         base.endsWith("ing") && base.length >= 7 -> variants += base.dropLast(3)
                         base.endsWith("ung") && base.length >= 7 -> variants += base.dropLast(3)
                         base.endsWith("keit") && base.length >= 8 -> variants += base.dropLast(4)
                         base.endsWith("heit") && base.length >= 8 -> variants += base.dropLast(4)
+                        base.endsWith("ern") && base.length >= 6 -> variants += base.dropLast(3)
                         base.endsWith("es") && base.length >= 6 -> variants += base.dropLast(2)
                         base.endsWith("ed") && base.length >= 6 -> variants += base.dropLast(2)
                         base.endsWith("en") && base.length >= 6 -> variants += base.dropLast(2)
                         base.endsWith("er") && base.length >= 6 -> variants += base.dropLast(2)
+                    }
+                    if (base.endsWith("n") && base.length >= 5) {
+                        variants += base.dropLast(1)
+                    }
+                    if (base.endsWith("e") && base.length >= 5) {
+                        variants += base.dropLast(1)
                     }
                     if (base.endsWith("s") && base.length >= 5) {
                         variants += base.dropLast(1)

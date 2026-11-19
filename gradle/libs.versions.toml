@@ -21,6 +21,8 @@ glance = "1.2.0"
 coil = "2.7.0"
 okhttp = "4.12.0"
 mlkitTextRecognition = "16.0.1"
+mlkitImageLabeling = "16.0.8"
+mlkitGenaiPrompt = "1.0.0-beta5"
 litert = "2.3.2"
 documentfile = "1.0.1"
 junit = "4.13.2"
@@ -71,6 +73,8 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 
 mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition", version.ref = "mlkitTextRecognition" }
+play-services-mlkit-image-labeling = { group = "com.google.android.gms", name = "play-services-mlkit-image-labeling", version.ref = "mlkitImageLabeling" }
+mlkit-genai-prompt = { group = "com.google.mlkit", name = "genai-prompt", version.ref = "mlkitGenaiPrompt" }
 litert = { group = "com.google.ai.edge.litert", name = "litert", version.ref = "litert" }
 litert-gpu = { group = "com.google.ai.edge.litert", name = "litert-gpu", version.ref = "litert" }
 

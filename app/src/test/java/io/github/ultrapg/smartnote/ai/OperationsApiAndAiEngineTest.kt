@@ -1,8 +1,12 @@
 package io.github.ultrapg.smartnote.ai
 
 import android.content.Context
+import android.view.textclassifier.TextClassifier
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.ai.ClassifiedTextEntity
+import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
+import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
@@ -318,5 +322,100 @@ class OperationsApiAndAiEngineTest {
         gpuFallbackEngine.embedText("No NPU fallback check")
         assertEquals(listOf(AiHardwareBackend.CPU), noNpuAttempts)
         assertEquals(AiHardwareBackend.CPU, gpuFallbackEngine.diagnosticsFlow.value.activeNeuralBackend)
+    }
+
+    @Test
+    fun upgradedTitleGeneratorHandlesFillersEntitiesImageLabelsAndGeminiNano() = runTest {
+        val generator = SmartTitleGenerator()
+
+        // 1. English filler stripping & hashtag cleanup
+        val enFiltered = generator.generateSmartTitle(
+            blocks = listOf(NoteBlock("1", "n", 0, NoteBlockType.TEXT, "Remember to book airport shuttle before Friday #Travel"))
+        )
+        assertEquals("Book airport shuttle before Friday", enFiltered)
+
+        // 2. German filler prefix stripping
+        val deFiltered = generator.generateSmartTitle(
+            blocks = listOf(NoteBlock("2", "n", 0, NoteBlockType.TEXT, "Ich muss noch Steuerunterlagen für 2026 einreichen"))
+        )
+        assertEquals("Steuerunterlagen für 2026 einreichen", deFiltered)
+
+        // 3. Long clause compression & dangling trailing preposition removal
+        val trimmedLong = generator.generateSmartTitle(
+            blocks = listOf(
+                NoteBlock(
+                    "3",
+                    "n",
+                    0,
+                    NoteBlockType.TEXT,
+                    "Prepare architecture slides for the summit in Berlin and coordinate speakers"
+                )
+            )
+        )
+        assertTrue("Long clause should stay concise without dangling prepositions: $trimmedLong", trimmedLong.length <= 56)
+        assertFalse(trimmedLong.endsWith(" in", ignoreCase = true))
+        assertFalse(trimmedLong.endsWith(" for", ignoreCase = true))
+
+        // 4. German grocery checklist synthesis
+        val deGrocery = generator.generateFastTitle(
+            blocks = listOf(
+                NoteBlock("c1", "n", 0, NoteBlockType.CHECKLIST, "Milch"),
+                NoteBlock("c2", "n", 1, NoteBlockType.CHECKLIST, "Brot"),
+                NoteBlock("c3", "n", 2, NoteBlockType.CHECKLIST, "Eier")
+            )
+        )
+        assertEquals("Shopping: Milch, Brot (+1)", deGrocery)
+
+        // 5. Skips bare ISO date / greeting meta line in favor of topical line
+        val skippedDate = generator.generateSmartTitle(
+            blocks = listOf(NoteBlock("4", "n", 0, NoteBlockType.TEXT, "2026-11-19\nQuarterly Budget Review\nReview Q4 numbers"))
+        )
+        assertEquals("Quarterly Budget Review", skippedDate)
+
+        // 6. Produces multiple distinct alternatives for cycling
+        val multi = generator.generateTitleCandidates(
+            blocks = listOf(NoteBlock("5", "n", 0, NoteBlockType.TEXT, "Dentist appointment tomorrow\nPick up night guard"))
+        )
+        assertTrue("Expected at least 2 distinct candidates, got $multi", multi.size >= 2)
+
+        // 7. System TextClassifier flight number & ML Kit Image Labeling fallbacks
+        val flightTitle = generator.generateSmartTitle(
+            blocks = listOf(NoteBlock("6", "n", 0, NoteBlockType.TEXT, "LH402")),
+            systemEntities = listOf(ClassifiedTextEntity(TextClassifier.TYPE_FLIGHT_NUMBER, "LH402", 0.95f))
+        )
+        assertEquals("Flight LH402", flightTitle)
+
+        val imageTitle = generator.generateSmartTitle(
+            blocks = emptyList(),
+            imageLabels = listOf("Golden Retriever", "Park")
+        )
+        assertEquals("Golden Retriever & Park", imageTitle)
+
+        // 8. Gemini Nano on-device synthesis when AVAILABLE & safe fallback when UNAVAILABLE
+        val fakeNano = object : OnDeviceGenAiAssistant {
+            override suspend fun checkAvailability() = GeminiNanoAvailability.AVAILABLE
+            override fun triggerBackgroundDownloadIfNeeded() {}
+            override suspend fun generateTitleCandidates(
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                linkHints: List<String>,
+                primaryImageBitmap: android.graphics.Bitmap?
+            ) = listOf("Q4 Hiring Plan Summary")
+            override suspend fun generateTags(
+                title: String,
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                existingVocabulary: List<String>,
+                existingNoteTags: Set<String>
+            ) = emptyList<io.github.ultrapg.smartnote.tags.SmartTagSuggestion>()
+            override fun close() {}
+        }
+        val nanoGenerator = SmartTitleGenerator(genAiAssistant = fakeNano)
+        val nanoTitle = nanoGenerator.generateSmartTitle(
+            blocks = listOf(NoteBlock("7", "n", 0, NoteBlockType.TEXT, "We should align headcount with product roadmap targets next week."))
+        )
+        assertEquals("Q4 Hiring Plan Summary", nanoTitle)
     }
 }

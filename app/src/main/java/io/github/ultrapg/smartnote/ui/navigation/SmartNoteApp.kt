@@ -383,7 +383,12 @@ fun SmartNoteApp(
                             duplicateDetector = container.duplicateDetector,
                             settingsRepository = container.settingsRepository,
                             smartTitleGenerator = container.smartTitleGenerator,
-                            smartTagsEngine = container.smartTagsEngine
+                            smartTagsEngine = container.smartTagsEngine,
+                            aiEngine = container.aiEngine,
+                            attachmentStorage = container.attachmentStorage,
+                            systemEntityAnalyzer = container.systemEntityAnalyzer,
+                            imageLabelingEngine = container.imageLabelingEngine,
+                            geminiNanoAssistant = container.geminiNanoAssistant
                         )
                     )
                     val uiState by vm.uiState.collectAsState()
@@ -516,6 +521,7 @@ fun SmartNoteApp(
                             }
                         },
                         onUnloadModel = { scope.launch { container.aiEngine.unloadModel() } },
+                        onPrepareGeminiNano = { container.geminiNanoAssistant.triggerBackgroundDownloadIfNeeded() },
                         onBack = { navController.popBackStack() }
                     )
                 }

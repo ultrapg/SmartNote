@@ -603,6 +603,12 @@ class LargeDatasetAndUiTest {
                 composeRule.onAllNodesWithText("Dentist appointment tomorrow", substring = true).fetchSemanticsNodes().size >= 2
             }
 
+            // Re-tapping Generate title cycles smoothly to an alternate candidate
+            composeRule.onNodeWithContentDescription("Generate title").performClick()
+            composeRule.waitUntil(3_000L) {
+                composeRule.onAllNodesWithText("Buy milk and coffee", substring = true).fetchSemanticsNodes().size >= 2
+            }
+
             // Tap on-demand "Generate tags" directly in the editor and confirm #Health is applied
             composeRule.onNodeWithContentDescription("Generate tags").performClick()
             composeRule.waitUntil(3_000L) {

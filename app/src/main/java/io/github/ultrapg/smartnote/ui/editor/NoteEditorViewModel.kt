@@ -7,10 +7,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewModelScope
+import io.github.ultrapg.smartnote.ai.DetectedImageLabel
+import io.github.ultrapg.smartnote.ai.ImageLabelingEngine
+import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
+import io.github.ultrapg.smartnote.ai.SmartNoteAiEngine
 import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
+import io.github.ultrapg.smartnote.ai.SystemEntityAnalyzer
 import io.github.ultrapg.smartnote.capture.AttachmentImporter
 import io.github.ultrapg.smartnote.capture.NoteShareExporter
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
+import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AttachmentInfo
@@ -24,6 +30,7 @@ import io.github.ultrapg.smartnote.domain.model.NoteTag
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
 import io.github.ultrapg.smartnote.links.DetectedLink
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
+import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
 import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +42,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -57,6 +65,8 @@ data class NoteEditorUiState(
     val smartTagsEnabled: Boolean = true,
     val availableTags: List<String> = emptyList(),
     val liveTagSuggestions: List<SmartTagSuggestion> = emptyList(),
+    val isGeneratingTags: Boolean = false,
+    val feedbackMessageEvent: Pair<Int, String>? = null,
     val updatedAtMs: Long = System.currentTimeMillis(),
     val isLoaded: Boolean = false
 )
@@ -74,7 +84,12 @@ class NoteEditorViewModel(
     private val duplicateDetector: SmartDuplicateDetector,
     private val settingsRepository: SettingsRepository,
     private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator(),
-    private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine()
+    private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine(),
+    private val aiEngine: SmartNoteAiEngine? = null,
+    private val attachmentStorage: AttachmentStorage? = null,
+    private val systemEntityAnalyzer: SystemEntityAnalyzer? = null,
+    private val imageLabelingEngine: ImageLabelingEngine? = null,
+    private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null
 ) : ViewModel() {
 
     private val activeNoteId: String = savedStateHandle.get<String>(KEY_NOTE_ID)
@@ -96,6 +111,7 @@ class NoteEditorViewModel(
     private var persistedInDb: Boolean = (initialNoteId != null)
     private var hasDiscardedBlankDraft: Boolean = false
     private val activeImportsCount = AtomicInteger(0)
+    private var feedbackSeq = 0
 
     private val _uiState = MutableStateFlow(buildInitialUiState())
     val uiState: StateFlow<NoteEditorUiState> = _uiState.asStateFlow()
@@ -333,6 +349,8 @@ class NoteEditorViewModel(
             smartTagsEnabled = smartTagsActive,
             availableTags = availableTags,
             liveTagSuggestions = tagSug,
+            isGeneratingTags = isGeneratingTags,
+            feedbackMessageEvent = feedbackMessageEvent,
             updatedAtMs = detail.updatedAtMs,
             isLoaded = true
         )
@@ -400,17 +418,57 @@ class NoteEditorViewModel(
     fun generateSmartTitleNow() {
         if (!aiFeaturesEnabledCache) return
         val state = _uiState.value
+        geminiNanoAssistant?.triggerBackgroundDownloadIfNeeded()
         viewModelScope.launch {
             val ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
-            val generated = smartTitleGenerator.generateSmartTitle(
-                blocks = state.blocks,
-                ocrTexts = ocrTexts,
-                links = state.links,
-                allowNeuralScoring = aiFeaturesEnabledCache
-            )
-            if (generated.isNotBlank()) {
+            val candidates = withContext(Dispatchers.IO) {
+                val combinedText = buildNoteTextForAnalysis(title = "", blocks = state.blocks, ocrTexts = ocrTexts)
+                val systemEntities = if (combinedText.isNotBlank()) {
+                    systemEntityAnalyzer?.extractEntities(combinedText).orEmpty()
+                } else {
+                    emptyList()
+                }
+                val imageLabels = collectImageLabels(state.attachments.values.toList())
+                val sparseText = state.blocks.sumOf { it.textContent.trim().length } < 20 && ocrTexts.all { it.isBlank() }
+                val primaryBitmap = if (geminiNanoAssistant != null && sparseText && attachmentStorage != null && state.attachments.isNotEmpty()) {
+                    SafeOcrBitmapLoader.decodeDownsampledBitmap(
+                        attachmentStorage.resolvePrivateFile(state.attachments.values.first().relativeFilePath),
+                        maxDimPx = 512
+                    )
+                } else {
+                    null
+                }
+                try {
+                    smartTitleGenerator.generateTitleCandidates(
+                        blocks = state.blocks,
+                        ocrTexts = ocrTexts,
+                        links = state.links,
+                        allowNeuralScoring = aiFeaturesEnabledCache,
+                        systemEntities = systemEntities,
+                        imageLabels = imageLabels.map { it.text },
+                        primaryImageBitmap = primaryBitmap
+                    )
+                } finally {
+                    if (primaryBitmap != null && !primaryBitmap.isRecycled) {
+                        primaryBitmap.recycle()
+                    }
+                }
+            }
+            if (candidates.isEmpty()) return@launch
+            val currentClean = state.title.trim()
+            val chosen = if (SmartTitleGenerator.isPlaceholderOrBlankTitle(currentClean)) {
+                candidates.first()
+            } else {
+                val matchIdx = candidates.indexOfFirst { it.equals(currentClean, ignoreCase = true) }
+                if (matchIdx >= 0 && candidates.size > 1) {
+                    candidates[(matchIdx + 1) % candidates.size]
+                } else {
+                    candidates.firstOrNull { !it.equals(currentClean, ignoreCase = true) } ?: candidates.first()
+                }
+            }
+            if (chosen.isNotBlank()) {
                 userManuallyClearedTitle = false
-                updateTitle(generated)
+                updateTitle(chosen)
             }
         }
     }
@@ -737,19 +795,91 @@ class NoteEditorViewModel(
 
     fun applyAutoTagsNow() {
         val state = _uiState.value
-        val suggestions = state.liveTagSuggestions
-        if (!state.aiFeaturesEnabled || suggestions.isEmpty()) return
+        if (!state.aiFeaturesEnabled || state.isGeneratingTags) return
+        val hasContent = state.title.isNotBlank() ||
+            state.blocks.any { it.textContent.isNotBlank() || !it.linkUrl.isNullOrBlank() } ||
+            state.attachments.values.any { !it.ocrText.isNullOrBlank() || it.isScreenshot } ||
+            state.links.isNotEmpty()
+        if (!hasContent) return
+
         activeImportsCount.incrementAndGet()
+        geminiNanoAssistant?.triggerBackgroundDownloadIfNeeded()
+        _uiState.update { it.copy(isGeneratingTags = true) }
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) {
-                    prepareNoteForForeignMutation()
-                    suggestions.forEach { sug ->
-                        tagRepository.addUserTagToNote(activeNoteId, sug.name)
+                    val currentState = _uiState.value
+                    val existingLower = currentState.tags.map { it.name.lowercase(Locale.ROOT) }.toSet()
+                    val generated = withContext(Dispatchers.IO) {
+                        val ocrTexts = currentState.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
+                        val detectedLinks = extractDetectedLinks(currentState.links, currentState.blocks)
+                        val imageLabels = collectImageLabels(currentState.attachments.values.toList())
+                        val combinedText = buildNoteTextForAnalysis(
+                            title = currentState.title,
+                            blocks = currentState.blocks,
+                            ocrTexts = ocrTexts
+                        )
+                        val systemEntities = if (combinedText.isNotBlank()) {
+                            systemEntityAnalyzer?.extractEntities(combinedText).orEmpty()
+                        } else {
+                            emptyList()
+                        }
+                        val summaries = noteRepository.getAllSummariesSnapshot(includeArchived = true)
+                        val (userTagProfiles, userTagNoteIds) = SmartTagsEngine.buildUserTagContext(
+                            summaries = summaries,
+                            excludeNoteId = activeNoteId
+                        )
+                        val semanticScores = if (aiEngine != null && combinedText.isNotBlank()) {
+                            runCatching {
+                                aiEngine.computeEmbeddingAndTagAffinities(
+                                    noteText = combinedText,
+                                    categoryPrototypes = smartTagsEngine.categoryPrototypes(),
+                                    userTagNoteIds = userTagNoteIds
+                                ).second
+                            }.getOrDefault(emptyMap())
+                        } else {
+                            emptyMap()
+                        }
+                        val nanoTags = geminiNanoAssistant?.generateTags(
+                            title = currentState.title,
+                            noteText = currentState.blocks.joinToString("\n") { it.textContent },
+                            ocrTexts = ocrTexts,
+                            imageLabels = imageLabels.map { it.text },
+                            existingVocabulary = currentState.availableTags,
+                            existingNoteTags = existingLower
+                        ).orEmpty()
+                        val engineTags = smartTagsEngine.suggestTags(
+                            title = currentState.title,
+                            blocks = currentState.blocks,
+                            ocrTexts = ocrTexts,
+                            links = detectedLinks,
+                            hasScreenshot = currentState.attachments.values.any { it.isScreenshot },
+                            existingUserVocabulary = currentState.availableTags,
+                            semanticTagScores = semanticScores,
+                            userTagProfiles = userTagProfiles,
+                            systemEntities = systemEntities,
+                            imageLabels = imageLabels,
+                            includeTopicKeywords = true
+                        )
+                        (engineTags + nanoTags)
+                            .sortedByDescending { it.confidence }
+                            .distinctBy { it.name.lowercase(Locale.ROOT) }
+                    }.filter { it.name.lowercase(Locale.ROOT) !in existingLower }
+                        .take(3)
+
+                    if (generated.isNotEmpty()) {
+                        prepareNoteForForeignMutation()
+                        generated.forEach { sug ->
+                            tagRepository.addUserTagToNote(activeNoteId, sug.name)
+                        }
+                        refreshUiFromDetailSnapshot()
+                    } else {
+                        feedbackSeq++
+                        _uiState.update { it.copy(feedbackMessageEvent = feedbackSeq to "No new tags found for this note") }
                     }
-                    refreshUiFromDetailSnapshot()
                 }
             } finally {
+                _uiState.update { it.copy(isGeneratingTags = false) }
                 activeImportsCount.decrementAndGet()
             }
         }
@@ -916,16 +1046,7 @@ class NoteEditorViewModel(
         if (!hasAnyContent) return emptyList()
 
         val ocrTexts = attachments.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
-        val detectedLinks = buildList {
-            links.forEach { l -> add(DetectedLink(l.rawUrl, l.canonicalUrl, l.domain)) }
-            blocks.forEach { blk ->
-                when (blk.type) {
-                    NoteBlockType.TEXT, NoteBlockType.CHECKLIST -> addAll(SmartLinkDetector.extractLinks(blk.textContent))
-                    NoteBlockType.LINK -> blk.linkUrl?.let { SmartLinkDetector.parseSingleUrl(it)?.let(::add) }
-                    NoteBlockType.IMAGE -> Unit
-                }
-            }
-        }.distinctBy { it.canonicalUrl }
+        val detectedLinks = extractDetectedLinks(links, blocks)
 
         val existingLower = existingNoteTags.map { it.name.lowercase() }.toSet()
         return smartTagsEngine.suggestTags(
@@ -937,6 +1058,48 @@ class NoteEditorViewModel(
             existingUserVocabulary = vocabulary
         ).filter { it.name.lowercase() !in existingLower }
     }
+
+    private suspend fun collectImageLabels(attachments: List<AttachmentInfo>): List<DetectedImageLabel> {
+        val storage = attachmentStorage ?: return emptyList()
+        val labeler = imageLabelingEngine ?: return emptyList()
+        if (attachments.isEmpty()) return emptyList()
+        val merged = LinkedHashMap<String, DetectedImageLabel>()
+        for (att in attachments.take(2)) {
+            val file = storage.resolvePrivateFile(att.relativeFilePath)
+            labeler.labelImageFile(file).forEach { lbl ->
+                val key = lbl.text.lowercase(Locale.ROOT)
+                val prev = merged[key]
+                if (prev == null || lbl.confidence > prev.confidence) {
+                    merged[key] = lbl
+                }
+            }
+        }
+        return merged.values.sortedByDescending { it.confidence }.take(6)
+    }
+
+    private fun buildNoteTextForAnalysis(
+        title: String,
+        blocks: List<NoteBlock>,
+        ocrTexts: List<String>
+    ): String = buildString {
+        if (title.isNotBlank()) append(title).append('\n')
+        blocks.forEach { if (it.textContent.isNotBlank()) append(it.textContent).append('\n') }
+        ocrTexts.forEach { if (it.isNotBlank()) append(it).append('\n') }
+    }.trim()
+
+    private fun extractDetectedLinks(
+        links: List<LinkPreviewInfo>,
+        blocks: List<NoteBlock>
+    ): List<DetectedLink> = buildList {
+        links.forEach { l -> add(DetectedLink(l.rawUrl, l.canonicalUrl, l.domain)) }
+        blocks.forEach { blk ->
+            when (blk.type) {
+                NoteBlockType.TEXT, NoteBlockType.CHECKLIST -> addAll(SmartLinkDetector.extractLinks(blk.textContent))
+                NoteBlockType.LINK -> blk.linkUrl?.let { SmartLinkDetector.parseSingleUrl(it)?.let(::add) }
+                NoteBlockType.IMAGE -> Unit
+            }
+        }
+    }.distinctBy { it.canonicalUrl }
 
     private fun computeSuggestedTitle(
         enabled: Boolean,
@@ -1000,7 +1163,12 @@ class NoteEditorViewModel(
         private val duplicateDetector: SmartDuplicateDetector,
         private val settingsRepository: SettingsRepository,
         private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator(),
-        private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine()
+        private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine(),
+        private val aiEngine: SmartNoteAiEngine? = null,
+        private val attachmentStorage: AttachmentStorage? = null,
+        private val systemEntityAnalyzer: SystemEntityAnalyzer? = null,
+        private val imageLabelingEngine: ImageLabelingEngine? = null,
+        private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(
@@ -1021,7 +1189,12 @@ class NoteEditorViewModel(
                 duplicateDetector = duplicateDetector,
                 settingsRepository = settingsRepository,
                 smartTitleGenerator = smartTitleGenerator,
-                smartTagsEngine = smartTagsEngine
+                smartTagsEngine = smartTagsEngine,
+                aiEngine = aiEngine,
+                attachmentStorage = attachmentStorage,
+                systemEntityAnalyzer = systemEntityAnalyzer,
+                imageLabelingEngine = imageLabelingEngine,
+                geminiNanoAssistant = geminiNanoAssistant
             ) as T
         }
     }
