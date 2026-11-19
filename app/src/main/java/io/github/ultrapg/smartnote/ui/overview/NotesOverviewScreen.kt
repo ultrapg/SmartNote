@@ -3,14 +3,16 @@ package io.github.ultrapg.smartnote.ui.overview
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -73,6 +75,7 @@ import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -97,14 +100,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
@@ -172,8 +178,13 @@ fun NotesOverviewScreen(
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     var activeTopMenu by remember { mutableStateOf(OverviewTopMenu.NONE) }
+    var displayedTopMenu by remember { mutableStateOf(OverviewTopMenu.OVERFLOW) }
+    if (activeTopMenu != OverviewTopMenu.NONE) {
+        displayedTopMenu = activeTopMenu
+    }
     var isCreateMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    val reducedMotion = LocalSmartNoteThemeMeta.current.isReducedMotion
+    val themeMeta = LocalSmartNoteThemeMeta.current
+    val reducedMotion = themeMeta.isReducedMotion
 
     val inSelectionMode = uiState.selectedIds.isNotEmpty()
     val allDisplayedNotes = uiState.pinnedNotes + uiState.otherNotes
@@ -278,336 +289,115 @@ fun NotesOverviewScreen(
                         .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
                 ) {
                     val isTopMenuOpen = activeTopMenu != OverviewTopMenu.NONE
-                    val barElevation by animateDpAsState(
-                        targetValue = if (isTopMenuOpen) 6.dp else 0.dp,
-                        animationSpec = if (reducedMotion) tween(80) else SmartNoteMotion.softSizeSpring(),
-                        label = "top_bar_pill_elevation"
+                    val inactiveAlpha by animateFloatAsState(
+                        targetValue = if (isTopMenuOpen) 0.45f else 1f,
+                        animationSpec = tween(if (reducedMotion) 60 else 150),
+                        label = "top_bar_inactive_alpha"
                     )
-                    var displayedMenu by remember { mutableStateOf(OverviewTopMenu.OVERFLOW) }
-                    if (activeTopMenu != OverviewTopMenu.NONE) {
-                        displayedMenu = activeTopMenu
-                    }
 
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(28.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shadowElevation = barElevation,
                         border = smartNoteCardBorder()
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = 52.dp)
-                                    .padding(horizontal = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                AnimatedVisibility(
-                                    visible = !isTopMenuOpen,
-                                    enter = if (reducedMotion) {
-                                        fadeIn(tween(80))
-                                    } else {
-                                        expandHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            expandFrom = Alignment.Start
-                                        ) + fadeIn(tween(120))
-                                    },
-                                    exit = if (reducedMotion) {
-                                        fadeOut(tween(70))
-                                    } else {
-                                        shrinkHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            shrinkTowards = Alignment.Start
-                                        ) + fadeOut(tween(80))
-                                    }
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            isCreateMenuExpanded = false
-                                            onOpenSearch()
-                                        }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Search,
-                                            contentDescription = "SmartSearch",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .heightIn(min = 48.dp)
-                                        .let { base ->
-                                            if (!isTopMenuOpen) {
-                                                base.clickable {
-                                                    isCreateMenuExpanded = false
-                                                    onOpenSearch()
-                                                }
-                                            } else {
-                                                base
-                                            }
-                                        }
-                                        .padding(horizontal = 6.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    AnimatedContent(
-                                        targetState = activeTopMenu,
-                                        transitionSpec = {
-                                            fadeIn(tween(if (reducedMotion) 60 else 120)) togetherWith
-                                                fadeOut(tween(if (reducedMotion) 50 else 80))
-                                        },
-                                        label = "top_bar_title_morph"
-                                    ) { menu ->
-                                        when (menu) {
-                                            OverviewTopMenu.NONE -> Text(
-                                                text = "Search SmartNote, OCR, #tags...",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            OverviewTopMenu.SORT -> Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.AutoMirrored.Rounded.Sort,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                                Text(
-                                                    text = "Sort notes",
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1
-                                                )
-                                            }
-                                            OverviewTopMenu.OVERFLOW -> Text(
-                                                text = "Menu",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                modifier = Modifier.padding(start = 4.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(
-                                    visible = !isTopMenuOpen,
-                                    enter = if (reducedMotion) {
-                                        fadeIn(tween(80))
-                                    } else {
-                                        expandHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            expandFrom = Alignment.End
-                                        ) + fadeIn(tween(120))
-                                    },
-                                    exit = if (reducedMotion) {
-                                        fadeOut(tween(70))
-                                    } else {
-                                        shrinkHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            shrinkTowards = Alignment.End
-                                        ) + fadeOut(tween(80))
-                                    }
-                                ) {
-                                    IconButton(onClick = onToggleLayoutMode) {
-                                        Icon(
-                                            imageVector = if (uiState.layoutMode == NotesLayoutMode.STAGGERED_CARDS) {
-                                                Icons.AutoMirrored.Rounded.ViewList
-                                            } else {
-                                                Icons.Rounded.GridView
-                                            },
-                                            contentDescription = "Switch between card and compact list layout"
-                                        )
-                                    }
-                                }
-
-                                AnimatedVisibility(
-                                    visible = activeTopMenu != OverviewTopMenu.OVERFLOW,
-                                    enter = if (reducedMotion) {
-                                        fadeIn(tween(80))
-                                    } else {
-                                        expandHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            expandFrom = Alignment.End
-                                        ) + fadeIn(tween(120))
-                                    },
-                                    exit = if (reducedMotion) {
-                                        fadeOut(tween(70))
-                                    } else {
-                                        shrinkHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            shrinkTowards = Alignment.End
-                                        ) + fadeOut(tween(80))
-                                    }
-                                ) {
-                                    val isSortOpen = activeTopMenu == OverviewTopMenu.SORT
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (isSortOpen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                        contentColor = if (isSortOpen) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                isCreateMenuExpanded = false
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                activeTopMenu = if (isSortOpen) {
-                                                    OverviewTopMenu.NONE
-                                                } else {
-                                                    OverviewTopMenu.SORT
-                                                }
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isSortOpen) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.Sort,
-                                                contentDescription = if (isSortOpen) "Close sort menu" else "Sort notes"
-                                            )
-                                        }
-                                    }
-                                }
-
-                                AnimatedVisibility(
-                                    visible = activeTopMenu != OverviewTopMenu.SORT,
-                                    enter = if (reducedMotion) {
-                                        fadeIn(tween(80))
-                                    } else {
-                                        expandHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            expandFrom = Alignment.End
-                                        ) + fadeIn(tween(120))
-                                    },
-                                    exit = if (reducedMotion) {
-                                        fadeOut(tween(70))
-                                    } else {
-                                        shrinkHorizontally(
-                                            animationSpec = SmartNoteMotion.softSizeSpring(),
-                                            shrinkTowards = Alignment.End
-                                        ) + fadeOut(tween(80))
-                                    }
-                                ) {
-                                    val isOverflowOpen = activeTopMenu == OverviewTopMenu.OVERFLOW
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = if (isOverflowOpen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                        contentColor = if (isOverflowOpen) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        }
-                                    ) {
-                                        IconButton(
-                                            onClick = {
-                                                isCreateMenuExpanded = false
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                activeTopMenu = if (isOverflowOpen) {
-                                                    OverviewTopMenu.NONE
-                                                } else {
-                                                    OverviewTopMenu.OVERFLOW
-                                                }
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isOverflowOpen) Icons.Rounded.Close else Icons.Rounded.MoreVert,
-                                                contentDescription = if (isOverflowOpen) "Close menu" else "Menu"
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            AnimatedVisibility(
-                                visible = isTopMenuOpen,
-                                enter = if (reducedMotion) {
-                                    fadeIn(tween(80))
-                                } else {
-                                    expandVertically(
-                                        animationSpec = SmartNoteMotion.softSizeSpring(),
-                                        expandFrom = Alignment.Top
-                                    ) + fadeIn(tween(130))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    isCreateMenuExpanded = false
+                                    activeTopMenu = OverviewTopMenu.NONE
+                                    onOpenSearch()
                                 },
-                                exit = if (reducedMotion) {
-                                    fadeOut(tween(70))
-                                } else {
-                                    shrinkVertically(
-                                        animationSpec = SmartNoteMotion.softSizeSpring(),
-                                        shrinkTowards = Alignment.Top
-                                    ) + fadeOut(tween(90))
-                                }
+                                modifier = Modifier.alpha(inactiveAlpha)
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    when (displayedMenu) {
-                                        OverviewTopMenu.SORT -> {
-                                            NoteSortOrder.entries.forEach { order ->
-                                                val (label, icon) = when (order) {
-                                                    NoteSortOrder.UPDATED_DESC -> "Recently updated" to Icons.Rounded.Schedule
-                                                    NoteSortOrder.CREATED_DESC -> "Recently created" to Icons.Rounded.History
-                                                    NoteSortOrder.TITLE_ASC -> "Title A–Z" to Icons.Rounded.SortByAlpha
-                                                }
-                                                MorphingMenuPillItem(
-                                                    icon = icon,
-                                                    label = label,
-                                                    selected = uiState.sortOrder == order,
-                                                    onClick = {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                        activeTopMenu = OverviewTopMenu.NONE
-                                                        onSelectSort(order)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                        OverviewTopMenu.OVERFLOW -> {
-                                            MorphingMenuPillItem(
-                                                icon = Icons.Rounded.Archive,
-                                                label = "Archive",
-                                                onClick = {
-                                                    activeTopMenu = OverviewTopMenu.NONE
-                                                    onOpenArchive()
-                                                }
-                                            )
-                                            MorphingMenuPillItem(
-                                                icon = Icons.Rounded.DeleteOutline,
-                                                label = "Recycle Bin",
-                                                onClick = {
-                                                    activeTopMenu = OverviewTopMenu.NONE
-                                                    onOpenRecycleBin()
-                                                }
-                                            )
-                                            MorphingMenuPillItem(
-                                                icon = Icons.Rounded.ContentCopy,
-                                                label = "Review Duplicates",
-                                                onClick = {
-                                                    activeTopMenu = OverviewTopMenu.NONE
-                                                    onOpenDuplicates()
-                                                }
-                                            )
-                                            MorphingMenuPillItem(
-                                                icon = Icons.Rounded.Settings,
-                                                label = "Settings",
-                                                onClick = {
-                                                    activeTopMenu = OverviewTopMenu.NONE
-                                                    onOpenSettings()
-                                                }
-                                            )
-                                        }
-                                        OverviewTopMenu.NONE -> Unit
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "SmartSearch",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                                    .alpha(inactiveAlpha)
+                                    .clickable {
+                                        isCreateMenuExpanded = false
+                                        activeTopMenu = OverviewTopMenu.NONE
+                                        onOpenSearch()
+                                    }
+                                    .padding(horizontal = 6.dp),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                Text(
+                                    text = "Search SmartNote, OCR, #tags...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    isCreateMenuExpanded = false
+                                    activeTopMenu = OverviewTopMenu.NONE
+                                    onToggleLayoutMode()
+                                },
+                                modifier = Modifier.alpha(inactiveAlpha)
+                            ) {
+                                Icon(
+                                    imageVector = if (uiState.layoutMode == NotesLayoutMode.STAGGERED_CARDS) {
+                                        Icons.AutoMirrored.Rounded.ViewList
+                                    } else {
+                                        Icons.Rounded.GridView
+                                    },
+                                    contentDescription = "Switch between card and compact list layout"
+                                )
+                            }
+
+                            TopBarBubbleTriggerButton(
+                                isOpen = activeTopMenu == OverviewTopMenu.SORT,
+                                isOtherMenuOpen = isTopMenuOpen && activeTopMenu != OverviewTopMenu.SORT,
+                                reducedMotion = reducedMotion,
+                                openIcon = Icons.AutoMirrored.Rounded.Sort,
+                                openContentDescription = "Sort notes",
+                                closeContentDescription = "Close sort menu",
+                                onClick = {
+                                    isCreateMenuExpanded = false
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    activeTopMenu = if (activeTopMenu == OverviewTopMenu.SORT) {
+                                        OverviewTopMenu.NONE
+                                    } else {
+                                        OverviewTopMenu.SORT
                                     }
                                 }
-                            }
+                            )
+
+                            TopBarBubbleTriggerButton(
+                                isOpen = activeTopMenu == OverviewTopMenu.OVERFLOW,
+                                isOtherMenuOpen = isTopMenuOpen && activeTopMenu != OverviewTopMenu.OVERFLOW,
+                                reducedMotion = reducedMotion,
+                                openIcon = Icons.Rounded.MoreVert,
+                                openContentDescription = "Menu",
+                                closeContentDescription = "Close menu",
+                                onClick = {
+                                    isCreateMenuExpanded = false
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    activeTopMenu = if (activeTopMenu == OverviewTopMenu.OVERFLOW) {
+                                        OverviewTopMenu.NONE
+                                    } else {
+                                        OverviewTopMenu.OVERFLOW
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -853,23 +643,207 @@ fun NotesOverviewScreen(
                     )
             )
         }
+
+        val showTopMenuBubble = activeTopMenu != OverviewTopMenu.NONE && !inSelectionMode && uiState.activeTagName == null
+        val bubbleEndPadding by animateDpAsState(
+            targetValue = if (displayedTopMenu == OverviewTopMenu.SORT) 56.dp else 16.dp,
+            animationSpec = if (reducedMotion) tween(70) else SmartNoteMotion.softPlacementSpring(),
+            label = "top_menu_bubble_end"
+        )
+        val bubblePivotX = if (displayedTopMenu == OverviewTopMenu.SORT) 0.82f else 0.86f
+
+        AnimatedVisibility(
+            visible = showTopMenuBubble,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = innerPadding.calculateTopPadding() + 4.dp, end = bubbleEndPadding),
+            enter = if (reducedMotion) {
+                fadeIn(tween(80))
+            } else {
+                scaleIn(
+                    initialScale = 0.72f,
+                    transformOrigin = TransformOrigin(bubblePivotX, 0f),
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 480f)
+                ) + expandVertically(
+                    expandFrom = Alignment.Top,
+                    animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f)
+                ) + fadeIn(tween(110))
+            },
+            exit = if (reducedMotion) {
+                fadeOut(tween(70))
+            } else {
+                scaleOut(
+                    targetScale = 0.82f,
+                    transformOrigin = TransformOrigin(bubblePivotX, 0f),
+                    animationSpec = tween(110)
+                ) + shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = tween(120)
+                ) + fadeOut(tween(90))
+            }
+        ) {
+            Surface(
+                modifier = Modifier
+                    .width(224.dp)
+                    .testTag("overview_top_menu_bubble"),
+                shape = RoundedCornerShape(26.dp),
+                color = if (themeMeta.isDark) {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+                tonalElevation = 4.dp,
+                shadowElevation = 10.dp
+            ) {
+                AnimatedContent(
+                    targetState = displayedTopMenu,
+                    transitionSpec = {
+                        fadeIn(tween(if (reducedMotion) 60 else 120)) togetherWith
+                            fadeOut(tween(if (reducedMotion) 50 else 80))
+                    },
+                    label = "top_menu_bubble_content"
+                ) { menu ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        when (menu) {
+                            OverviewTopMenu.SORT -> {
+                                NoteSortOrder.entries.forEach { order ->
+                                    val (label, icon) = when (order) {
+                                        NoteSortOrder.UPDATED_DESC -> "Recently updated" to Icons.Rounded.Schedule
+                                        NoteSortOrder.CREATED_DESC -> "Recently created" to Icons.Rounded.History
+                                        NoteSortOrder.TITLE_ASC -> "Title A–Z" to Icons.Rounded.SortByAlpha
+                                    }
+                                    PopOutBubbleMenuItem(
+                                        icon = icon,
+                                        label = label,
+                                        selected = uiState.sortOrder == order,
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            activeTopMenu = OverviewTopMenu.NONE
+                                            onSelectSort(order)
+                                        }
+                                    )
+                                }
+                            }
+                            OverviewTopMenu.OVERFLOW -> {
+                                PopOutBubbleMenuItem(
+                                    icon = Icons.Rounded.Archive,
+                                    label = "Archive",
+                                    onClick = {
+                                        activeTopMenu = OverviewTopMenu.NONE
+                                        onOpenArchive()
+                                    }
+                                )
+                                PopOutBubbleMenuItem(
+                                    icon = Icons.Rounded.DeleteOutline,
+                                    label = "Recycle Bin",
+                                    onClick = {
+                                        activeTopMenu = OverviewTopMenu.NONE
+                                        onOpenRecycleBin()
+                                    }
+                                )
+                                PopOutBubbleMenuItem(
+                                    icon = Icons.Rounded.ContentCopy,
+                                    label = "Review Duplicates",
+                                    onClick = {
+                                        activeTopMenu = OverviewTopMenu.NONE
+                                        onOpenDuplicates()
+                                    }
+                                )
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.32f),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                )
+                                PopOutBubbleMenuItem(
+                                    icon = Icons.Rounded.Settings,
+                                    label = "Settings",
+                                    onClick = {
+                                        activeTopMenu = OverviewTopMenu.NONE
+                                        onOpenSettings()
+                                    }
+                                )
+                            }
+                            OverviewTopMenu.NONE -> Unit
+                        }
+                    }
+                }
+            }
+        }
         }
     }
 }
 
 @Composable
-private fun MorphingMenuPillItem(
+private fun TopBarBubbleTriggerButton(
+    isOpen: Boolean,
+    isOtherMenuOpen: Boolean,
+    reducedMotion: Boolean,
+    openIcon: ImageVector,
+    openContentDescription: String,
+    closeContentDescription: String,
+    onClick: () -> Unit
+) {
+    val badgeColor by animateColorAsState(
+        targetValue = if (isOpen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        animationSpec = tween(if (reducedMotion) 60 else 150),
+        label = "top_bar_trigger_badge"
+    )
+    IconButton(onClick = onClick) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(badgeColor)
+                .alpha(if (isOtherMenuOpen) 0.65f else 1f),
+            contentAlignment = Alignment.Center
+        ) {
+            AnimatedContent(
+                targetState = isOpen,
+                transitionSpec = {
+                    if (reducedMotion) {
+                        fadeIn(tween(60)) togetherWith fadeOut(tween(50))
+                    } else {
+                        (scaleIn(initialScale = 0.85f, animationSpec = tween(120)) + fadeIn(tween(120))) togetherWith
+                            (scaleOut(targetScale = 0.85f, animationSpec = tween(90)) + fadeOut(tween(90)))
+                    }
+                },
+                label = "top_bar_trigger_icon"
+            ) { open ->
+                if (open) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = closeContentDescription,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                } else {
+                    Icon(
+                        imageVector = openIcon,
+                        contentDescription = openContentDescription,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PopOutBubbleMenuItem(
     icon: ImageVector,
     label: String,
     selected: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
-        shape = CircleShape,
+        shape = RoundedCornerShape(18.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+            Color.Transparent
         },
         contentColor = if (selected) {
             MaterialTheme.colorScheme.onPrimaryContainer
@@ -878,8 +852,8 @@ private fun MorphingMenuPillItem(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 46.dp)
-            .clip(CircleShape)
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(18.dp))
             .clickable(onClick = onClick)
     ) {
         Row(

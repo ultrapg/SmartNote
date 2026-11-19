@@ -10,6 +10,7 @@ import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -516,43 +517,48 @@ class LargeDatasetAndUiTest {
 
     @Test
     fun morphingTopBarMenusAndFlyingBottomNavIndicatorWorkCleanly() {
-        // 1. Expanding Sort menu squashes overflow Menu & layout toggle aside and rolls out pill options
+        // 1. Opening Sort pops out a compact bubble beneath the Sort icon without hiding bar actions
         composeRule.onNodeWithContentDescription("Sort notes").performClick()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Recently updated").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithContentDescription("Close sort menu").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("overview_top_menu_bubble").assertIsDisplayed()
         composeRule.onNodeWithText("Recently updated").assertIsDisplayed()
         composeRule.onNodeWithText("Recently created").assertIsDisplayed()
         composeRule.onNodeWithText("Title A–Z").assertIsDisplayed()
+        composeRule.onNodeWithText("Search SmartNote, OCR, #tags...").assertIsDisplayed()
+        val rootBounds = composeRule.onRoot().getBoundsInRoot()
+        val sortBounds = composeRule.onNodeWithTag("overview_top_menu_bubble").getBoundsInRoot()
         assertTrue(
-            "Overflow menu icon should squash away while Sort menu is open",
-            composeRule.onAllNodesWithContentDescription("Menu").fetchSemanticsNodes().isEmpty()
+            "Pop-out Sort bubble ($sortBounds) should be compact relative to screen ($rootBounds)",
+            (sortBounds.right - sortBounds.left) < (rootBounds.right - rootBounds.left) * 0.85f
         )
-        composeRule.onNodeWithText("Title A–Z").performClick()
-        composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithContentDescription("Menu").fetchSemanticsNodes().isNotEmpty()
-        }
 
-        // 2. Expanding Menu squashes Sort icon aside and rolls out overflow items inside the morphed pill
+        // 2. Switching directly to Menu repositions the pop-out bubble under Menu while keeping Sort accessible
         composeRule.onNodeWithContentDescription("Menu").performClick()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty() &&
                 composeRule.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.waitForIdle()
+        composeRule.onNodeWithTag("overview_top_menu_bubble").assertIsDisplayed()
         composeRule.onNodeWithText("Archive").assertIsDisplayed()
         composeRule.onNodeWithText("Recycle Bin").assertIsDisplayed()
         composeRule.onNodeWithText("Review Duplicates").assertIsDisplayed()
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Sort notes").assertIsDisplayed()
+        val overflowBounds = composeRule.onNodeWithTag("overview_top_menu_bubble").getBoundsInRoot()
         assertTrue(
-            "Sort icon should squash away while Menu is open",
-            composeRule.onAllNodesWithContentDescription("Sort notes").fetchSemanticsNodes().isEmpty()
+            "Pop-out Menu bubble (${overflowBounds.right}) should align closer to right edge than Sort bubble (${sortBounds.right})",
+            overflowBounds.right > sortBounds.right
         )
+
         composeRule.onNodeWithContentDescription("Close menu").performClick()
         composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithContentDescription("Sort notes").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("overview_top_menu_bubble").fetchSemanticsNodes().isEmpty() &&
+                composeRule.onAllNodesWithContentDescription("Menu").fetchSemanticsNodes().isNotEmpty()
         }
 
         // 3. Flying bottom navigation pill moves smoothly left -> center -> right across tabs

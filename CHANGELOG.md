@@ -4,6 +4,18 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2026-11-19
+
+### Changed
+- **Compact Pop-Out Bubble Top-Bar Menus (`NotesOverviewScreen.kt`)**:
+  - Replaced the full-width downward-expanding top-bar drawer with compact, borderless floating **pop-out bubbles** (`surfaceContainerHigh`/`surfaceContainerHighest`, `26.dp` corner radius, `10.dp` shadow elevation) anchored neatly beneath the tapped `Sort` or `Menu ⋮` button (`TransformOrigin` scale + vertical expand + fade with reduced-motion fallback), leaving the `52.dp` top search pill calm and fixed in height so filter chips and note cards stay stationary.
+  - Added smooth `38.dp` `CircleShape` `primaryContainer` close badges with soft dimming on inactive bar buttons, clean `PopOutBubbleMenuItem` rows (`18.dp` corner radius, transparent background when unselected, `primaryContainer` + trailing check on active sort), a subtle divider before `Settings` in the overflow bubble, and seamless 1-tap switching between `Sort` and `Menu`.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 30 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 30 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,048,745` bytes (`54.41 MiB`), `SHA-256: 945783f98c8752eea4d011d216530b6542b13c0b07e9f39563da75714535ffee`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.9] - 2026-11-19
 
 ### Changed
