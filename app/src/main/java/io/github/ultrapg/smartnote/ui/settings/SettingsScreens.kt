@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -80,15 +81,22 @@ import io.github.ultrapg.smartnote.BuildConfig
 import io.github.ultrapg.smartnote.R
 import io.github.ultrapg.smartnote.ai.AiDiagnosticsState
 import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
+import io.github.ultrapg.smartnote.ai.ImageLabelingAvailability
+import io.github.ultrapg.smartnote.ai.SystemEntityAvailability
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.backup.RestoreMode
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
+import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
 import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
+import io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
+import io.github.ultrapg.smartnote.domain.model.TitleStylePreference
 import io.github.ultrapg.smartnote.integration.QuickNoteTileService
 import io.github.ultrapg.smartnote.integration.widgets.NotesOverviewWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.PinnedNoteWidgetReceiver
@@ -256,16 +264,51 @@ fun AppearanceSettingsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SmartFeaturesSettingsScreen(
     settings: AppSettings,
     settingsRepository: SettingsRepository,
+    diagnostics: AiDiagnosticsState = AiDiagnosticsState(),
+    onRefreshDiagnostics: () -> Unit = {},
+    onPrepareGeminiNano: () -> Unit = {},
+    onDownloadImageLabeling: () -> Unit = {},
     onDisableAiUnloadModel: () -> Unit = {},
     onOpenAiProcessing: () -> Unit,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val aiEnabled = settings.aiFeaturesEnabled
+    val tagsConfigEnabled = aiEnabled
+    LaunchedEffect(Unit) { onRefreshDiagnostics() }
+
+    val nanoCaps = diagnostics.geminiNanoCapabilities
+    val nanoBadgeText = remember(diagnostics.capabilitiesProbed, nanoCaps) {
+        when {
+            !diagnostics.capabilitiesProbed -> "Checking..."
+            nanoCaps.fastAvailability == GeminiNanoAvailability.AVAILABLE &&
+                nanoCaps.fullAvailability == GeminiNanoAvailability.AVAILABLE -> "Ready (Fast & Full)"
+            nanoCaps.fastAvailability == GeminiNanoAvailability.AVAILABLE -> "Ready (Fast)"
+            nanoCaps.fullAvailability == GeminiNanoAvailability.AVAILABLE -> "Ready (Full)"
+            nanoCaps.bestAvailability == GeminiNanoAvailability.DOWNLOADING -> "Downloading..."
+            nanoCaps.bestAvailability == GeminiNanoAvailability.DOWNLOADABLE -> "Downloadable"
+            else -> "Not supported on this device"
+        }
+    }
+    val imgAvail = diagnostics.imageLabelingAvailability
+    val imgBadgeText = when {
+        !diagnostics.capabilitiesProbed -> "Checking..."
+        imgAvail == ImageLabelingAvailability.AVAILABLE -> "Ready"
+        imgAvail == ImageLabelingAvailability.DOWNLOADABLE -> "Downloadable"
+        else -> "Not supported on this device"
+    }
+    val entityAvail = diagnostics.systemEntityAvailability
+    val entityBadgeText = when {
+        !diagnostics.capabilitiesProbed -> "Checking..."
+        entityAvail == SystemEntityAvailability.AVAILABLE -> "Ready"
+        else -> "Not available on this device"
+    }
+
     SettingsSubScaffold(title = "AI & Smart Features", onBack = onBack) {
         SettingsSwitchRow(
             title = "Enable AI Features",
@@ -277,21 +320,369 @@ fun SmartFeaturesSettingsScreen(
                 if (!enabled) onDisableAiUnloadModel()
             }
         )
-        SectionLabel("Individual AI Features", enabled = aiEnabled)
-        SettingsSwitchRow(
-            title = "Auto-Title Generation",
-            subtitle = "Automatically title untitled notes and shared screenshots (when off, use the Generate button in the editor)",
-            checked = settings.effectiveAutoTitleEnabled,
-            enabled = aiEnabled,
-            onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
-        )
+
+        SectionLabel("SmartTags Configuration", enabled = aiEnabled)
         SettingsSwitchRow(
             title = "SmartTags",
-            subtitle = "Suggest tags automatically from note topics and the tags you use (when off, use Generate tags in the editor)",
+            subtitle = "Suggest tags automatically in the background (when off, use Generate tags in the editor)",
             checked = settings.effectiveSmartTagsEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
         )
+
+        SettingsOptionGroupCard(
+            title = "Max tags to predict",
+            subtitle = "Predict up to ${settings.effectiveMaxPredictedTags} tag(s) per note (1–6)",
+            enabled = tagsConfigEnabled
+        ) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                (1..6).forEach { count ->
+                    FilterChip(
+                        selected = settings.effectiveMaxPredictedTags == count,
+                        enabled = tagsConfigEnabled,
+                        onClick = { scope.launch { settingsRepository.setMaxPredictedTags(count) } },
+                        label = { Text("$count") },
+                        border = null,
+                        colors = smartNoteTonalFilterChipColors()
+                    )
+                }
+            }
+        }
+
+        val strictnessDesc = when (settings.tagSensitivity) {
+            TagPredictionSensitivity.CONSERVATIVE ->
+                "Strict: only high-confidence categories and clear matches"
+            TagPredictionSensitivity.BALANCED ->
+                "Balanced: accurate categories with low noise (Recommended)"
+            TagPredictionSensitivity.BROAD ->
+                "Broad: includes weaker hints and borderline matches"
+        }
+        SettingsOptionGroupCard(
+            title = "Tag strictness",
+            subtitle = strictnessDesc,
+            enabled = tagsConfigEnabled
+        ) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TagPredictionSensitivity.entries.forEach { sensitivity ->
+                    val label = when (sensitivity) {
+                        TagPredictionSensitivity.CONSERVATIVE -> "Strict"
+                        TagPredictionSensitivity.BALANCED -> "Balanced"
+                        TagPredictionSensitivity.BROAD -> "Broad"
+                    }
+                    FilterChip(
+                        selected = settings.tagSensitivity == sensitivity,
+                        enabled = tagsConfigEnabled,
+                        onClick = { scope.launch { settingsRepository.setTagSensitivity(sensitivity) } },
+                        label = { Text(label) },
+                        border = null,
+                        colors = smartNoteTonalFilterChipColors()
+                    )
+                }
+            }
+        }
+
+        SettingsSwitchRow(
+            title = "Prefer your existing tags",
+            subtitle = "Prioritize matching tags already in your library instead of introducing new categories",
+            checked = tagsConfigEnabled && settings.preferExistingTags,
+            enabled = tagsConfigEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setPreferExistingTags(it) } }
+        )
+        SettingsSwitchRow(
+            title = "Learn from your tagged notes",
+            subtitle = "Use patterns from notes you manually tagged to suggest matching personal tags",
+            checked = tagsConfigEnabled && settings.learnFromUserTags,
+            enabled = tagsConfigEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setLearnFromUserTags(it) } }
+        )
+        SettingsSwitchRow(
+            title = "Allow new topic tags",
+            subtitle = "When off, SmartNote sticks to curated categories and your own tags to avoid noisy single-word guesses",
+            checked = tagsConfigEnabled && settings.allowNewTopicTags,
+            enabled = tagsConfigEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setAllowNewTopicTags(it) } }
+        )
+        SettingsSwitchRow(
+            title = "Semantic tag matching",
+            subtitle = "Use LiteRT embeddings to reinforce category and personal tag affinity",
+            checked = tagsConfigEnabled && settings.useSemanticEmbeddingsForTags,
+            enabled = tagsConfigEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setUseSemanticEmbeddingsForTags(it) } }
+        )
+
+        SectionLabel("Title Generation", enabled = aiEnabled)
+        SettingsSwitchRow(
+            title = "Auto-Title Generation",
+            subtitle = "Automatically title untitled notes and shared screenshots (when off, use Generate in the editor)",
+            checked = settings.effectiveAutoTitleEnabled,
+            enabled = aiEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
+        )
+        SettingsOptionGroupCard(
+            title = "Title style",
+            subtitle = if (settings.titleStyle == TitleStylePreference.CONCISE) {
+                "Concise: tight headline up to 44 characters"
+            } else {
+                "Descriptive: fuller summary phrase up to 64 characters"
+            },
+            enabled = aiEnabled
+        ) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TitleStylePreference.entries.forEach { style ->
+                    FilterChip(
+                        selected = settings.titleStyle == style,
+                        enabled = aiEnabled,
+                        onClick = { scope.launch { settingsRepository.setTitleStyle(style) } },
+                        label = {
+                            Text(if (style == TitleStylePreference.CONCISE) "Concise" else "Descriptive")
+                        },
+                        border = null,
+                        colors = smartNoteTonalFilterChipColors()
+                    )
+                }
+            }
+        }
+
+        SectionLabel("On-Device Models & Engines (Auto-Detected)", enabled = aiEnabled)
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = if (aiEnabled) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+            },
+            border = smartNoteCardBorder(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val contentAlpha = if (aiEnabled) 1f else 0.38f
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Gemini Nano",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+                    )
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            text = nanoBadgeText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                when {
+                    diagnostics.capabilitiesProbed && !nanoCaps.isSupportedOnDevice -> {
+                        Text(
+                            text = "Not supported on this device (Android AICore / Gemini Nano unavailable). SmartNote automatically uses its local classifier, LiteRT embeddings, and entity rules.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        )
+                    }
+                    diagnostics.capabilitiesProbed && nanoCaps.bestAvailability == GeminiNanoAvailability.DOWNLOADABLE -> {
+                        Text(
+                            text = "Gemini Nano is supported by your device and ready to download via Android AICore.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        )
+                        OutlinedButton(
+                            enabled = aiEnabled,
+                            onClick = {
+                                onPrepareGeminiNano()
+                                onRefreshDiagnostics()
+                            }
+                        ) {
+                            Text("Download Gemini Nano")
+                        }
+                    }
+                    diagnostics.capabilitiesProbed && nanoCaps.bestAvailability == GeminiNanoAvailability.DOWNLOADING -> {
+                        Text(
+                            text = "Downloading Gemini Nano model via Android AICore... Controls will activate automatically once ready.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        )
+                        OutlinedButton(
+                            enabled = aiEnabled,
+                            onClick = onRefreshDiagnostics
+                        ) {
+                            Text("Refresh status")
+                        }
+                    }
+                    else -> {
+                        val nanoModeDesc = when (settings.geminiNanoMode) {
+                            GeminiNanoMode.AUTO_HYBRID ->
+                                "Smart Hybrid: uses fast local rules first and asks Gemini Nano only when unsure"
+                            GeminiNanoMode.ALWAYS_PREFER ->
+                                "Prefer Nano: runs Gemini Nano together with local rules on notes"
+                            GeminiNanoMode.OFF ->
+                                "Off: disables Gemini Nano inference"
+                        }
+                        Text(
+                            text = nanoModeDesc,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            GeminiNanoMode.entries.forEach { mode ->
+                                val label = when (mode) {
+                                    GeminiNanoMode.AUTO_HYBRID -> "Smart Hybrid"
+                                    GeminiNanoMode.ALWAYS_PREFER -> "Prefer Nano"
+                                    GeminiNanoMode.OFF -> "Off"
+                                }
+                                FilterChip(
+                                    selected = settings.geminiNanoMode == mode,
+                                    enabled = aiEnabled,
+                                    onClick = { scope.launch { settingsRepository.setGeminiNanoMode(mode) } },
+                                    label = { Text(label) },
+                                    border = null,
+                                    colors = smartNoteTonalFilterChipColors()
+                                )
+                            }
+                        }
+
+                        val variantEnabled = aiEnabled && settings.geminiNanoMode != GeminiNanoMode.OFF
+                        Text(
+                            text = "Model variant",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val fastSupported = !diagnostics.capabilitiesProbed || nanoCaps.isFastSupported
+                            val fullSupported = !diagnostics.capabilitiesProbed || nanoCaps.isFullSupported
+                            FilterChip(
+                                selected = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST,
+                                enabled = variantEnabled && fastSupported,
+                                onClick = {
+                                    scope.launch { settingsRepository.setGeminiNanoVariant(GeminiNanoVariant.FAST_FIRST) }
+                                },
+                                label = {
+                                    Text(if (fastSupported) "Fast (Recommended)" else "Fast (Unsupported)")
+                                },
+                                border = null,
+                                colors = smartNoteTonalFilterChipColors()
+                            )
+                            FilterChip(
+                                selected = settings.geminiNanoVariant == GeminiNanoVariant.FULL_QUALITY,
+                                enabled = variantEnabled && fullSupported,
+                                onClick = {
+                                    scope.launch { settingsRepository.setGeminiNanoVariant(GeminiNanoVariant.FULL_QUALITY) }
+                                },
+                                label = {
+                                    Text(if (fullSupported) "Full" else "Full (Unsupported)")
+                                },
+                                border = null,
+                                colors = smartNoteTonalFilterChipColors()
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable(enabled = variantEnabled) {
+                                    scope.launch {
+                                        settingsRepository.setUseGeminiNanoForTitles(!settings.useGeminiNanoForTitles)
+                                    }
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Use Gemini Nano for titles",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (variantEnabled) 1f else 0.38f)
+                                )
+                                Text(
+                                    text = "Synthesize titles with Gemini Nano when available",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (variantEnabled) 1f else 0.38f)
+                                )
+                            }
+                            Switch(
+                                checked = settings.useGeminiNanoForTitles,
+                                enabled = variantEnabled,
+                                onCheckedChange = {
+                                    scope.launch { settingsRepository.setUseGeminiNanoForTitles(it) }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        val imageLabelingSupported = !diagnostics.capabilitiesProbed || imgAvail != ImageLabelingAvailability.UNAVAILABLE
+        val imageLabelingToggleEnabled = aiEnabled && imageLabelingSupported
+        SettingsBadgeSwitchRow(
+            title = "Image Labeling (ML Kit)",
+            subtitle = if (imageLabelingSupported) {
+                "Detect visual objects and scenes in photos and screenshots for titles and tags"
+            } else {
+                "Not supported on this device (Play Services ML Kit module unavailable)"
+            },
+            badge = imgBadgeText,
+            checked = settings.effectiveUseImageLabeling && imageLabelingSupported,
+            enabled = imageLabelingToggleEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setUseImageLabelingForAi(it) } },
+            action = if (imgAvail == ImageLabelingAvailability.DOWNLOADABLE && aiEnabled) {
+                {
+                    OutlinedButton(
+                        onClick = {
+                            onDownloadImageLabeling()
+                            onRefreshDiagnostics()
+                        }
+                    ) {
+                        Text("Download module")
+                    }
+                }
+            } else {
+                null
+            }
+        )
+
+        val entitySupported = !diagnostics.capabilitiesProbed || entityAvail == SystemEntityAvailability.AVAILABLE
+        SettingsBadgeSwitchRow(
+            title = "System Entity Recognition",
+            subtitle = if (entitySupported) {
+                "Detect flights, tracking codes, addresses, and contact info via Android TextClassifier"
+            } else {
+                "Android TextClassifier is unavailable on this device"
+            },
+            badge = entityBadgeText,
+            checked = settings.effectiveUseSystemEntities && entitySupported,
+            enabled = aiEnabled && entitySupported,
+            onCheckedChange = { scope.launch { settingsRepository.setUseSystemEntitiesForAi(it) } }
+        )
+
         SettingsSwitchRow(
             title = "Text Recognition (OCR)",
             subtitle = "Extract searchable text from shared screenshots and photos",
@@ -299,6 +690,8 @@ fun SmartFeaturesSettingsScreen(
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setOcrEnabled(it) } }
         )
+
+        SectionLabel("Other Smart Features", enabled = aiEnabled)
         SettingsSwitchRow(
             title = "Duplicate Detection",
             subtitle = "Highlight matching or near-duplicate notes and images for manual review",
@@ -336,7 +729,7 @@ fun SmartFeaturesSettingsScreen(
         SettingsCategoryCard(
             icon = Icons.Rounded.Memory,
             title = "AI Hardware & Diagnostics",
-            subtitle = "Choose NPU, GPU, or CPU execution and check hardware diagnostics",
+            subtitle = "Choose NPU, GPU, or CPU execution and inspect live engine availability",
             enabled = aiEnabled,
             onClick = onOpenAiProcessing
         )
@@ -352,6 +745,7 @@ fun AiProcessingSettingsScreen(
     onRunSelfTest: () -> Unit,
     onUnloadModel: () -> Unit,
     onPrepareGeminiNano: () -> Unit = {},
+    onDownloadImageLabeling: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -382,12 +776,24 @@ fun AiProcessingSettingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             val contentAlpha = if (aiEnabled) 1f else 0.38f
+            val npuSupported = !diagnostics.capabilitiesProbed || diagnostics.npuDeviceSupported
+            val gpuSupported = !diagnostics.capabilitiesProbed || AiHardwareBackend.GPU in diagnostics.detectedAccelerators
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                 AiBackendPreference.entries.forEach { pref ->
+                    val optionSupported = when (pref) {
+                        AiBackendPreference.PREFER_NPU -> npuSupported || settings.aiBackendPreference == pref
+                        AiBackendPreference.PREFER_GPU -> gpuSupported || settings.aiBackendPreference == pref
+                        AiBackendPreference.AUTO,
+                        AiBackendPreference.CPU_ONLY -> true
+                    }
+                    val optionEnabled = aiEnabled && optionSupported
+                    val optionAlpha = if (optionEnabled) contentAlpha else 0.38f
                     val title = when (pref) {
                         AiBackendPreference.AUTO -> "Automatic (Recommended)"
-                        AiBackendPreference.PREFER_NPU -> "Prefer NPU"
-                        AiBackendPreference.PREFER_GPU -> "Prefer GPU"
+                        AiBackendPreference.PREFER_NPU ->
+                            if (npuSupported) "Prefer NPU" else "Prefer NPU (Not supported)"
+                        AiBackendPreference.PREFER_GPU ->
+                            if (gpuSupported) "Prefer GPU" else "Prefer GPU (Not supported)"
                         AiBackendPreference.CPU_ONLY -> "CPU Only"
                     }
                     val desc = when (pref) {
@@ -400,7 +806,7 @@ fun AiProcessingSettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable(enabled = aiEnabled) {
+                            .clickable(enabled = optionEnabled) {
                                 scope.launch {
                                     settingsRepository.setAiBackendPreference(pref)
                                     onRefreshDiagnostics()
@@ -411,7 +817,7 @@ fun AiProcessingSettingsScreen(
                     ) {
                         RadioButton(
                             selected = settings.aiBackendPreference == pref,
-                            enabled = aiEnabled,
+                            enabled = optionEnabled,
                             onClick = {
                                 scope.launch {
                                     settingsRepository.setAiBackendPreference(pref)
@@ -423,12 +829,12 @@ fun AiProcessingSettingsScreen(
                             Text(
                                 text = title,
                                 style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = optionAlpha)
                             )
                             Text(
                                 text = desc,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = optionAlpha)
                             )
                         }
                     }
@@ -459,23 +865,20 @@ fun AiProcessingSettingsScreen(
             border = smartNoteCardBorder(),
             modifier = Modifier.fillMaxWidth()
         ) {
+            val nanoCaps = diagnostics.geminiNanoCapabilities
             Column(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 DiagRow("SoC / Platform", diagnostics.socDescription)
                 DiagRow("OCR Engine", diagnostics.ocrBackend.name)
-                DiagRow("Image Labeling", "ML Kit (when available)")
-                DiagRow("System Entity Recognition", "Android TextClassifier")
-                DiagRow(
-                    "Gemini Nano (On-Device)",
-                    when (diagnostics.geminiNanoAvailability) {
-                        GeminiNanoAvailability.AVAILABLE -> "Ready"
-                        GeminiNanoAvailability.DOWNLOADABLE -> "Available to download"
-                        GeminiNanoAvailability.DOWNLOADING -> "Downloading..."
-                        GeminiNanoAvailability.UNAVAILABLE -> "Not supported on this device"
-                    }
-                )
+                DiagRow("Image Labeling", formatImageLabelDiag(diagnostics.capabilitiesProbed, diagnostics.imageLabelingAvailability))
+                DiagRow("System Entity Recognition", formatEntityDiag(diagnostics.capabilitiesProbed, diagnostics.systemEntityAvailability))
+                DiagRow("Gemini Nano (Fast)", formatNanoDiag(diagnostics.capabilitiesProbed, nanoCaps.fastAvailability))
+                DiagRow("Gemini Nano (Full)", formatNanoDiag(diagnostics.capabilitiesProbed, nanoCaps.fullAvailability))
+                nanoCaps.baseModelName?.let { baseName ->
+                    DiagRow("Gemini Base Model", baseName)
+                }
                 DiagRow("Lexical Search", diagnostics.lexicalSearchBackend.name)
                 DiagRow("Active LiteRT Backend", diagnostics.activeNeuralBackend.name)
                 DiagRow(
@@ -505,7 +908,7 @@ fun AiProcessingSettingsScreen(
             }
         }
 
-        if (diagnostics.geminiNanoAvailability == GeminiNanoAvailability.DOWNLOADABLE && aiEnabled) {
+        if (diagnostics.geminiNanoCapabilities.bestAvailability == GeminiNanoAvailability.DOWNLOADABLE && aiEnabled) {
             OutlinedButton(
                 onClick = {
                     onPrepareGeminiNano()
@@ -514,6 +917,17 @@ fun AiProcessingSettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("Prepare Gemini Nano")
+            }
+        }
+        if (diagnostics.imageLabelingAvailability == ImageLabelingAvailability.DOWNLOADABLE && aiEnabled) {
+            OutlinedButton(
+                onClick = {
+                    onDownloadImageLabeling()
+                    onRefreshDiagnostics()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Download Image Labeling Module")
             }
         }
 
@@ -530,6 +944,27 @@ fun AiProcessingSettingsScreen(
             }
         }
     }
+}
+
+private fun formatNanoDiag(probed: Boolean, avail: GeminiNanoAvailability): String = when {
+    !probed -> "Checking..."
+    avail == GeminiNanoAvailability.AVAILABLE -> "Ready"
+    avail == GeminiNanoAvailability.DOWNLOADABLE -> "Available to download"
+    avail == GeminiNanoAvailability.DOWNLOADING -> "Downloading..."
+    else -> "Not supported on this device"
+}
+
+private fun formatImageLabelDiag(probed: Boolean, avail: ImageLabelingAvailability): String = when {
+    !probed -> "Checking..."
+    avail == ImageLabelingAvailability.AVAILABLE -> "Ready (ML Kit)"
+    avail == ImageLabelingAvailability.DOWNLOADABLE -> "Downloadable (Play Services)"
+    else -> "Not supported on this device"
+}
+
+private fun formatEntityDiag(probed: Boolean, avail: SystemEntityAvailability): String = when {
+    !probed -> "Checking..."
+    avail == SystemEntityAvailability.AVAILABLE -> "Ready (Android TextClassifier)"
+    else -> "Not available on this device"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1014,6 +1449,115 @@ private fun SettingsCategoryCard(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
             )
+        }
+    }
+}
+
+@Composable
+private fun SettingsOptionGroupCard(
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val contentAlpha = if (enabled) 1f else 0.38f
+    Surface(
+        shape = shape,
+        color = if (enabled) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+        },
+        border = smartNoteCardBorder(),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SettingsBadgeSwitchRow(
+    title: String,
+    subtitle: String,
+    badge: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+    action: (@Composable () -> Unit)? = null
+) {
+    val shape = RoundedCornerShape(18.dp)
+    val contentAlpha = if (enabled) 1f else 0.38f
+    Surface(
+        shape = shape,
+        color = if (enabled) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+        },
+        border = smartNoteCardBorder(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha),
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                text = badge,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                    )
+                }
+                Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+            }
+            action?.invoke()
         }
     }
 }

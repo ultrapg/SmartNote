@@ -301,7 +301,7 @@ fun NoteEditorScreen(
         uiState.links.isNotEmpty() ||
         uiState.attachments.isNotEmpty()
     val showGenerateTagsButton = uiState.aiFeaturesEnabled &&
-        (uiState.liveTagSuggestions.isNotEmpty() || (hasTagSourceContent && uiState.tags.size < 3))
+        (uiState.liveTagSuggestions.isNotEmpty() || (hasTagSourceContent && uiState.tags.size < uiState.maxPredictedTags))
 
     LaunchedEffect(uiState.feedbackMessageEvent?.first) {
         val event = uiState.feedbackMessageEvent ?: return@LaunchedEffect

@@ -9,17 +9,19 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import io.github.ultrapg.smartnote.SmartNoteApplication
 import io.github.ultrapg.smartnote.ai.DetectedImageLabel
+import io.github.ultrapg.smartnote.ai.ImageLabelingAvailability
 import io.github.ultrapg.smartnote.ai.SmartTitleGenerator
+import io.github.ultrapg.smartnote.ai.SystemEntityAvailability
 import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
 import java.util.Locale
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
 import io.github.ultrapg.smartnote.data.local.ProcessingJobEntity
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
 import io.github.ultrapg.smartnote.domain.util.TextHashing
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
-import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import kotlinx.coroutines.flow.first
 
 class NoteProcessingWorker(
@@ -57,9 +59,7 @@ class NoteProcessingWorker(
         return runCatching {
             // 1. Offline OCR for attachments (SHA-256 cached first)
             val ocrTexts = mutableListOf<String>()
-            var hasScreenshot = false
             for (att in detail.attachments) {
-                if (att.isScreenshot) hasScreenshot = true
                 val alreadyCompleted = att.ocrStatus == OcrStatus.COMPLETED || att.ocrStatus == OcrStatus.EMPTY
                 if (alreadyCompleted) {
                     att.ocrText?.takeIf { it.isNotBlank() }?.let(ocrTexts::add)
@@ -106,7 +106,11 @@ class NoteProcessingWorker(
             val currentRevision = container.database.noteDao().getNoteById(noteId)?.contentRevision ?: targetRevision
             if (currentRevision != targetRevision) return Result.success()
 
-            val imageLabels = if (settings.aiFeaturesEnabled && settings.effectiveOcrEnabled && detail.attachments.isNotEmpty()) {
+            val imageLabels = if (
+                settings.effectiveUseImageLabeling &&
+                detail.attachments.isNotEmpty() &&
+                container.imageLabelingEngine.checkAvailability() != ImageLabelingAvailability.UNAVAILABLE
+            ) {
                 val mergedLabels = LinkedHashMap<String, DetectedImageLabel>()
                 for (att in detail.attachments.take(2)) {
                     val file = container.attachmentStorage.resolvePrivateFile(att.relativeFilePath)
@@ -128,7 +132,11 @@ class NoteProcessingWorker(
                 detail.blocks.forEach { if (it.textContent.isNotBlank()) append(it.textContent).append('\n') }
                 ocrTexts.forEach { if (it.isNotBlank()) append(it).append('\n') }
             }.trim()
-            val systemEntities = if (settings.aiFeaturesEnabled && combinedForEntities.isNotBlank()) {
+            val systemEntities = if (
+                settings.effectiveUseSystemEntities &&
+                combinedForEntities.isNotBlank() &&
+                container.systemEntityAnalyzer.checkAvailability() == SystemEntityAvailability.AVAILABLE
+            ) {
                 container.systemEntityAnalyzer.extractEntities(combinedForEntities)
             } else {
                 emptyList()
@@ -158,7 +166,11 @@ class NoteProcessingWorker(
             if (settings.effectiveAutoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
                 val refreshedLinks = container.noteRepository.getNoteDetail(noteId)?.links ?: detail.links
                 val sparseText = detail.blocks.sumOf { it.textContent.trim().length } < 20 && ocrTexts.all { it.isBlank() }
-                val primaryBitmap = if (settings.aiFeaturesEnabled && sparseText && detail.attachments.isNotEmpty()) {
+                val primaryBitmap = if (
+                    settings.effectiveUseGeminiNanoForTitles &&
+                    sparseText &&
+                    detail.attachments.isNotEmpty()
+                ) {
                     SafeOcrBitmapLoader.decodeDownsampledBitmap(
                         container.attachmentStorage.resolvePrivateFile(detail.attachments.first().relativeFilePath),
                         maxDimPx = 512
@@ -174,7 +186,10 @@ class NoteProcessingWorker(
                         allowNeuralScoring = settings.aiFeaturesEnabled,
                         systemEntities = systemEntities,
                         imageLabels = imageLabels.map { it.text },
-                        primaryImageBitmap = primaryBitmap
+                        primaryImageBitmap = primaryBitmap,
+                        allowGeminiNano = settings.effectiveUseGeminiNanoForTitles,
+                        preferFastGemini = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST,
+                        maxTitleLength = settings.effectiveMaxTitleLength
                     )
                 } finally {
                     if (primaryBitmap != null && !primaryBitmap.isRecycled) {
@@ -207,56 +222,30 @@ class NoteProcessingWorker(
                 detail.blocks.forEach { append(it.textContent).append('\n') }
                 ocrTexts.forEach { append(it).append('\n') }
             }
-            var precomputedNoteVec: FloatArray? = null
 
             if (settings.effectiveSmartTagsEnabled) {
                 val existingUserVocab = container.tagRepository.getAllTagsSnapshot().map { it.name }
-                val (userTagProfiles, userTagNoteIds) = SmartTagsEngine.buildUserTagContext(
-                    summaries = container.noteRepository.getAllSummariesSnapshot(includeArchived = true),
-                    excludeNoteId = noteId
-                )
-                val semanticTagScores = if (settings.aiFeaturesEnabled && combinedForEmbedding.isNotBlank()) {
-                    val (vec, affinities) = container.aiEngine.computeEmbeddingAndTagAffinities(
-                        noteText = combinedForEmbedding,
-                        categoryPrototypes = container.smartTagsEngine.categoryPrototypes(),
-                        userTagNoteIds = userTagNoteIds
-                    )
-                    precomputedNoteVec = vec
-                    affinities
-                } else {
-                    emptyMap()
-                }
-                val nanoTags = if (settings.aiFeaturesEnabled) {
-                    val existingLower = detail.tags.map { it.name.lowercase(Locale.ROOT) }.toSet()
-                    container.geminiNanoAssistant.generateTags(
-                        title = currentTitleForTags,
-                        noteText = detail.blocks.joinToString("\n") { it.textContent },
-                        ocrTexts = ocrTexts,
-                        imageLabels = imageLabels.map { it.text },
-                        existingVocabulary = existingUserVocab,
-                        existingNoteTags = existingLower
-                    )
-                } else {
-                    emptyList()
-                }
-                val ruleSuggestions = container.smartTagsEngine.suggestTags(
+                val existingNoteTags = detail.tags.mapTo(HashSet()) { it.name }
+                val dismissedNames = container.tagRepository.getDismissedTagNamesForNote(noteId)
+                val allSummaries = container.noteRepository.getAllSummariesSnapshot(includeArchived = true)
+                val tagOutcome = container.smartTaggingCoordinator.generateTagsForNote(
+                    noteId = noteId,
                     title = currentTitleForTags,
                     blocks = detail.blocks,
                     ocrTexts = ocrTexts,
                     links = detectedLinks,
-                    hasScreenshot = hasScreenshot,
+                    attachments = detail.attachments,
+                    existingNoteTags = existingNoteTags,
+                    dismissedTagNames = dismissedNames,
                     existingUserVocabulary = existingUserVocab,
-                    semanticTagScores = semanticTagScores,
-                    userTagProfiles = userTagProfiles,
-                    systemEntities = systemEntities,
-                    imageLabels = imageLabels
+                    allSummaries = allSummaries,
+                    settings = settings,
+                    isExplicitManualTrigger = false
                 )
-                val suggestions = (ruleSuggestions + nanoTags)
-                    .distinctBy { it.name.lowercase(Locale.ROOT) }
-                    .take(4)
                 container.tagRepository.applySuggestedTags(
                     noteId = noteId,
-                    suggestions = suggestions.map { it.name to it.confidence }
+                    suggestions = tagOutcome.suggestions.map { it.name to it.confidence },
+                    maxTags = settings.effectiveMaxPredictedTags
                 )
             }
 
@@ -266,12 +255,7 @@ class NoteProcessingWorker(
             // 6. Optional neural embedding update when semantic re-ranking is enabled
             if (settings.effectiveSemanticRerankEnabled && combinedForEmbedding.isNotBlank()) {
                 val hash = TextHashing.sha256Hex(combinedForEmbedding)
-                val vec = precomputedNoteVec
-                if (vec != null && vec.isNotEmpty()) {
-                    container.aiEngine.savePrecomputedEmbeddingIfNeeded(noteId, hash, vec)
-                } else {
-                    container.aiEngine.updateNoteEmbeddingIfNeeded(noteId, hash, combinedForEmbedding)
-                }
+                container.aiEngine.updateNoteEmbeddingIfNeeded(noteId, hash, combinedForEmbedding)
             }
 
             container.database.searchAndMaintenanceDao().upsertProcessingJob(

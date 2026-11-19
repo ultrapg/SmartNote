@@ -1,16 +1,28 @@
 package io.github.ultrapg.smartnote.tags
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.view.textclassifier.TextClassifier
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.ai.ClassifiedTextEntity
 import io.github.ultrapg.smartnote.ai.DetectedImageLabel
+import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
+import io.github.ultrapg.smartnote.ai.GeminiNanoCapabilities
+import io.github.ultrapg.smartnote.ai.ImageLabelingAvailability
+import io.github.ultrapg.smartnote.ai.ImageLabelingEngine
+import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
+import io.github.ultrapg.smartnote.ai.SystemEntityAvailability
+import io.github.ultrapg.smartnote.ai.SystemEntityAnalyzer
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
+import io.github.ultrapg.smartnote.domain.model.AppSettings
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity
 import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
@@ -308,5 +320,240 @@ class SmartTagsAndDuplicatesTest {
         assertTrue("Shopping" in systemAndImageTags)
         assertTrue("Pets" in systemAndImageTags)
         assertTrue("Telescope" in systemAndImageTags)
+    }
+
+    @Test
+    fun smartTagsEliminatesFalsePositivesSupportsNewCategoriesAndSettings() = runTest {
+        // 1. Everyday casual English & German sentences must NOT trigger false tags even with includeTopicKeywords = true
+        val casualGerman = smartTagsEngine.suggestTags(
+            title = "Samstag",
+            blocks = listOf(
+                NoteBlock(
+                    "g1", "n1", 0, NoteBlockType.TEXT,
+                    "Ich wollte heute einfach mal schauen ob wir später noch rausgehen oder zu Hause bleiben und entspannen."
+                )
+            ),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList(),
+            includeTopicKeywords = true
+        )
+        assertTrue("Casual German note must not produce noisy tags: $casualGerman", casualGerman.isEmpty())
+
+        // 2. Ambiguous software/travel/medical disambiguations
+        val autoFeatureNote = smartTagsEngine.suggestTags(
+            title = "App feedback",
+            blocks = listOf(NoteBlock("d1", "n2", 0, NoteBlockType.TEXT, "Auto-title and auto-tag clean the windows while running slow"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertFalse("Software 'auto-title' must not tag Car: $autoFeatureNote", "Car" in autoFeatureNote)
+        assertFalse("'clean the windows' must not tag Tech: $autoFeatureNote", "Tech" in autoFeatureNote)
+        assertFalse("'running slow' must not tag Fitness: $autoFeatureNote", "Fitness" in autoFeatureNote)
+
+        val bookFlight = smartTagsEngine.suggestTags(
+            title = "Weekend",
+            blocks = listOf(NoteBlock("d2", "n3", 0, NoteBlockType.TEXT, "Book a flight for tomorrow morning"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Expected Travel for 'Book a flight', got $bookFlight", "Travel" in bookFlight)
+        assertFalse("Reading must NOT trigger on 'book a flight': $bookFlight", "Reading" in bookFlight)
+
+        val medicalRezept = smartTagsEngine.suggestTags(
+            title = "Praxis",
+            blocks = listOf(NoteBlock("d3", "n4", 0, NoteBlockType.TEXT, "Beim Arzt mein Rezept für Medikamente abholen und in die Apotheke"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Expected Health for German medical prescription, got $medicalRezept", "Health" in medicalRezept)
+        assertFalse("Recipe must NOT trigger on medical 'Rezept': $medicalRezept", "Recipe" in medicalRezept)
+
+        val noIdea = smartTagsEngine.suggestTags(
+            title = "Hmm",
+            blocks = listOf(NoteBlock("d4", "n5", 0, NoteBlockType.TEXT, "No idea what happened or keine Idee warum"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertFalse("Negated 'no idea' must not tag Ideas: $noIdea", "Ideas" in noIdea)
+
+        // 3. New Food and Accounts categories
+        val dinnerNote = smartTagsEngine.suggestTags(
+            title = "Friday",
+            blocks = listOf(NoteBlock("f1", "n6", 0, NoteBlockType.TEXT, "Dinner with friends at the Italian restaurant"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Expected Food category, got $dinnerNote", "Food" in dinnerNote)
+        assertFalse("Eating out must not tag Recipe: $dinnerNote", "Recipe" in dinnerNote)
+
+        val accountsNote = smartTagsEngine.suggestTags(
+            title = "Router Setup",
+            blocks = listOf(NoteBlock("a1", "n7", 0, NoteBlockType.TEXT, "WLAN Passwort und 2FA recovery codes gespeichert"))
+            , ocrTexts = emptyList(), links = emptyList(), hasScreenshot = false, existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Expected Accounts category, got $accountsNote", "Accounts" in accountsNote)
+
+        // 4. Generated tags saved with confidence < 0.99f must NOT pollute BuildUserTagContext,
+        // whereas explicit user tags (1.0f) ARE learned cleanly
+        val nGenerated = noteRepository.createNote(
+            title = "Generated check",
+            blocks = listOf(NoteBlock("ng1", "ng", 0, NoteBlockType.TEXT, "Customtokenalpha discussion")),
+            scheduleBackgroundWork = false
+        )
+        tagRepository.addGeneratedTagToNote(nGenerated, "NoisyGenTag", 0.78f)
+        val nManual = noteRepository.createNote(
+            title = "Manual check",
+            blocks = listOf(NoteBlock("nm1", "nm", 0, NoteBlockType.TEXT, "HandmadeCeramicMug glazing batch")),
+            scheduleBackgroundWork = false
+        )
+        tagRepository.addUserTagToNote(nManual, "Pottery")
+
+        val summaries = noteRepository.getAllSummariesSnapshot(includeArchived = true)
+        val (profiles, _) = SmartTagsEngine.buildUserTagContext(summaries, excludeNoteId = "other_note")
+        assertFalse("Generated tag must not pollute learned profiles", profiles.containsKey("NoisyGenTag"))
+        assertTrue("Manual user tag must be learned cleanly", profiles.containsKey("Pottery"))
+    }
+
+    @Test
+    fun coordinatorRoutesHybridGeminiNanoFastRespectsSettingsAndAutoSkipsUnsupported() = runTest {
+        var nanoCalls = 0
+        var lastPreferFast: Boolean? = null
+        var lastAllowNewTopics: Boolean? = null
+
+        val fakeNanoFastOnly = object : OnDeviceGenAiAssistant {
+            override suspend fun checkAvailability() = GeminiNanoAvailability.AVAILABLE
+            override suspend fun probeCapabilities(forceRefresh: Boolean) = GeminiNanoCapabilities(
+                fastAvailability = GeminiNanoAvailability.AVAILABLE,
+                fullAvailability = GeminiNanoAvailability.UNAVAILABLE,
+                baseModelName = "gemini-nano-v2-fast"
+            )
+            override fun triggerBackgroundDownloadIfNeeded() {}
+            override suspend fun generateTitleCandidates(
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                linkHints: List<String>,
+                primaryImageBitmap: Bitmap?
+            ) = emptyList<String>()
+            override suspend fun generateTags(
+                title: String,
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                existingVocabulary: List<String>,
+                existingNoteTags: Set<String>
+            ) = emptyList<SmartTagSuggestion>()
+            override suspend fun generateTags(
+                title: String,
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                existingVocabulary: List<String>,
+                existingNoteTags: Set<String>,
+                maxTags: Int,
+                preferFast: Boolean,
+                allowNewTopicTags: Boolean,
+                primaryImageBitmap: Bitmap?
+            ): List<SmartTagSuggestion> {
+                nanoCalls++
+                lastPreferFast = preferFast
+                lastAllowNewTopics = allowNewTopicTags
+                return listOf(
+                    SmartTagSuggestion("Personal", 0.89f, "Gemini Nano Fast"),
+                    SmartTagSuggestion("Events", 0.89f, "Gemini Nano Fast")
+                ).filter { it.name.lowercase() !in existingNoteTags }.take(maxTags)
+            }
+            override fun close() {}
+        }
+
+        val unavailableEntityAnalyzer = object : SystemEntityAnalyzer {
+            override fun checkAvailability() = SystemEntityAvailability.UNAVAILABLE
+            override suspend fun extractEntities(text: String): List<ClassifiedTextEntity> {
+                error("Should not execute when UNAVAILABLE")
+            }
+        }
+        val unavailableImageLabeler = object : ImageLabelingEngine {
+            override suspend fun checkAvailability(forceRefresh: Boolean) = ImageLabelingAvailability.UNAVAILABLE
+            override suspend fun labelImageFile(file: java.io.File): List<DetectedImageLabel> {
+                error("Should not execute when UNAVAILABLE")
+            }
+        }
+
+        val coordinator = SmartTaggingCoordinator(
+            smartTagsEngine = smartTagsEngine,
+            systemEntityAnalyzer = unavailableEntityAnalyzer,
+            imageLabelingEngine = unavailableImageLabeler,
+            geminiNanoAssistant = fakeNanoFastOnly
+        )
+
+        // 1. AUTO_HYBRID skips Gemini Nano when local engine is already certain
+        val confidentOutcome = coordinator.generateTagsForNote(
+            noteId = "c1",
+            title = "Supermarket Run",
+            blocks = listOf(NoteBlock("cb1", "c1", 0, NoteBlockType.CHECKLIST, "Buy groceries, milk, eggs, bread, butter, cheese")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            attachments = emptyList(),
+            existingNoteTags = emptySet(),
+            dismissedTagNames = emptySet(),
+            existingUserVocabulary = listOf("Shopping"),
+            allSummaries = emptyList(),
+            settings = AppSettings(
+                geminiNanoMode = GeminiNanoMode.AUTO_HYBRID,
+                geminiNanoVariant = GeminiNanoVariant.FAST_FIRST,
+                maxPredictedTags = 2
+            ),
+            isExplicitManualTrigger = true
+        )
+        assertEquals(0, nanoCalls)
+        assertFalse(confidentOutcome.usedGeminiNano)
+        assertTrue("Shopping" in confidentOutcome.suggestions.map { it.name })
+
+        // 2. AUTO_HYBRID calls Gemini Nano Fast when local rules are unsure, honoring maxPredictedTags & dismissed tags
+        val unsureOutcome = coordinator.generateTagsForNote(
+            noteId = "c2",
+            title = "Saturday evening",
+            blocks = listOf(NoteBlock("cb2", "c2", 0, NoteBlockType.TEXT, "Catching up with Sarah and Tom for coffee and catching up")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            attachments = emptyList(),
+            existingNoteTags = emptySet(),
+            dismissedTagNames = setOf("Personal"),
+            existingUserVocabulary = emptyList(),
+            allSummaries = emptyList(),
+            settings = AppSettings(
+                geminiNanoMode = GeminiNanoMode.AUTO_HYBRID,
+                geminiNanoVariant = GeminiNanoVariant.FAST_FIRST,
+                allowNewTopicTags = false,
+                maxPredictedTags = 1,
+                tagSensitivity = TagPredictionSensitivity.BALANCED
+            ),
+            isExplicitManualTrigger = true
+        )
+        assertEquals(1, nanoCalls)
+        assertTrue(unsureOutcome.usedGeminiNano)
+        assertTrue(unsureOutcome.usedGeminiFast)
+        assertEquals(true, lastPreferFast)
+        assertEquals(false, lastAllowNewTopics)
+        assertEquals(listOf("Events"), unsureOutcome.suggestions.map { it.name })
+
+        // 3. GeminiNanoMode.OFF skips Gemini Nano even when unsure
+        val nanoOffOutcome = coordinator.generateTagsForNote(
+            noteId = "c3",
+            title = "Random",
+            blocks = listOf(NoteBlock("cb3", "c3", 0, NoteBlockType.TEXT, "Neutral sentence without category hints")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            attachments = emptyList(),
+            existingNoteTags = emptySet(),
+            dismissedTagNames = emptySet(),
+            existingUserVocabulary = emptyList(),
+            allSummaries = emptyList(),
+            settings = AppSettings(
+                geminiNanoMode = GeminiNanoMode.OFF,
+                allowNewTopicTags = false
+            ),
+            isExplicitManualTrigger = true
+        )
+        assertEquals(1, nanoCalls)
+        assertFalse(nanoOffOutcome.usedGeminiNano)
+        assertTrue(nanoOffOutcome.suggestions.isEmpty())
     }
 }

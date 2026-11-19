@@ -89,6 +89,28 @@ enum class AiHardwareBackend {
     UNINITIALIZED
 }
 
+enum class TagPredictionSensitivity {
+    CONSERVATIVE,
+    BALANCED,
+    BROAD
+}
+
+enum class GeminiNanoMode {
+    AUTO_HYBRID,
+    ALWAYS_PREFER,
+    OFF
+}
+
+enum class GeminiNanoVariant {
+    FAST_FIRST,
+    FULL_QUALITY
+}
+
+enum class TitleStylePreference {
+    CONCISE,
+    DESCRIPTIVE
+}
+
 @Immutable
 data class AppSettings(
     val themePalette: ThemePalette = ThemePalette.DYNAMIC,
@@ -105,13 +127,32 @@ data class AppSettings(
     val semanticRerankEnabled: Boolean = true,
     val aiBackendPreference: AiBackendPreference = AiBackendPreference.AUTO,
     val energyEfficientAi: Boolean = true,
-    val backgroundAnalysisEnabled: Boolean = true
+    val backgroundAnalysisEnabled: Boolean = true,
+    val maxPredictedTags: Int = 3,
+    val tagSensitivity: TagPredictionSensitivity = TagPredictionSensitivity.BALANCED,
+    val allowNewTopicTags: Boolean = false,
+    val preferExistingTags: Boolean = true,
+    val learnFromUserTags: Boolean = true,
+    val useImageLabelingForAi: Boolean = true,
+    val useSystemEntitiesForAi: Boolean = true,
+    val useSemanticEmbeddingsForTags: Boolean = true,
+    val geminiNanoMode: GeminiNanoMode = GeminiNanoMode.AUTO_HYBRID,
+    val geminiNanoVariant: GeminiNanoVariant = GeminiNanoVariant.FAST_FIRST,
+    val useGeminiNanoForTitles: Boolean = true,
+    val titleStyle: TitleStylePreference = TitleStylePreference.CONCISE
 ) {
     val effectiveSmartTagsEnabled: Boolean get() = aiFeaturesEnabled && smartTagsEnabled
     val effectiveAutoTitleEnabled: Boolean get() = aiFeaturesEnabled && autoTitleEnabled
     val effectiveOcrEnabled: Boolean get() = aiFeaturesEnabled && ocrEnabled
     val effectiveDuplicateDetectionEnabled: Boolean get() = aiFeaturesEnabled && duplicateDetectionEnabled
     val effectiveSemanticRerankEnabled: Boolean get() = aiFeaturesEnabled && semanticRerankEnabled
+    val effectiveMaxPredictedTags: Int get() = maxPredictedTags.coerceIn(1, 6)
+    val effectiveUseImageLabeling: Boolean get() = aiFeaturesEnabled && useImageLabelingForAi
+    val effectiveUseSystemEntities: Boolean get() = aiFeaturesEnabled && useSystemEntitiesForAi
+    val effectiveUseSemanticEmbeddingsForTags: Boolean get() = aiFeaturesEnabled && useSemanticEmbeddingsForTags
+    val effectiveGeminiNanoEnabled: Boolean get() = aiFeaturesEnabled && geminiNanoMode != GeminiNanoMode.OFF
+    val effectiveUseGeminiNanoForTitles: Boolean get() = effectiveGeminiNanoEnabled && useGeminiNanoForTitles
+    val effectiveMaxTitleLength: Int get() = if (titleStyle == TitleStylePreference.DESCRIPTIVE) 64 else 44
 }
 
 @Immutable

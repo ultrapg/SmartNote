@@ -209,6 +209,26 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
 
+        // New AI tag settings & auto-detected model status render cleanly
+        composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("6").performScrollTo().performClick()
+        composeRule.onNodeWithText("Broad").performScrollTo().performClick()
+        composeRule.waitUntil(3_000L) {
+            runBlocking {
+                val s = app.container.settingsRepository.settingsFlow.first()
+                s.effectiveMaxPredictedTags == 6 &&
+                    s.tagSensitivity == io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity.BROAD
+            }
+        }
+        runBlocking {
+            app.container.settingsRepository.setMaxPredictedTags(3)
+            app.container.settingsRepository.setTagSensitivity(
+                io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity.BALANCED
+            )
+        }
+
         composeRule.onNodeWithText("Enable AI Features").performScrollTo().performClick()
         composeRule.waitUntil(3_000L) {
             runBlocking {
@@ -240,6 +260,26 @@ class LargeDatasetAndUiTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
+
+        // New AI tag settings & auto-detected model status render cleanly
+        composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("6").performScrollTo().performClick()
+        composeRule.onNodeWithText("Broad").performScrollTo().performClick()
+        composeRule.waitUntil(3_000L) {
+            runBlocking {
+                val s = app.container.settingsRepository.settingsFlow.first()
+                s.effectiveMaxPredictedTags == 6 &&
+                    s.tagSensitivity == io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity.BROAD
+            }
+        }
+        runBlocking {
+            app.container.settingsRepository.setMaxPredictedTags(3)
+            app.container.settingsRepository.setTagSensitivity(
+                io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity.BALANCED
+            )
+        }
         runBlocking {
             val restoredState = app.container.settingsRepository.settingsFlow.first()
             assertTrue(restoredState.effectiveSmartTagsEnabled)
@@ -505,6 +545,8 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Prioritize low-power NPU", substring = true)
             .performScrollTo()
             .assertIsDisplayed()
+        composeRule.onNodeWithText("Gemini Nano (Fast)").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Gemini Nano (Full)").performScrollTo().assertIsDisplayed()
     }
 
     @Test

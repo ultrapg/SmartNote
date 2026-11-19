@@ -30,6 +30,7 @@ import io.github.ultrapg.smartnote.ocr.MlKitBundledOcrEngine
 import io.github.ultrapg.smartnote.ocr.OcrEngine
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
+import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
 import io.github.ultrapg.smartnote.worker.NoteProcessingWorker
@@ -73,7 +74,7 @@ class AppContainer(
     }
 
     val imageLabelingEngine: ImageLabelingEngine by lazy {
-        MlKitImageLabelingEngine()
+        MlKitImageLabelingEngine(context)
     }
 
     val geminiNanoAssistant: OnDeviceGenAiAssistant by lazy {
@@ -94,7 +95,20 @@ class AppContainer(
             settingsRepository = settingsRepository,
             runtimeBridge = AndroidLiteRtRuntimeBridge(context),
             applicationScope = applicationScope,
-            geminiNanoAssistant = geminiNanoAssistant
+            geminiNanoAssistant = geminiNanoAssistant,
+            imageLabelingEngine = imageLabelingEngine,
+            systemEntityAnalyzer = systemEntityAnalyzer
+        )
+    }
+
+    val smartTaggingCoordinator: SmartTaggingCoordinator by lazy {
+        SmartTaggingCoordinator(
+            smartTagsEngine = smartTagsEngine,
+            aiEngine = aiEngine,
+            systemEntityAnalyzer = systemEntityAnalyzer,
+            imageLabelingEngine = imageLabelingEngine,
+            geminiNanoAssistant = geminiNanoAssistant,
+            attachmentStorage = attachmentStorage
         )
     }
 

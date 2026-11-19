@@ -22,12 +22,13 @@ object TextFeatureVectorizer {
             vec[bucket] += 2.0f * sign
         }
 
-        // 2. Character 3-grams (weight 1.0) for morphology & typo resilience
+        // 2. Signed character 3-grams (weight 0.75) for morphology & typo resilience without positive-bias drift
         val compact = clean.replace(Regex("\\s+"), " ")
         for (i in 0..(compact.length - 3)) {
             val trigram = compact.substring(i, i + 3)
             val bucket = (fnv32("g_$trigram") ushr 1) % INPUT_DIMS
-            vec[bucket] += 1.0f
+            val sign = if ((fnv32("gs_$trigram") and 1) == 0) 1f else -1f
+            vec[bucket] += 0.75f * sign
         }
 
         return l2Normalize(vec)

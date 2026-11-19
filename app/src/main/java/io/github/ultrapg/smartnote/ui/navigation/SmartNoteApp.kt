@@ -388,7 +388,8 @@ fun SmartNoteApp(
                             attachmentStorage = container.attachmentStorage,
                             systemEntityAnalyzer = container.systemEntityAnalyzer,
                             imageLabelingEngine = container.imageLabelingEngine,
-                            geminiNanoAssistant = container.geminiNanoAssistant
+                            geminiNanoAssistant = container.geminiNanoAssistant,
+                            smartTaggingCoordinator = container.smartTaggingCoordinator
                         )
                     )
                     val uiState by vm.uiState.collectAsState()
@@ -499,9 +500,21 @@ fun SmartNoteApp(
                 }
 
                 composable<SmartFeaturesSettingsRoute> {
+                    val diagnostics by container.aiEngine.diagnosticsFlow.collectAsState()
                     SmartFeaturesSettingsScreen(
                         settings = settings,
                         settingsRepository = container.settingsRepository,
+                        diagnostics = diagnostics,
+                        onRefreshDiagnostics = {
+                            scope.launch { container.aiEngine.refreshDiagnostics(forceRefresh = true) }
+                        },
+                        onPrepareGeminiNano = {
+                            val preferFast = settings.geminiNanoVariant == io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant.FAST_FIRST
+                            container.geminiNanoAssistant.triggerBackgroundDownloadIfNeeded(preferFast)
+                        },
+                        onDownloadImageLabeling = {
+                            container.imageLabelingEngine.requestModuleDownloadIfNeeded()
+                        },
                         onDisableAiUnloadModel = { scope.launch { container.aiEngine.unloadModel() } },
                         onOpenAiProcessing = { navController.navigate(AiSettingsRoute) },
                         onBack = { navController.popBackStack() }
@@ -514,14 +527,22 @@ fun SmartNoteApp(
                         settings = settings,
                         diagnostics = diagnostics,
                         settingsRepository = container.settingsRepository,
-                        onRefreshDiagnostics = { scope.launch { container.aiEngine.refreshDiagnostics() } },
+                        onRefreshDiagnostics = {
+                            scope.launch { container.aiEngine.refreshDiagnostics(forceRefresh = true) }
+                        },
                         onRunSelfTest = {
                             scope.launch {
                                 container.aiEngine.embedText("SmartNote hardware verification probe")
                             }
                         },
                         onUnloadModel = { scope.launch { container.aiEngine.unloadModel() } },
-                        onPrepareGeminiNano = { container.geminiNanoAssistant.triggerBackgroundDownloadIfNeeded() },
+                        onPrepareGeminiNano = {
+                            val preferFast = settings.geminiNanoVariant == io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant.FAST_FIRST
+                            container.geminiNanoAssistant.triggerBackgroundDownloadIfNeeded(preferFast)
+                        },
+                        onDownloadImageLabeling = {
+                            container.imageLabelingEngine.requestModuleDownloadIfNeeded()
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 }

@@ -51,7 +51,11 @@ data class AiDiagnosticsState(
     val isModelLoaded: Boolean = false,
     val lastInferenceMs: Long = 0L,
     val energySavingActive: Boolean = false,
-    val geminiNanoAvailability: GeminiNanoAvailability = GeminiNanoAvailability.UNAVAILABLE
+    val geminiNanoAvailability: GeminiNanoAvailability = GeminiNanoAvailability.UNAVAILABLE,
+    val geminiNanoCapabilities: GeminiNanoCapabilities = GeminiNanoCapabilities(),
+    val imageLabelingAvailability: ImageLabelingAvailability = ImageLabelingAvailability.UNAVAILABLE,
+    val systemEntityAvailability: SystemEntityAvailability = SystemEntityAvailability.AVAILABLE,
+    val capabilitiesProbed: Boolean = false
 )
 
 interface LiteRtRuntimeBridge {
@@ -202,7 +206,9 @@ class SmartNoteAiEngine(
     private val runtimeBridge: LiteRtRuntimeBridge,
     private val applicationScope: CoroutineScope,
     private val idleUnloadMs: Long = 60_000L,
-    private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null
+    private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null,
+    private val imageLabelingEngine: ImageLabelingEngine? = null,
+    private val systemEntityAnalyzer: SystemEntityAnalyzer? = null
 ) {
     private val aiDispatcher: ExecutorCoroutineDispatcher = Executors
         .newSingleThreadExecutor { runnable ->
@@ -217,9 +223,13 @@ class SmartNoteAiEngine(
     @Volatile
     private var cachedPrototypeEmbeddings: Map<String, FloatArray>? = null
 
-    suspend fun refreshDiagnostics(): AiDiagnosticsState {
+    suspend fun refreshDiagnostics(forceRefresh: Boolean = false): AiDiagnosticsState {
         val settings = settingsRepository.settingsFlow.first()
-        val nanoStatus = geminiNanoAssistant?.checkAvailability() ?: GeminiNanoAvailability.UNAVAILABLE
+        val nanoCaps = geminiNanoAssistant?.probeCapabilities(forceRefresh) ?: GeminiNanoCapabilities()
+        val imgAvail = imageLabelingEngine?.checkAvailability(forceRefresh)
+            ?: ImageLabelingAvailability.UNAVAILABLE
+        val entityAvail = systemEntityAnalyzer?.checkAvailability()
+            ?: SystemEntityAvailability.AVAILABLE
         return withContext(aiDispatcher) {
             val caps = runtimeBridge.probeCapabilities()
             val cur = _diagnostics.value
@@ -231,7 +241,11 @@ class SmartNoteAiEngine(
                 detectedAccelerators = caps.availableAccelerators,
                 energySavingActive = settings.energyEfficientAi &&
                     (caps.isPowerSaveMode || caps.thermalStatus >= 3),
-                geminiNanoAvailability = nanoStatus
+                geminiNanoAvailability = nanoCaps.bestAvailability,
+                geminiNanoCapabilities = nanoCaps,
+                imageLabelingAvailability = imgAvail,
+                systemEntityAvailability = entityAvail,
+                capabilitiesProbed = true
             )
             _diagnostics.value = updated
             updated
@@ -300,7 +314,11 @@ class SmartNoteAiEngine(
             }
 
             val elapsedMs = ((System.nanoTime() - startNs) / 1_000_000L).coerceAtLeast(1L)
-            _diagnostics.value = AiDiagnosticsState(
+            val prev = _diagnostics.value
+            if (chosenBackend != prev.activeNeuralBackend) {
+                cachedPrototypeEmbeddings = null
+            }
+            _diagnostics.value = prev.copy(
                 requestedPreference = settings.aiBackendPreference,
                 activeNeuralBackend = chosenBackend,
                 ocrBackend = AiHardwareBackend.NATIVE_MLKIT,
@@ -399,7 +417,7 @@ class SmartNoteAiEngine(
 
         for ((tagName, protoVec) in protoEmbeddings) {
             val sim = TextFeatureVectorizer.cosineSimilarity(noteVec, protoVec)
-            if (sim >= 0.55f) {
+            if (sim >= 0.48f) {
                 affinities[tagName] = sim
             }
         }
@@ -407,6 +425,7 @@ class SmartNoteAiEngine(
         val allCandidateNoteIds = userTagNoteIds.values.flatten().distinct()
         if (allCandidateNoteIds.isNotEmpty()) {
             val stored = database.searchAndMaintenanceDao().getEmbeddings(allCandidateNoteIds)
+                .filter { it.modelId == MODEL_ID }
                 .associateBy { it.noteId }
             for ((tagName, noteIds) in userTagNoteIds) {
                 val vectors = noteIds.mapNotNull { id ->
@@ -415,7 +434,7 @@ class SmartNoteAiEngine(
                 if (vectors.isEmpty()) continue
                 val centroid = averageAndNormalizeVectors(vectors)
                 val sim = TextFeatureVectorizer.cosineSimilarity(noteVec, centroid)
-                if (sim >= 0.55f) {
+                if (sim >= 0.48f) {
                     val prev = affinities[tagName] ?: 0f
                     if (sim > prev) {
                         affinities[tagName] = sim
@@ -435,6 +454,7 @@ class SmartNoteAiEngine(
             return emptyMap()
         }
         val embeddings = database.searchAndMaintenanceDao().getEmbeddings(candidateNoteIds)
+            .filter { it.modelId == MODEL_ID }
         if (embeddings.isEmpty()) return emptyMap()
         val queryVec = embedText(query)
         return embeddings.associate { entity ->
@@ -530,6 +550,6 @@ class SmartNoteAiEngine(
     }
 
     companion object {
-        const val MODEL_ID = "smartnote_text_embed_v1"
+        const val MODEL_ID = "smartnote_text_embed_v2"
     }
 }

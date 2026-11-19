@@ -89,7 +89,10 @@ class SmartTitleGenerator(
         allowNeuralScoring: Boolean = true,
         systemEntities: List<ClassifiedTextEntity> = emptyList(),
         imageLabels: List<String> = emptyList(),
-        primaryImageBitmap: Bitmap? = null
+        primaryImageBitmap: Bitmap? = null,
+        allowGeminiNano: Boolean = true,
+        preferFastGemini: Boolean = true,
+        maxTitleLength: Int = MAX_TITLE_LEN
     ): String = generateTitleCandidates(
         blocks = blocks,
         ocrTexts = ocrTexts,
@@ -98,7 +101,10 @@ class SmartTitleGenerator(
         allowNeuralScoring = allowNeuralScoring,
         systemEntities = systemEntities,
         imageLabels = imageLabels,
-        primaryImageBitmap = primaryImageBitmap
+        primaryImageBitmap = primaryImageBitmap,
+        allowGeminiNano = allowGeminiNano,
+        preferFastGemini = preferFastGemini,
+        maxTitleLength = maxTitleLength
     ).firstOrNull().orEmpty()
 
     suspend fun generateTitleCandidates(
@@ -109,18 +115,21 @@ class SmartTitleGenerator(
         allowNeuralScoring: Boolean = true,
         systemEntities: List<ClassifiedTextEntity> = emptyList(),
         imageLabels: List<String> = emptyList(),
-        primaryImageBitmap: Bitmap? = null
+        primaryImageBitmap: Bitmap? = null,
+        allowGeminiNano: Boolean = true,
+        preferFastGemini: Boolean = true,
+        maxTitleLength: Int = MAX_TITLE_LEN
     ): List<String> {
         val cleanSubject = cleanTextCandidate(rawSubject)
         if (cleanSubject.isNotBlank() && !isBareUrl(cleanSubject)) {
-            val formatted = formatTitle(distillClauseToTitle(cleanSubject).ifBlank { cleanSubject })
+            val formatted = formatTitle(distillClauseToTitle(cleanSubject).ifBlank { cleanSubject }, maxLen = maxTitleLength)
             return if (formatted.isNotBlank()) listOf(formatted) else emptyList()
         }
 
         val results = ArrayList<String>(4)
         val seenLower = HashSet<String>()
         fun addUnique(rawCandidate: String) {
-            val formatted = formatTitle(rawCandidate)
+            val formatted = stripTrailingFunctionWords(formatTitle(rawCandidate, maxLen = maxTitleLength))
             if (formatted.isBlank()) return
             if (seenLower.add(formatted.lowercase(Locale.ROOT))) {
                 results += formatted
@@ -152,7 +161,7 @@ class SmartTitleGenerator(
         }.trim()
 
         val assistant = genAiAssistant
-        if (allowNeuralScoring && assistant != null) {
+        if (allowNeuralScoring && allowGeminiNano && assistant != null) {
             val linkHints = buildList {
                 links.forEach { l -> add(l.pageTitle?.takeIf(String::isNotBlank) ?: l.domain) }
                 blocks.filter { it.type == NoteBlockType.LINK }.mapNotNullTo(this) { it.linkUrl }
@@ -163,7 +172,9 @@ class SmartTitleGenerator(
                     ocrTexts = ocrTexts,
                     imageLabels = imageLabels,
                     linkHints = linkHints,
-                    primaryImageBitmap = primaryImageBitmap
+                    primaryImageBitmap = primaryImageBitmap,
+                    preferFast = preferFastGemini,
+                    maxTitleLength = maxTitleLength
                 )
             }.getOrDefault(emptyList())
             nanoTitles.forEach { addUnique(it) }
@@ -473,19 +484,7 @@ class SmartTitleGenerator(
         }
 
         working = formatTitle(working)
-        // Strip dangling trailing prepositions/articles/conjunctions if truncated or trailing
-        val mutableWords = working.split(Regex("\\s+")).filter { it.isNotBlank() }.toMutableList()
-        var trimCount = 0
-        while (trimCount < 2 && mutableWords.size >= 3) {
-            val lastLower = mutableWords.last().trimEnd('.', ',', ':', ';', '-', '–', '—').lowercase(Locale.ROOT)
-            if (lastLower in TRAILING_FUNCTION_WORDS) {
-                mutableWords.removeAt(mutableWords.lastIndex)
-                trimCount++
-            } else {
-                break
-            }
-        }
-        return mutableWords.joinToString(" ")
+        return stripTrailingFunctionWords(working)
     }
 
     private fun synthesizeKeyphraseTitle(
@@ -699,7 +698,23 @@ class SmartTitleGenerator(
             "parallel", "space", "paper", "document"
         )
 
-        fun formatTitle(raw: String): String {
+        private fun stripTrailingFunctionWords(text: String): String {
+            val mutableWords = text.split(Regex("\\s+")).filter { it.isNotBlank() }.toMutableList()
+            var trimCount = 0
+            while (trimCount < 2 && mutableWords.size >= 3) {
+                val lastLower = mutableWords.last().trimEnd('.', ',', ':', ';', '-', '–', '—').lowercase(Locale.ROOT)
+                if (lastLower in TRAILING_FUNCTION_WORDS) {
+                    mutableWords.removeAt(mutableWords.lastIndex)
+                    trimCount++
+                } else {
+                    break
+                }
+            }
+            return mutableWords.joinToString(" ")
+        }
+
+        fun formatTitle(raw: String, maxLen: Int = MAX_TITLE_LEN): String {
+            val clampedMax = maxLen.coerceIn(24, 96)
             val collapsed = raw
                 .replace(Regex("\\s+"), " ")
                 .trim()
@@ -707,12 +722,12 @@ class SmartTitleGenerator(
                 .trim()
             if (collapsed.isBlank()) return ""
 
-            val truncated = if (collapsed.length <= MAX_TITLE_LEN) {
+            val truncated = if (collapsed.length <= clampedMax) {
                 collapsed
             } else {
-                val slice = collapsed.take(MAX_TITLE_LEN)
+                val slice = collapsed.take(clampedMax)
                 val lastSpace = slice.lastIndexOf(' ')
-                if (lastSpace >= MAX_TITLE_LEN / 2) slice.substring(0, lastSpace) else slice
+                if (lastSpace >= clampedMax / 2) slice.substring(0, lastSpace) else slice
             }.trimEnd('.', ',', ':', ';', '-', '–', '—').trim()
 
             return truncated.replaceFirstChar { ch ->

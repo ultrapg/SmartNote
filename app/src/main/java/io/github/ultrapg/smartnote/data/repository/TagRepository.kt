@@ -66,6 +66,16 @@ class TagRepository(
         return tagDao.findByNormalizedName(normalized) ?: created
     }
 
+    suspend fun getDismissedTagNamesForNote(noteId: String): Set<String> {
+        val dismissedIds = tagDao.getAllCrossRefsForNote(noteId)
+            .filter { it.isDismissed }
+            .mapTo(HashSet()) { it.tagId }
+        if (dismissedIds.isEmpty()) return emptySet()
+        return tagDao.getAllTagsSnapshot()
+            .filter { it.id in dismissedIds }
+            .mapTo(HashSet()) { it.name }
+    }
+
     suspend fun addUserTagToNote(noteId: String, rawName: String) {
         val now = System.currentTimeMillis()
         val tag = getOrCreateTag(rawName, now) ?: return
@@ -75,6 +85,23 @@ class TagRepository(
                 tagId = tag.id,
                 source = TagSource.USER.name,
                 confidence = 1.0f,
+                isDismissed = false,
+                updatedAtMs = now
+            )
+        )
+        searchIndexer.indexNote(noteId)
+        onTagsChanged()
+    }
+
+    suspend fun addGeneratedTagToNote(noteId: String, rawName: String, confidence: Float) {
+        val now = System.currentTimeMillis()
+        val tag = getOrCreateTag(rawName, now) ?: return
+        tagDao.upsertCrossRef(
+            NoteTagCrossRefEntity(
+                noteId = noteId,
+                tagId = tag.id,
+                source = TagSource.USER.name,
+                confidence = confidence.coerceIn(0.50f, 0.95f),
                 isDismissed = false,
                 updatedAtMs = now
             )
@@ -106,7 +133,12 @@ class TagRepository(
         onTagsChanged()
     }
 
-    suspend fun applySuggestedTags(noteId: String, suggestions: List<Pair<String, Float>>) {
+    suspend fun applySuggestedTags(
+        noteId: String,
+        suggestions: List<Pair<String, Float>>,
+        maxTags: Int = 4
+    ) {
+        val cappedMax = maxTags.coerceIn(1, 6)
         val now = System.currentTimeMillis()
         val existingRefs = tagDao.getAllCrossRefsForNote(noteId).associateBy { it.tagId }
         val userTagIds = existingRefs.values
@@ -120,7 +152,7 @@ class TagRepository(
 
         val resolvedSuggestions = mutableListOf<Pair<TagEntity, Float>>()
         for ((name, confidence) in suggestions) {
-            if (resolvedSuggestions.size >= 4) break
+            if (resolvedSuggestions.size >= cappedMax) break
             val tag = getOrCreateTag(name, now) ?: continue
             if (tag.id in userTagIds || tag.id in dismissedTagIds) continue
             if (resolvedSuggestions.any { it.first.id == tag.id }) continue

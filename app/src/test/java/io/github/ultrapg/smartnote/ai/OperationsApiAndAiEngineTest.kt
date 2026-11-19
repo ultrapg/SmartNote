@@ -14,10 +14,14 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
 import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
+import io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity
+import io.github.ultrapg.smartnote.domain.model.TitleStylePreference
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationException
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationsApi
 import io.github.ultrapg.smartnote.search.SearchIndexer
@@ -26,6 +30,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -417,5 +422,122 @@ class OperationsApiAndAiEngineTest {
             blocks = listOf(NoteBlock("7", "n", 0, NoteBlockType.TEXT, "We should align headcount with product roadmap targets next week."))
         )
         assertEquals("Q4 Hiring Plan Summary", nanoTitle)
+
+        // 9. Respects allowGeminiNano = false and Concise maxTitleLength
+        val noNanoTitle = nanoGenerator.generateSmartTitle(
+            blocks = listOf(NoteBlock("8", "n", 0, NoteBlockType.TEXT, "Quarterly budget planning summary for engineering hiring next month")),
+            allowGeminiNano = false,
+            maxTitleLength = 44
+        )
+        assertFalse(noNanoTitle == "Q4 Hiring Plan Summary")
+        assertTrue("Expected title <= 44 chars, got '$noNanoTitle' (${noNanoTitle.length})", noNanoTitle.length <= 44)
+    }
+
+    @Test
+    fun signedVectorizerProbedDiagnosticsPreservationAndExpandedAiSettingsPersistCleanly() = runTest {
+        // 1. Signed trigram vectorization avoids high similarity between unrelated everyday notes
+        val casualVec = TextFeatureVectorizer.vectorizeInput(
+            "Ich wollte mal schauen ob wir heute Abend noch rausgehen oder lieber zu Hause bleiben."
+        )
+        val financeProtoVec = TextFeatureVectorizer.vectorizeInput(
+            "finance budget invoice tax bank salary expense payment transfer steuer konto ueberweisung"
+        )
+        val unrelatedSim = TextFeatureVectorizer.cosineSimilarity(casualVec, financeProtoVec)
+        assertTrue("Unrelated notes cosine ($unrelatedSim) should remain low (< 0.35)", unrelatedSim < 0.35f)
+
+        // 2. SmartNoteAiEngine.embedText preserves probed Gemini Nano, Image Labeling, and Entity capabilities
+        val cpuBridge = object : LiteRtRuntimeBridge {
+            override fun probeCapabilities() = AiHardwareCapabilities(
+                socDescription = "Test SoC",
+                npuDeviceSupported = false,
+                npuRuntimeReady = false,
+                availableAccelerators = setOf(AiHardwareBackend.CPU)
+            )
+            override fun initialize(targetBackend: AiHardwareBackend) = Result.success(targetBackend)
+            override fun runProjection(input128: FloatArray) = Result.success(FloatArray(64) { 0.125f })
+            override fun close() {}
+        }
+        val fakeNano = object : OnDeviceGenAiAssistant {
+            override suspend fun checkAvailability() = GeminiNanoAvailability.AVAILABLE
+            override suspend fun probeCapabilities(forceRefresh: Boolean) = GeminiNanoCapabilities(
+                fastAvailability = GeminiNanoAvailability.AVAILABLE,
+                fullAvailability = GeminiNanoAvailability.DOWNLOADABLE,
+                baseModelName = "gemini-nano-v2"
+            )
+            override fun triggerBackgroundDownloadIfNeeded() {}
+            override suspend fun generateTitleCandidates(
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                linkHints: List<String>,
+                primaryImageBitmap: android.graphics.Bitmap?
+            ) = emptyList<String>()
+            override suspend fun generateTags(
+                title: String,
+                noteText: String,
+                ocrTexts: List<String>,
+                imageLabels: List<String>,
+                existingVocabulary: List<String>,
+                existingNoteTags: Set<String>
+            ) = emptyList<io.github.ultrapg.smartnote.tags.SmartTagSuggestion>()
+            override fun close() {}
+        }
+        val readyImageLabeler = object : ImageLabelingEngine {
+            override suspend fun checkAvailability(forceRefresh: Boolean) = ImageLabelingAvailability.AVAILABLE
+            override suspend fun labelImageFile(file: File) = emptyList<DetectedImageLabel>()
+        }
+        val readyEntities = object : SystemEntityAnalyzer {
+            override fun checkAvailability() = SystemEntityAvailability.AVAILABLE
+            override suspend fun extractEntities(text: String) = emptyList<ClassifiedTextEntity>()
+        }
+
+        val engine = SmartNoteAiEngine(
+            database = database,
+            settingsRepository = settingsRepo,
+            runtimeBridge = cpuBridge,
+            applicationScope = scope,
+            idleUnloadMs = 0L,
+            geminiNanoAssistant = fakeNano,
+            imageLabelingEngine = readyImageLabeler,
+            systemEntityAnalyzer = readyEntities
+        )
+        engine.refreshDiagnostics(forceRefresh = true)
+        engine.embedText("Verify capability preservation after embedding")
+        val diag = engine.diagnosticsFlow.value
+        assertTrue(diag.capabilitiesProbed)
+        assertEquals(GeminiNanoAvailability.AVAILABLE, diag.geminiNanoCapabilities.fastAvailability)
+        assertEquals(GeminiNanoAvailability.DOWNLOADABLE, diag.geminiNanoCapabilities.fullAvailability)
+        assertEquals("gemini-nano-v2", diag.geminiNanoCapabilities.baseModelName)
+        assertEquals(ImageLabelingAvailability.AVAILABLE, diag.imageLabelingAvailability)
+        assertEquals(SystemEntityAvailability.AVAILABLE, diag.systemEntityAvailability)
+
+        // 3. Expanded AI settings persist & clamp properly
+        settingsRepo.setMaxPredictedTags(99)
+        settingsRepo.setTagSensitivity(TagPredictionSensitivity.CONSERVATIVE)
+        settingsRepo.setAllowNewTopicTags(true)
+        settingsRepo.setPreferExistingTags(false)
+        settingsRepo.setLearnFromUserTags(false)
+        settingsRepo.setUseImageLabelingForAi(false)
+        settingsRepo.setUseSystemEntitiesForAi(false)
+        settingsRepo.setUseSemanticEmbeddingsForTags(false)
+        settingsRepo.setGeminiNanoMode(GeminiNanoMode.ALWAYS_PREFER)
+        settingsRepo.setGeminiNanoVariant(GeminiNanoVariant.FULL_QUALITY)
+        settingsRepo.setUseGeminiNanoForTitles(false)
+        settingsRepo.setTitleStyle(TitleStylePreference.DESCRIPTIVE)
+
+        val persisted = settingsRepo.settingsFlow.first()
+        assertEquals(6, persisted.maxPredictedTags)
+        assertEquals(TagPredictionSensitivity.CONSERVATIVE, persisted.tagSensitivity)
+        assertTrue(persisted.allowNewTopicTags)
+        assertFalse(persisted.preferExistingTags)
+        assertFalse(persisted.learnFromUserTags)
+        assertFalse(persisted.useImageLabelingForAi)
+        assertFalse(persisted.useSystemEntitiesForAi)
+        assertFalse(persisted.useSemanticEmbeddingsForTags)
+        assertEquals(GeminiNanoMode.ALWAYS_PREFER, persisted.geminiNanoMode)
+        assertEquals(GeminiNanoVariant.FULL_QUALITY, persisted.geminiNanoVariant)
+        assertFalse(persisted.useGeminiNanoForTitles)
+        assertEquals(TitleStylePreference.DESCRIPTIVE, persisted.titleStyle)
+        assertEquals(64, persisted.effectiveMaxTitleLength)
     }
 }
