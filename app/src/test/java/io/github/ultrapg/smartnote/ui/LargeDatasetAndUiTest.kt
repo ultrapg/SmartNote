@@ -2,6 +2,8 @@ package io.github.ultrapg.smartnote.ui
 
 import android.content.Context
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollToIndexAction
@@ -10,6 +12,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -192,19 +195,47 @@ class LargeDatasetAndUiTest {
         }
         composeRule.onNodeWithText("AI & Smart Features").performClick()
         composeRule.waitUntil(3_000L) {
-            composeRule.onAllNodesWithText("Enable All AI Features").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithText("Enable AI Features").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("Enable All AI Features").performClick()
+        composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
+
+        composeRule.onNodeWithText("Enable AI Features").performScrollTo().performClick()
         composeRule.waitUntil(3_000L) {
             runBlocking {
                 !app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
             }
         }
-        composeRule.onNodeWithText("Enable All AI Features").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Offline OCR").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Duplicate Detection").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("Hybrid Semantic Search (LiteRT)").performScrollTo().assertIsNotEnabled()
+        composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsNotEnabled()
+        runBlocking {
+            val disabledState = app.container.settingsRepository.settingsFlow.first()
+            assertTrue(disabledState.smartTagsEnabled)
+            assertTrue(disabledState.ocrEnabled)
+            assertTrue(disabledState.semanticRerankEnabled)
+            assertTrue(!disabledState.effectiveSmartTagsEnabled)
+            assertTrue(!disabledState.effectiveOcrEnabled)
+            assertTrue(!disabledState.effectiveSemanticRerankEnabled)
+        }
+
+        composeRule.onNodeWithText("Enable AI Features").performScrollTo().performClick()
         composeRule.waitUntil(3_000L) {
             runBlocking {
                 app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
             }
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
+        composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
+        runBlocking {
+            val restoredState = app.container.settingsRepository.settingsFlow.first()
+            assertTrue(restoredState.effectiveSmartTagsEnabled)
+            assertTrue(restoredState.effectiveOcrEnabled)
+            assertTrue(restoredState.effectiveSemanticRerankEnabled)
         }
     }
 
@@ -481,6 +512,65 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("Prioritize low-power NPU", substring = true)
             .performScrollTo()
             .assertIsDisplayed()
+    }
+
+    @Test
+    fun morphingTopBarMenusAndFlyingBottomNavIndicatorWorkCleanly() {
+        // 1. Expanding Sort menu squashes overflow Menu & layout toggle aside and rolls out pill options
+        composeRule.onNodeWithContentDescription("Sort notes").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Recently updated").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithContentDescription("Close sort menu").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Recently updated").assertIsDisplayed()
+        composeRule.onNodeWithText("Recently created").assertIsDisplayed()
+        composeRule.onNodeWithText("Title A–Z").assertIsDisplayed()
+        assertTrue(
+            "Overflow menu icon should squash away while Sort menu is open",
+            composeRule.onAllNodesWithContentDescription("Menu").fetchSemanticsNodes().isEmpty()
+        )
+        composeRule.onNodeWithText("Title A–Z").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Menu").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 2. Expanding Menu squashes Sort icon aside and rolls out overflow items inside the morphed pill
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Archive").assertIsDisplayed()
+        composeRule.onNodeWithText("Recycle Bin").assertIsDisplayed()
+        composeRule.onNodeWithText("Review Duplicates").assertIsDisplayed()
+        composeRule.onNodeWithText("Settings").assertIsDisplayed()
+        assertTrue(
+            "Sort icon should squash away while Menu is open",
+            composeRule.onAllNodesWithContentDescription("Sort notes").fetchSemanticsNodes().isEmpty()
+        )
+        composeRule.onNodeWithContentDescription("Close menu").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Sort notes").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 3. Flying bottom navigation pill moves smoothly left -> center -> right across tabs
+        composeRule.waitForIdle()
+        val notesLeft = composeRule.onNodeWithTag("bottom_nav_flying_pill").getBoundsInRoot().left
+
+        composeRule.onNodeWithText("SmartSearch").performClick()
+        composeRule.waitForIdle()
+        val searchLeft = composeRule.onNodeWithTag("bottom_nav_flying_pill").getBoundsInRoot().left
+
+        composeRule.onNodeWithText("Tags").performClick()
+        composeRule.waitForIdle()
+        val tagsLeft = composeRule.onNodeWithTag("bottom_nav_flying_pill").getBoundsInRoot().left
+
+        assertTrue(
+            "Flying bottom bar pill must move right from Notes ($notesLeft) -> SmartSearch ($searchLeft) -> Tags ($tagsLeft)",
+            notesLeft < searchLeft && searchLeft < tagsLeft
+        )
     }
 
     private fun openNewTextNoteFromPill() {

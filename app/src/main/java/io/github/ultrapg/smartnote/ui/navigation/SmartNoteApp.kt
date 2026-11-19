@@ -4,29 +4,42 @@ import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Surface
@@ -41,8 +54,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination
@@ -80,6 +103,9 @@ import io.github.ultrapg.smartnote.ui.settings.SmartFeaturesSettingsScreen
 import io.github.ultrapg.smartnote.ui.tags.TagsScreen
 import io.github.ultrapg.smartnote.ui.tags.TagsViewModel
 import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.floor
+import kotlin.math.sin
 
 @Composable
 fun SmartNoteApp(
@@ -575,24 +601,148 @@ fun SmartNoteApp(
                     exit = if (reducedMotion) ExitTransition.None else fadeOut(tween(90)),
                     modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    NavigationBar {
-                        NavigationBarItem(
-                            selected = notesSelected,
-                            onClick = { navigateTopLevelTab(navController, NotesOverviewRoute) },
-                            icon = { Icon(Icons.Rounded.Description, contentDescription = "Notes") },
-                            label = { Text("Notes") }
-                        )
-                        NavigationBarItem(
-                            selected = searchSelected,
-                            onClick = { navigateTopLevelTab(navController, SmartSearchRoute) },
-                            icon = { Icon(Icons.Rounded.Search, contentDescription = "SmartSearch") },
-                            label = { Text("SmartSearch") }
-                        )
-                        NavigationBarItem(
-                            selected = tagsSelected,
-                            onClick = { navigateTopLevelTab(navController, TagsRoute) },
-                            icon = { Icon(Icons.AutoMirrored.Rounded.Label, contentDescription = "Tags") },
-                            label = { Text("Tags") }
+                    SmartNoteBottomBar(
+                        tabs = listOf(
+                            BottomNavTab(
+                                label = "Notes",
+                                icon = Icons.Rounded.Description,
+                                selected = notesSelected,
+                                onClick = { navigateTopLevelTab(navController, NotesOverviewRoute) }
+                            ),
+                            BottomNavTab(
+                                label = "SmartSearch",
+                                icon = Icons.Rounded.Search,
+                                selected = searchSelected,
+                                onClick = { navigateTopLevelTab(navController, SmartSearchRoute) }
+                            ),
+                            BottomNavTab(
+                                label = "Tags",
+                                icon = Icons.AutoMirrored.Rounded.Label,
+                                selected = tagsSelected,
+                                onClick = { navigateTopLevelTab(navController, TagsRoute) }
+                            )
+                        ),
+                        reducedMotion = reducedMotion
+                    )
+                }
+            }
+        }
+    }
+}
+
+private data class BottomNavTab(
+    val label: String,
+    val icon: ImageVector,
+    val selected: Boolean,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun SmartNoteBottomBar(
+    tabs: List<BottomNavTab>,
+    reducedMotion: Boolean
+) {
+    val haptic = LocalHapticFeedback.current
+    val selectedIndex = tabs.indexOfFirst { it.selected }.coerceAtLeast(0)
+    val animatedPosition by animateFloatAsState(
+        targetValue = selectedIndex.toFloat(),
+        animationSpec = if (reducedMotion) {
+            tween(durationMillis = 80)
+        } else {
+            spring(dampingRatio = 0.88f, stiffness = 420f)
+        },
+        label = "bottom_nav_flying_pill"
+    )
+    val fractionalFlight = animatedPosition - floor(animatedPosition.toDouble()).toFloat()
+    val inFlightStretch = if (reducedMotion) {
+        0f
+    } else {
+        sin(fractionalFlight * PI).toFloat().coerceIn(0f, 1f)
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 3.dp
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .height(80.dp)
+                .padding(horizontal = 8.dp)
+        ) {
+            val slotWidth = maxWidth / tabs.size.coerceAtLeast(1)
+            val pillWidth = (64.dp + (18.dp * inFlightStretch)).coerceAtMost(slotWidth - 8.dp)
+            val pillLeftX = slotWidth * (animatedPosition + 0.5f) - (pillWidth / 2f)
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(pillLeftX.roundToPx(), 12.dp.roundToPx()) }
+                    .size(width = pillWidth, height = 32.dp)
+                    .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
+                    .testTag("bottom_nav_flying_pill")
+            )
+
+            Row(modifier = Modifier.fillMaxSize()) {
+                tabs.forEach { tab ->
+                    val iconTint by animateColorAsState(
+                        targetValue = if (tab.selected) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 140),
+                        label = "bottom_nav_icon_tint"
+                    )
+                    val labelColor by animateColorAsState(
+                        targetValue = if (tab.selected) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        animationSpec = tween(durationMillis = if (reducedMotion) 60 else 140),
+                        label = "bottom_nav_label_tint"
+                    )
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .semantics(mergeDescendants = true) {
+                                selected = tab.selected
+                                role = Role.Tab
+                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    if (!tab.selected) {
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    }
+                                    tab.onClick()
+                                }
+                            )
+                            .padding(top = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        Box(
+                            modifier = Modifier.height(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = tab.icon,
+                                contentDescription = null,
+                                tint = iconTint,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = tab.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = if (tab.selected) FontWeight.SemiBold else FontWeight.Medium,
+                            color = labelColor,
+                            maxLines = 1
                         )
                     }
                 }

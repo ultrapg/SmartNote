@@ -4,6 +4,22 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-11-19
+
+### Changed
+- **Renamed Master Switch & Grayed Out Disabled AI Controls (`SettingsScreens.kt`)**:
+  - Renamed `"Enable All AI Features"` to **`"Enable AI Features"`** (enabled by default).
+  - Turning **"Enable AI Features"** off now visually turns off effective switches, grays out and disables every AI control across `SmartFeaturesSettingsScreen` (`Individual AI Features` section, `Auto-Title Generation`, `SmartTags`, `Offline OCR`, `Duplicate Detection`, `Hybrid Semantic Search (LiteRT)`, and `AI Hardware & Diagnostics`) and `AiProcessingSettingsScreen` (`Hardware Acceleration Preference`, `Energy-Efficient Processing`, `Hybrid Semantic Re-Ranking (LiteRT)`, and `Verify Backend`), while leaving saved individual preferences intact so toggling AI back on restores prior settings cleanly.
+- **Morphing Top-Bar `Sort` & `Menu` Pill Drawers (`NotesOverviewScreen.kt`)**:
+  - Replaced popup `DropdownMenu`s in `NotesOverviewScreen`'s top search pill with integrated downward-rolling `CircleShape` tonal pill drawers (`MorphingMenuPillItem`, height `46.dp`, active checkmarks in `primaryContainer`) directly inside the morphing search bar surface so filter chips and cards glide smoothly below rather than being covered up, while horizontally squashing the leading search, layout, and sibling menu icons smoothly aside (`expandHorizontally`/`shrinkHorizontally` with reduced-motion fade fallback) and switching the active button to a highlighted `×` toggle.
+- **Flying Bottom Navigation Bar Pill Highlighter (`SmartNoteApp.kt`)**:
+  - Replaced the static `NavigationBar` indicator with `SmartNoteBottomBar`: a single continuous `secondaryContainer` pill driven by `animateFloatAsState` (`spring(dampingRatio = 0.88f, stiffness = 420f)`, with `tween(80)` reduced-motion fallback) and a subtle mid-flight horizontal stretch (`sin` curve) that flies smoothly across **Notes**, **SmartSearch**, and **Tags**.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 30 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 30 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,048,739` bytes (`54.41 MiB`), `SHA-256: 9a9da1733a3c9dc430190105ce87f9868162f72a4577fd8bbe8e815f2e958eef`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.8] - 2026-11-19
 
 ### Changed

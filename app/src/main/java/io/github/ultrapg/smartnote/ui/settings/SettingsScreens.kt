@@ -71,7 +71,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -150,7 +149,7 @@ fun SettingsScreen(
                 SettingsCategoryCard(
                     icon = Icons.Rounded.AutoAwesome,
                     title = "AI & Smart Features",
-                    subtitle = "Master AI switch, Auto-Titles, SmartTags, Offline OCR, Duplicates & Semantic Search",
+                    subtitle = "Enable AI Features, Auto-Titles, SmartTags, Offline OCR, Duplicates & Semantic Search",
                     onClick = onOpenSmartFeatures
                 )
             }
@@ -275,51 +274,52 @@ fun SmartFeaturesSettingsScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val aiEnabled = settings.aiFeaturesEnabled
     SettingsSubScaffold(title = "AI & Smart Features", onBack = onBack) {
         SettingsSwitchRow(
-            title = "Enable All AI Features",
+            title = "Enable AI Features",
             subtitle = "Master switch for Auto-Title Generation, SmartTags, Offline OCR, Duplicate Detection, and LiteRT Semantic Search",
-            checked = settings.aiFeaturesEnabled,
+            checked = aiEnabled,
             highlighted = true,
             onCheckedChange = { enabled ->
                 scope.launch { settingsRepository.setAiFeaturesEnabled(enabled) }
                 if (!enabled) onDisableAiUnloadModel()
             }
         )
-        SectionLabel("Individual AI Features")
+        SectionLabel("Individual AI Features", enabled = aiEnabled)
         SettingsSwitchRow(
             title = "Auto-Title Generation",
             subtitle = "Generate concise offline titles for untitled notes and shared screenshots",
-            checked = settings.autoTitleEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveAutoTitleEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "SmartTags",
             subtitle = "Suggest tags automatically using local rules, TF-IDF, and your personal tag vocabulary",
-            checked = settings.smartTagsEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveSmartTagsEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSmartTagsEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Offline OCR",
             subtitle = "Extract searchable text from shared screenshots and images on-device via bundled ML Kit",
-            checked = settings.ocrEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveOcrEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setOcrEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Duplicate Detection",
             subtitle = "Flag exact or near-duplicate notes and attachments for manual review",
-            checked = settings.duplicateDetectionEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveDuplicateDetectionEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setDuplicateDetectionEnabled(it) } }
         )
         SettingsSwitchRow(
             title = "Hybrid Semantic Search (LiteRT)",
             subtitle = "Blend local on-device text embedding similarity into SmartSearch results",
-            checked = settings.semanticRerankEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveSemanticRerankEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
         )
 
@@ -346,6 +346,7 @@ fun SmartFeaturesSettingsScreen(
             icon = Icons.Rounded.Memory,
             title = "AI Hardware & Diagnostics",
             subtitle = "Configure NPU / GPU / CPU preferences, energy mode, and view active LiteRT backend",
+            enabled = aiEnabled,
             onClick = onOpenAiProcessing
         )
     }
@@ -362,13 +363,14 @@ fun AiProcessingSettingsScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val aiEnabled = settings.aiFeaturesEnabled
     LaunchedEffect(Unit) { onRefreshDiagnostics() }
 
     SettingsSubScaffold(title = "AI Hardware & Diagnostics", onBack = onBack) {
-        if (!settings.aiFeaturesEnabled) {
+        if (!aiEnabled) {
             SettingsSwitchRow(
-                title = "All AI Features Disabled",
-                subtitle = "Turn on the master AI switch to enable LiteRT semantic search, Auto-Titles, SmartTags, OCR, and duplicate detection",
+                title = "Enable AI Features",
+                subtitle = "AI features are currently off. Turn on to re-enable LiteRT semantic search, Auto-Titles, SmartTags, OCR, and duplicate detection",
                 checked = false,
                 highlighted = true,
                 onCheckedChange = { enabled ->
@@ -376,13 +378,18 @@ fun AiProcessingSettingsScreen(
                 }
             )
         }
-        SectionLabel("Hardware Acceleration Preference")
+        SectionLabel("Hardware Acceleration Preference", enabled = aiEnabled)
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            color = if (aiEnabled) {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+            },
             border = smartNoteCardBorder(),
             modifier = Modifier.fillMaxWidth()
         ) {
+            val contentAlpha = if (aiEnabled) 1f else 0.38f
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
                 AiBackendPreference.entries.forEach { pref ->
                     val title = when (pref) {
@@ -401,7 +408,7 @@ fun AiProcessingSettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable {
+                            .clickable(enabled = aiEnabled) {
                                 scope.launch {
                                     settingsRepository.setAiBackendPreference(pref)
                                     onRefreshDiagnostics()
@@ -412,6 +419,7 @@ fun AiProcessingSettingsScreen(
                     ) {
                         RadioButton(
                             selected = settings.aiBackendPreference == pref,
+                            enabled = aiEnabled,
                             onClick = {
                                 scope.launch {
                                     settingsRepository.setAiBackendPreference(pref)
@@ -420,8 +428,16 @@ fun AiProcessingSettingsScreen(
                             }
                         )
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(title, style = MaterialTheme.typography.titleSmall)
-                            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+                            )
+                            Text(
+                                text = desc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                            )
                         }
                     }
                 }
@@ -431,15 +447,16 @@ fun AiProcessingSettingsScreen(
         SettingsSwitchRow(
             title = "Energy-Efficient Processing",
             subtitle = "Prioritize low-power NPU and skip power-hungry GPU dispatch during Battery Saver or elevated thermal load, plus unload idle models faster",
-            checked = settings.energyEfficientAi,
+            checked = aiEnabled && settings.energyEfficientAi,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setEnergyEfficientAi(it) } }
         )
 
         SettingsSwitchRow(
             title = "Hybrid Semantic Re-Ranking (LiteRT)",
             subtitle = "Blend local compact text-embedding similarity into FTS5 SmartSearch results (enabled by default)",
-            checked = settings.semanticRerankEnabled,
-            enabled = settings.aiFeaturesEnabled,
+            checked = settings.effectiveSemanticRerankEnabled,
+            enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
         )
 
@@ -486,7 +503,11 @@ fun AiProcessingSettingsScreen(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onRunSelfTest, modifier = Modifier.weight(1f)) {
+            Button(
+                onClick = onRunSelfTest,
+                enabled = aiEnabled,
+                modifier = Modifier.weight(1f)
+            ) {
                 Text("Verify Backend")
             }
             OutlinedButton(onClick = onUnloadModel, modifier = Modifier.weight(1f)) {
@@ -1016,36 +1037,51 @@ private fun SettingsCategoryCard(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     val shape = RoundedCornerShape(18.dp)
+    val contentAlpha = if (enabled) 1f else 0.38f
     Surface(
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = if (enabled) {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+        },
         border = smartNoteCardBorder(),
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha)
+            )
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+                )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
                 )
             }
             Icon(
                 Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
             )
         }
     }
@@ -1061,17 +1097,17 @@ private fun SettingsSwitchRow(
     onCheckedChange: (Boolean) -> Unit
 ) {
     val shape = RoundedCornerShape(18.dp)
+    val contentAlpha = if (enabled) 1f else 0.38f
     Surface(
         shape = shape,
-        color = if (highlighted) {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerLow
+        color = when {
+            !enabled -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)
+            highlighted && checked -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+            else -> MaterialTheme.colorScheme.surfaceContainerLow
         },
         border = smartNoteCardBorder(),
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.5f)
             .clip(shape)
             .clickable(enabled = enabled) { onCheckedChange(!checked) }
     ) {
@@ -1081,8 +1117,17 @@ private fun SettingsSwitchRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+                )
             }
             Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
         }
@@ -1090,11 +1135,18 @@ private fun SettingsSwitchRow(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
+private fun SectionLabel(
+    text: String,
+    enabled: Boolean = true
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
+        color = if (enabled) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        },
         modifier = Modifier.padding(top = 4.dp)
     )
 }
