@@ -199,9 +199,9 @@ class SmartTaggingCoordinator(
         }
 
         val nanoSuggestions = if (shouldInvokeNano) {
-            val sparseText = blocks.sumOf { it.textContent.trim().length } < 24 && ocrTexts.all { it.isBlank() }
-            val primaryBitmap = if (hasImages && sparseText && storage != null) {
-                SafeOcrBitmapLoader.decodeDownsampledBitmap(
+            val userProseChars = blocks.sumOf { it.textContent.trim().length }
+            val primaryBitmap = if (hasImages && userProseChars < 160 && storage != null) {
+                SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
                     storage.resolvePrivateFile(attachments.first().relativeFilePath),
                     maxDimPx = 512
                 )

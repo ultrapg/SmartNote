@@ -370,7 +370,7 @@ class NoteOperationsAndAutosaveTest {
             // 3. Trailing IMAGE block appends a trailing TEXT block when tapped below
             vm.importImages(listOf(Uri.fromFile(samplePng)))
             val deadline = System.currentTimeMillis() + 5_000L
-            while (vm.uiState.value.attachments.isEmpty() && System.currentTimeMillis() < deadline) {
+            while ((vm.uiState.value.attachments.isEmpty() || vm.uiState.value.blocks.none { it.type == NoteBlockType.IMAGE }) && System.currentTimeMillis() < deadline) {
                 ShadowLooper.idleMainLooper()
                 delay(20L)
             }

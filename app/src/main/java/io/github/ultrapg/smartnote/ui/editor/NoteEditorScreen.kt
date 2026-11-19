@@ -56,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -78,19 +79,23 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Unarchive
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -176,6 +181,8 @@ fun NoteEditorScreen(
     onInsertMarkdown: (String, String) -> Unit,
     onImportImages: (List<Uri>) -> Unit,
     onRemoveImageBlock: (String, String?) -> Unit,
+    onRescanAttachmentOcr: (String) -> Unit = {},
+    onInsertOcrText: (String) -> Unit = {},
     onTogglePin: () -> Unit,
     onToggleArchive: () -> Unit,
     onDuplicateNote: () -> Unit,
@@ -208,7 +215,8 @@ fun NoteEditorScreen(
     var didAutoLaunchImagePicker by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
     var awaitingInitialImagePick by rememberSaveable(uiState.noteId) { mutableStateOf(false) }
     var fullscreenAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
-    var ocrViewerAttachment by remember { mutableStateOf<AttachmentInfo?>(null) }
+    var ocrViewerAttachmentId by remember { mutableStateOf<String?>(null) }
+    val ocrViewerAttachment = ocrViewerAttachmentId?.let { uiState.attachments[it] }
     val textFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val checklistFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     var pendingFocusTarget by remember { mutableStateOf<Pair<String, Int>?>(null) }
@@ -869,7 +877,7 @@ fun NoteEditorScreen(
                                     attachment = att,
                                     filesDir = context.filesDir,
                                     onOpenFullScreen = { fullscreenAttachment = att },
-                                    onOpenOcrText = { ocrViewerAttachment = att },
+                                    onOpenOcrText = { ocrViewerAttachmentId = att.id },
                                     onRemove = { onRemoveImageBlock(block.id, att.id) }
                                 )
                             }
@@ -1004,7 +1012,9 @@ fun NoteEditorScreen(
     }
 
     ocrViewerAttachment?.let { att ->
-        ModalBottomSheet(onDismissRequest = { ocrViewerAttachment = null }) {
+        val isRescanning = uiState.rescanningOcrAttachmentId == att.id
+        val extracted = att.ocrText.orEmpty()
+        ModalBottomSheet(onDismissRequest = { ocrViewerAttachmentId = null }) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1013,38 +1023,71 @@ fun NoteEditorScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Text("Extracted Text", style = MaterialTheme.typography.titleLarge)
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Extracted Text", style = MaterialTheme.typography.titleLarge)
-                    if (!att.ocrText.isNullOrBlank()) {
-                        TextButton(
+                    OutlinedButton(
+                        enabled = !isRescanning,
+                        onClick = { onRescanAttachmentOcr(att.id) }
+                    ) {
+                        if (isRescanning) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("Scanning...")
+                        } else {
+                            Icon(Icons.Rounded.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Re-scan")
+                        }
+                    }
+
+                    if (extracted.isNotBlank()) {
+                        FilledTonalButton(
+                            onClick = {
+                                onInsertOcrText(extracted)
+                                ocrViewerAttachmentId = null
+                            }
+                        ) {
+                            Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Insert into note")
+                        }
+
+                        OutlinedButton(
                             onClick = {
                                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                                cm?.setPrimaryClip(ClipData.newPlainText("SmartNote OCR", att.ocrText))
+                                cm?.setPrimaryClip(ClipData.newPlainText("SmartNote OCR", extracted))
                                 scope.launch {
                                     snackbarHostState.showSnackbar("Copied OCR text to clipboard")
                                 }
                             }
                         ) {
-                            Icon(Icons.Rounded.ContentCopy, contentDescription = null)
+                            Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text("Copy")
                         }
                     }
                 }
-                val textBody = when (att.ocrStatus) {
-                    OcrStatus.PENDING -> "Recognition queued in background..."
-                    OcrStatus.EMPTY -> "No readable text detected in this image."
-                    OcrStatus.FAILED -> "Unable to recognize text in this image."
-                    OcrStatus.COMPLETED -> att.ocrText.orEmpty()
+
+                val textBody = when {
+                    isRescanning -> "Scanning image with on-device OCR..."
+                    att.ocrStatus == OcrStatus.PENDING -> "Recognition queued in background..."
+                    att.ocrStatus == OcrStatus.EMPTY -> "No readable text detected in this image."
+                    att.ocrStatus == OcrStatus.FAILED -> "Unable to recognize text in this image."
+                    else -> extracted
                 }
-                Text(
-                    text = textBody,
-                    style = MaterialTheme.typography.bodyMedium
-                )
+                SelectionContainer {
+                    Text(
+                        text = textBody,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
                 Spacer(Modifier.height(20.dp))
             }
         }

@@ -2,6 +2,7 @@ package io.github.ultrapg.smartnote.search
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.ultrapg.smartnote.ai.MlKitGeminiNanoAssistant
 import io.github.ultrapg.smartnote.data.local.AttachmentEntity
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -118,5 +120,75 @@ class SmartSearchFts5Test {
         // 6. Recent searches stored cleanly
         searchEngine.recordRecentSearch("Kotlin Coroutines")
         assertEquals(listOf("Kotlin Coroutines"), searchEngine.observeRecentSearches().first())
+    }
+
+    @Test
+    fun supportsBilingualSynonymsAndGeminiNanoQueryExpansionWithLexicalPriority() = runTest {
+        val idDoctor = noteRepository.createNote(
+            title = "Doctor Checkup",
+            blocks = listOf(NoteBlock("d1", "doc", 0, NoteBlockType.TEXT, "Bring vaccination booklet")),
+            scheduleBackgroundWork = false
+        )
+        val idRecipe = noteRepository.createNote(
+            title = "Pasta Dinner",
+            blocks = listOf(NoteBlock("r1", "rec", 0, NoteBlockType.TEXT, "Simple Italian recipe with tomatoes")),
+            scheduleBackgroundWork = false
+        )
+        val idFlight = noteRepository.createNote(
+            title = "Paris Flight & Hotel",
+            blocks = listOf(NoteBlock("f1", "flt", 0, NoteBlockType.TEXT, "Departure gate 14 and hotel check-in details")),
+            scheduleBackgroundWork = false
+        )
+        val idExactGetaway = noteRepository.createNote(
+            title = "Weekend Getaway Checklist",
+            blocks = listOf(NoteBlock("g1", "get", 0, NoteBlockType.TEXT, "Pack chargers and adapters")),
+            scheduleBackgroundWork = false
+        )
+        searchIndexer.rebuildAll()
+
+        // 1. Local bilingual DE -> EN synonym fallback (without Gemini Nano)
+        assertTrue(searchEngine.search("arzt").results.any { it.note.id == idDoctor })
+        assertTrue(searchEngine.search("rezept").results.any { it.note.id == idRecipe })
+
+        // 2. Gemini Nano query parser strips refusals, duplicates, and multi-word noise
+        val parsedTerms = MlKitGeminiNanoAssistant.Parsers.parseSearchExpansionTerms(
+            rawResponse = "Sure, here are keywords: flight, hotel, travel, weekend, too many words here, #packing, flight",
+            originalQuery = "weekend getaway"
+        )
+        assertEquals(listOf("flight", "hotel", "travel", "packing"), parsedTerms)
+
+        // 3. AI-expanded search finds related travel note while keeping exact lexical match #1
+        var expanderCalls = 0
+        val aiSearchEngine = SmartSearchEngine(
+            database = database,
+            noteRepository = noteRepository,
+            aiQueryExpander = { query, _ ->
+                expanderCalls++
+                assertEquals("weekend getaway", query)
+                listOf("flight", "hotel", "travel")
+            }
+        )
+        val expandedResponse = aiSearchEngine.search(
+            rawQuery = "weekend getaway",
+            enableAiQueryExpansion = true
+        )
+        assertEquals(1, expanderCalls)
+        assertEquals(listOf("flight", "hotel", "travel"), expandedResponse.aiExpandedTerms)
+        assertEquals(idExactGetaway, expandedResponse.results.first().note.id)
+        assertTrue(expandedResponse.results.any { it.note.id == idFlight })
+
+        // 4. Failing / unsupported expander falls back gracefully without crashing
+        val failingSearchEngine = SmartSearchEngine(
+            database = database,
+            noteRepository = noteRepository,
+            aiQueryExpander = { _, _ -> throw IllegalStateException("AICore unavailable") }
+        )
+        val fallbackResponse = failingSearchEngine.search(
+            rawQuery = "weekend getaway",
+            enableAiQueryExpansion = true
+        )
+        assertFalse(fallbackResponse.results.isEmpty())
+        assertEquals(idExactGetaway, fallbackResponse.results.first().note.id)
+        assertTrue(fallbackResponse.aiExpandedTerms.isEmpty())
     }
 }

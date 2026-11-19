@@ -23,11 +23,13 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationsApi
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.integration.AppShortcutsManager
 import io.github.ultrapg.smartnote.integration.widgets.WidgetRefreshHelper
 import io.github.ultrapg.smartnote.links.LinkMetadataFetcher
 import io.github.ultrapg.smartnote.ocr.MlKitBundledOcrEngine
 import io.github.ultrapg.smartnote.ocr.OcrEngine
+import io.github.ultrapg.smartnote.ocr.SmartOcrCoordinator
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
 import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
@@ -79,6 +81,10 @@ class AppContainer(
 
     val geminiNanoAssistant: OnDeviceGenAiAssistant by lazy {
         MlKitGeminiNanoAssistant(applicationScope)
+    }
+
+    val smartOcrCoordinator: SmartOcrCoordinator by lazy {
+        SmartOcrCoordinator(ocrEngine, geminiNanoAssistant)
     }
 
     val smartTagsEngine: SmartTagsEngine by lazy {
@@ -154,6 +160,18 @@ class AppContainer(
             noteRepository = noteRepository,
             semanticScoreProvider = { query, candidateIds ->
                 aiEngine.scoreSemanticSimilarity(query, candidateIds)
+            },
+            aiQueryExpander = { query, tags ->
+                val settings = settingsRepository.currentSnapshot
+                if (settings.effectiveUseGeminiNanoForSearch) {
+                    geminiNanoAssistant.expandSearchQuery(
+                        query = query,
+                        availableTags = tags,
+                        preferFast = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST
+                    )
+                } else {
+                    emptyList()
+                }
             }
         )
     }

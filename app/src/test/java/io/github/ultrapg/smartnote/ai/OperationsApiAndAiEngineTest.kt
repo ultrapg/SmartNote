@@ -396,7 +396,8 @@ class OperationsApiAndAiEngineTest {
         )
         assertEquals("Golden Retriever & Park", imageTitle)
 
-        // 8. Gemini Nano on-device synthesis when AVAILABLE & safe fallback when UNAVAILABLE
+        // 8. Gemini Nano on-device synthesis when AVAILABLE (including visual image forwarding even with OCR present)
+        var capturedBitmap: android.graphics.Bitmap? = null
         val fakeNano = object : OnDeviceGenAiAssistant {
             override suspend fun checkAvailability() = GeminiNanoAvailability.AVAILABLE
             override fun triggerBackgroundDownloadIfNeeded() {}
@@ -406,7 +407,10 @@ class OperationsApiAndAiEngineTest {
                 imageLabels: List<String>,
                 linkHints: List<String>,
                 primaryImageBitmap: android.graphics.Bitmap?
-            ) = listOf("Q4 Hiring Plan Summary")
+            ): List<String> {
+                capturedBitmap = primaryImageBitmap
+                return listOf(if (primaryImageBitmap != null) "Espresso Shot Receipt" else "Q4 Hiring Plan Summary")
+            }
             override suspend fun generateTags(
                 title: String,
                 noteText: String,
@@ -422,6 +426,19 @@ class OperationsApiAndAiEngineTest {
             blocks = listOf(NoteBlock("7", "n", 0, NoteBlockType.TEXT, "We should align headcount with product roadmap targets next week."))
         )
         assertEquals("Q4 Hiring Plan Summary", nanoTitle)
+
+        val testBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
+        try {
+            val visualWithOcrTitle = nanoGenerator.generateSmartTitle(
+                blocks = emptyList(),
+                ocrTexts = listOf("Latte 4.50\nThank you"),
+                primaryImageBitmap = testBmp
+            )
+            assertTrue(capturedBitmap === testBmp)
+            assertEquals("Espresso Shot Receipt", visualWithOcrTitle)
+        } finally {
+            testBmp.recycle()
+        }
 
         // 9. Respects allowGeminiNano = false and Concise maxTitleLength
         val noNanoTitle = nanoGenerator.generateSmartTitle(
@@ -511,10 +528,15 @@ class OperationsApiAndAiEngineTest {
         assertEquals(ImageLabelingAvailability.AVAILABLE, diag.imageLabelingAvailability)
         assertEquals(SystemEntityAvailability.AVAILABLE, diag.systemEntityAvailability)
 
-        // 3. Expanded AI settings persist & clamp properly
+        // 3. Expanded AI settings defaults & persistence
+        val defaultSettings = settingsRepo.settingsFlow.first()
+        assertTrue(defaultSettings.allowNewTopicTags)
+        assertTrue(defaultSettings.useGeminiNanoForOcr)
+        assertTrue(defaultSettings.useGeminiNanoForSearch)
+
         settingsRepo.setMaxPredictedTags(99)
         settingsRepo.setTagSensitivity(TagPredictionSensitivity.CONSERVATIVE)
-        settingsRepo.setAllowNewTopicTags(true)
+        settingsRepo.setAllowNewTopicTags(false)
         settingsRepo.setPreferExistingTags(false)
         settingsRepo.setLearnFromUserTags(false)
         settingsRepo.setUseImageLabelingForAi(false)
@@ -523,12 +545,14 @@ class OperationsApiAndAiEngineTest {
         settingsRepo.setGeminiNanoMode(GeminiNanoMode.ALWAYS_PREFER)
         settingsRepo.setGeminiNanoVariant(GeminiNanoVariant.FULL_QUALITY)
         settingsRepo.setUseGeminiNanoForTitles(false)
+        settingsRepo.setUseGeminiNanoForOcr(false)
+        settingsRepo.setUseGeminiNanoForSearch(false)
         settingsRepo.setTitleStyle(TitleStylePreference.DESCRIPTIVE)
 
         val persisted = settingsRepo.settingsFlow.first()
         assertEquals(6, persisted.maxPredictedTags)
         assertEquals(TagPredictionSensitivity.CONSERVATIVE, persisted.tagSensitivity)
-        assertTrue(persisted.allowNewTopicTags)
+        assertFalse(persisted.allowNewTopicTags)
         assertFalse(persisted.preferExistingTags)
         assertFalse(persisted.learnFromUserTags)
         assertFalse(persisted.useImageLabelingForAi)
@@ -537,6 +561,8 @@ class OperationsApiAndAiEngineTest {
         assertEquals(GeminiNanoMode.ALWAYS_PREFER, persisted.geminiNanoMode)
         assertEquals(GeminiNanoVariant.FULL_QUALITY, persisted.geminiNanoVariant)
         assertFalse(persisted.useGeminiNanoForTitles)
+        assertFalse(persisted.useGeminiNanoForOcr)
+        assertFalse(persisted.useGeminiNanoForSearch)
         assertEquals(TitleStylePreference.DESCRIPTIVE, persisted.titleStyle)
         assertEquals(64, persisted.effectiveMaxTitleLength)
     }

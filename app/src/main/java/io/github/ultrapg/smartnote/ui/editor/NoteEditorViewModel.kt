@@ -30,10 +30,12 @@ import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.NoteDetail
 import io.github.ultrapg.smartnote.domain.model.NoteSourceType
 import io.github.ultrapg.smartnote.domain.model.NoteTag
+import io.github.ultrapg.smartnote.domain.model.OcrStatus
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
 import io.github.ultrapg.smartnote.links.DetectedLink
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
 import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
+import io.github.ultrapg.smartnote.ocr.SmartOcrCoordinator
 import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
 import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
@@ -72,6 +74,7 @@ data class NoteEditorUiState(
     val availableTags: List<String> = emptyList(),
     val liveTagSuggestions: List<SmartTagSuggestion> = emptyList(),
     val isGeneratingTags: Boolean = false,
+    val rescanningOcrAttachmentId: String? = null,
     val feedbackMessageEvent: Pair<Int, String>? = null,
     val updatedAtMs: Long = System.currentTimeMillis(),
     val isLoaded: Boolean = false
@@ -96,7 +99,8 @@ class NoteEditorViewModel(
     private val systemEntityAnalyzer: SystemEntityAnalyzer? = null,
     private val imageLabelingEngine: ImageLabelingEngine? = null,
     private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null,
-    private val smartTaggingCoordinator: SmartTaggingCoordinator? = null
+    private val smartTaggingCoordinator: SmartTaggingCoordinator? = null,
+    private val smartOcrCoordinator: SmartOcrCoordinator? = null
 ) : ViewModel() {
 
     private val activeNoteId: String = savedStateHandle.get<String>(KEY_NOTE_ID)
@@ -379,6 +383,7 @@ class NoteEditorViewModel(
             availableTags = availableTags,
             liveTagSuggestions = tagSug,
             isGeneratingTags = isGeneratingTags,
+            rescanningOcrAttachmentId = rescanningOcrAttachmentId,
             feedbackMessageEvent = feedbackMessageEvent,
             updatedAtMs = detail.updatedAtMs,
             isLoaded = true
@@ -473,17 +478,22 @@ class NoteEditorViewModel(
                 } else {
                     emptyList()
                 }
-                val sparseText = state.blocks.sumOf { it.textContent.trim().length } < 20 && ocrTexts.all { it.isBlank() }
+                val userProseChars = state.blocks.sumOf { it.textContent.trim().length }
+                val primaryAttachment = state.blocks
+                    .firstOrNull { it.type == NoteBlockType.IMAGE }
+                    ?.attachmentId
+                    ?.let { state.attachments[it] }
+                    ?: state.attachments.values.firstOrNull()
                 val primaryBitmap = if (
                     settings.effectiveUseGeminiNanoForTitles &&
                     geminiNanoAssistant != null &&
-                    sparseText &&
                     attachmentStorage != null &&
-                    state.attachments.isNotEmpty()
+                    primaryAttachment != null &&
+                    userProseChars < 160
                 ) {
-                    SafeOcrBitmapLoader.decodeDownsampledBitmap(
-                        attachmentStorage.resolvePrivateFile(state.attachments.values.first().relativeFilePath),
-                        maxDimPx = 512
+                    SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
+                        attachmentStorage.resolvePrivateFile(primaryAttachment.relativeFilePath),
+                        maxDimPx = 768
                     )
                 } else {
                     null
@@ -893,8 +903,7 @@ class NoteEditorViewModel(
                         }
                         refreshUiFromDetailSnapshot()
                     } else {
-                        feedbackSeq++
-                        _uiState.update { it.copy(feedbackMessageEvent = feedbackSeq to "No confident tags found for this note") }
+                        emitFeedback("No confident tags found for this note")
                     }
                 }
             } finally {
@@ -929,6 +938,114 @@ class NoteEditorViewModel(
                 state.copy(duplicateMatches = state.duplicateMatches.filterNot { it.pairKey == pair.pairKey })
             }
         }
+    }
+
+    fun rescanAttachmentOcr(attachmentId: String) {
+        val coordinator = smartOcrCoordinator ?: return
+        val storage = attachmentStorage ?: return
+        val attachment = _uiState.value.attachments[attachmentId] ?: return
+        if (_uiState.value.rescanningOcrAttachmentId != null) return
+
+        _uiState.update { it.copy(rescanningOcrAttachmentId = attachmentId) }
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) {
+                    val settings = runCatching { settingsRepository.settingsFlow.first() }
+                        .getOrDefault(latestSettingsCache)
+                    val file = storage.resolvePrivateFile(attachment.relativeFilePath)
+                    val outcome = withContext(Dispatchers.IO) {
+                        coordinator.recognizeFileWithOptionalAi(
+                            file = file,
+                            settings = settings,
+                            forceAiAssist = true
+                        )
+                    }
+                    val status = when {
+                        !outcome.succeeded -> OcrStatus.FAILED
+                        outcome.text.isBlank() -> OcrStatus.EMPTY
+                        else -> OcrStatus.COMPLETED
+                    }
+                    noteRepository.updateAttachmentOcrResult(
+                        noteId = activeNoteId,
+                        attachmentId = attachmentId,
+                        recognizedText = outcome.text,
+                        confidence = outcome.confidence,
+                        status = status
+                    )
+                    refreshUiFromDetailSnapshot()
+                    val msg = when {
+                        !outcome.succeeded -> "Could not read text from image"
+                        outcome.text.isBlank() -> "No readable text detected"
+                        outcome.usedGeminiNano -> "OCR updated with Gemini Nano"
+                        else -> "OCR text updated"
+                    }
+                    emitFeedback(msg)
+                }
+            } finally {
+                _uiState.update { state ->
+                    if (state.rescanningOcrAttachmentId == attachmentId) {
+                        state.copy(rescanningOcrAttachmentId = null)
+                    } else {
+                        state
+                    }
+                }
+            }
+        }
+    }
+
+    fun insertOcrTextIntoNote(rawText: String) {
+        val clean = rawText.trim()
+        if (clean.isBlank()) return
+        hasUserEditedLocally = true
+        _uiState.update { state ->
+            val currentBlocks = state.blocks.toMutableList()
+            val last = currentBlocks.lastOrNull()
+            if (last != null && last.type == NoteBlockType.TEXT && last.textContent.isBlank()) {
+                currentBlocks[currentBlocks.lastIndex] = last.copy(textContent = clean)
+            } else {
+                currentBlocks += NoteBlock(
+                    id = UUID.randomUUID().toString(),
+                    noteId = activeNoteId,
+                    position = currentBlocks.size,
+                    type = NoteBlockType.TEXT,
+                    textContent = clean
+                )
+            }
+            val updated = reindex(currentBlocks)
+            updated.firstOrNull { it.type == NoteBlockType.TEXT }?.let {
+                savedStateHandle[KEY_DRAFT_FIRST_TEXT] = it.textContent
+            }
+            val atts = state.attachments.values.toList()
+            val suggestion = computeSuggestedTitle(
+                enabled = state.autoTitleEnabled,
+                title = state.title,
+                blocks = updated,
+                attachments = atts,
+                links = state.links
+            )
+            val tagSug = computeLiveTagSuggestions(
+                enabled = state.aiFeaturesEnabled,
+                title = state.title,
+                blocks = updated,
+                attachments = atts,
+                links = state.links,
+                existingNoteTags = state.tags,
+                vocabulary = state.availableTags
+            )
+            state.copy(
+                blocks = updated,
+                suggestedTitle = suggestion,
+                liveTagSuggestions = tagSug
+            )
+        }
+        enqueueAutosave()
+        emitFeedback("Inserted extracted text into note")
+    }
+
+    private fun emitFeedback(message: String) {
+        feedbackSeq++
+        val event = feedbackSeq to message
+        _uiState.update { it.copy(feedbackMessageEvent = event) }
     }
 
     fun flushPendingEditsOnly() {
@@ -1192,7 +1309,8 @@ class NoteEditorViewModel(
         private val systemEntityAnalyzer: SystemEntityAnalyzer? = null,
         private val imageLabelingEngine: ImageLabelingEngine? = null,
         private val geminiNanoAssistant: OnDeviceGenAiAssistant? = null,
-        private val smartTaggingCoordinator: SmartTaggingCoordinator? = null
+        private val smartTaggingCoordinator: SmartTaggingCoordinator? = null,
+        private val smartOcrCoordinator: SmartOcrCoordinator? = null
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(
@@ -1219,7 +1337,8 @@ class NoteEditorViewModel(
                 systemEntityAnalyzer = systemEntityAnalyzer,
                 imageLabelingEngine = imageLabelingEngine,
                 geminiNanoAssistant = geminiNanoAssistant,
-                smartTaggingCoordinator = smartTaggingCoordinator
+                smartTaggingCoordinator = smartTaggingCoordinator,
+                smartOcrCoordinator = smartOcrCoordinator
             ) as T
         }
     }

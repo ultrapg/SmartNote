@@ -14,6 +14,7 @@ import com.google.mlkit.genai.prompt.SystemInstruction
 import com.google.mlkit.genai.prompt.TextPart
 import com.google.mlkit.genai.prompt.generationConfig
 import com.google.mlkit.genai.prompt.modelConfig
+import io.github.ultrapg.smartnote.ocr.OcrTextPostProcessor
 import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import kotlinx.coroutines.CoroutineScope
@@ -122,6 +123,19 @@ interface OnDeviceGenAiAssistant {
         existingNoteTags = existingNoteTags
     ).take(maxTags.coerceIn(1, 6))
 
+    suspend fun enhanceOrExtractOcrText(
+        imageBitmap: Bitmap?,
+        rawOcrText: String,
+        rawOcrConfidence: Float,
+        preferFast: Boolean = true
+    ): String? = null
+
+    suspend fun expandSearchQuery(
+        query: String,
+        availableTags: List<String>,
+        preferFast: Boolean = true
+    ): List<String> = emptyList()
+
     fun close()
 }
 
@@ -136,6 +150,12 @@ class MlKitGeminiNanoAssistant(
 
     @Volatile
     private var cachedCapabilitiesAtMs: Long = 0L
+
+    private val searchCacheLock = Any()
+    private val searchExpansionCache = object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean =
+            size > MAX_SEARCH_CACHE_ENTRIES
+    }
 
     private val fastClient: GenerativeModel? by lazy {
         runCatching {
@@ -269,58 +289,50 @@ class MlKitGeminiNanoAssistant(
             imageLabels = imageLabels,
             linkHints = linkHints
         )
-        val hasSparseText = noteText.trim().length < 20 && ocrTexts.all { it.isBlank() }
+        val hasImage = primaryImageBitmap != null && !primaryImageBitmap.isRecycled
+        if (!hasImage && contextBlock.isBlank()) return@withContext emptyList()
+
         val wordLimitHint = if (maxTitleLength >= 58) "3 to 8 words" else "2 to 5 words"
-        val useSystem = runCatching {
-            withTimeoutOrNull(SYSTEM_CHECK_TIMEOUT_MS) { Feature.SYSTEM_PROMPT in model.getAvailableFeatures() } == true
-        }.getOrDefault(false)
+        val sysRule = if (hasImage) {
+            "Look at the image and any note details, then generate 2 concise, specific note titles ($wordLimitHint each, same language as the note or image text, no quotes, no numbering, one per line)."
+        } else {
+            "Generate 2 concise note titles ($wordLimitHint each, same language as note, no quotes, no numbering, one per line)."
+        }
+        val useSystem = supportsSystemPrompt(model)
+        val textTimeoutMs = if (usedFast) FAST_GENERATE_TIMEOUT_MS else FULL_GENERATE_TIMEOUT_MS
+        val multimodalTimeoutMs = if (usedFast) FAST_MULTIMODAL_TIMEOUT_MS else FULL_MULTIMODAL_TIMEOUT_MS
 
-        val sysRule = "Generate 2 concise note titles ($wordLimitHint each, same language as note, no quotes, no numbering, one per line)."
-        val timeoutMs = if (usedFast) FAST_GENERATE_TIMEOUT_MS else FULL_GENERATE_TIMEOUT_MS
+        if (hasImage) {
+            val imageResponse = executeGeneration(
+                model = model,
+                systemRule = sysRule,
+                userText = contextBlock.ifBlank { "Look at this image and generate 2 concise, specific note titles." },
+                imageBitmap = primaryImageBitmap,
+                useSystemPrompt = useSystem,
+                temperature = 0.15f,
+                topK = 12,
+                maxOutputTokens = 44,
+                timeoutMs = multimodalTimeoutMs
+            )
+            val multimodalTitles = imageResponse?.let { parseTitleLines(it, maxTitleLength = maxTitleLength) }.orEmpty()
+            if (multimodalTitles.isNotEmpty() || contextBlock.isBlank()) {
+                return@withContext multimodalTitles
+            }
+        }
 
-        val rawResponse = withTimeoutOrNull(timeoutMs) {
-            runCatching {
-                val request = if (primaryImageBitmap != null && !primaryImageBitmap.isRecycled && hasSparseText) {
-                    val userText = if (useSystem) {
-                        contextBlock.ifBlank { "Describe this image as concise note titles." }
-                    } else {
-                        "$sysRule\n$contextBlock"
-                    }
-                    if (useSystem) {
-                        GenerateContentRequest.Builder(
-                            SystemInstruction(sysRule),
-                            ImagePart(primaryImageBitmap),
-                            TextPart(userText)
-                        )
-                    } else {
-                        GenerateContentRequest.Builder(ImagePart(primaryImageBitmap), TextPart(userText))
-                    }.apply {
-                        temperature = 0.15f
-                        topK = 12
-                        maxOutputTokens = 44
-                        candidateCount = 1
-                        enableThinking = false
-                    }.build()
-                } else {
-                    if (contextBlock.isBlank()) return@runCatching null
-                    val userText = if (useSystem) contextBlock else "$sysRule\n$contextBlock"
-                    if (useSystem) {
-                        GenerateContentRequest.Builder(SystemInstruction(sysRule), TextPart(userText))
-                    } else {
-                        GenerateContentRequest.Builder(TextPart(userText))
-                    }.apply {
-                        temperature = 0.15f
-                        topK = 12
-                        maxOutputTokens = 44
-                        candidateCount = 1
-                        enableThinking = false
-                    }.build()
-                }
-                model.generateContent(request).candidates.firstOrNull()?.text
-            }.getOrNull()
-        } ?: return@withContext emptyList()
+        val textResponse = executeGeneration(
+            model = model,
+            systemRule = sysRule,
+            userText = contextBlock,
+            imageBitmap = null,
+            useSystemPrompt = useSystem,
+            temperature = 0.15f,
+            topK = 12,
+            maxOutputTokens = 44,
+            timeoutMs = textTimeoutMs
+        ) ?: return@withContext emptyList()
 
-        parseTitleLines(rawResponse, maxTitleLength = maxTitleLength)
+        parseTitleLines(textResponse, maxTitleLength = maxTitleLength)
     }
 
     override suspend fun generateTags(
@@ -366,7 +378,7 @@ class MlKitGeminiNanoAssistant(
             linkHints = emptyList()
         )
         val canUseImage = primaryImageBitmap != null && !primaryImageBitmap.isRecycled &&
-            noteText.trim().length < 24 && ocrTexts.all { it.isBlank() }
+            noteText.trim().length < 160
         if (contextBlock.isBlank() && !canUseImage) return@withContext emptyList()
 
         val existingLower = existingNoteTags.map { it.lowercase(Locale.ROOT) }.toSet()
@@ -391,44 +403,52 @@ class MlKitGeminiNanoAssistant(
             append(" Never output vague words (e.g. Note, Today, Misc, Stuff). If nothing fits clearly, output NONE.")
         }
 
-        val useSystem = runCatching {
-            withTimeoutOrNull(SYSTEM_CHECK_TIMEOUT_MS) { Feature.SYSTEM_PROMPT in model.getAvailableFeatures() } == true
-        }.getOrDefault(false)
-        val timeoutMs = if (usedFast) FAST_GENERATE_TIMEOUT_MS else FULL_GENERATE_TIMEOUT_MS
+        val useSystem = supportsSystemPrompt(model)
+        val textTimeoutMs = if (usedFast) FAST_GENERATE_TIMEOUT_MS else FULL_GENERATE_TIMEOUT_MS
+        val multimodalTimeoutMs = if (usedFast) FAST_MULTIMODAL_TIMEOUT_MS else FULL_MULTIMODAL_TIMEOUT_MS
 
-        val rawResponse = withTimeoutOrNull(timeoutMs) {
-            runCatching {
-                val notePromptBody = if (useSystem) {
+        if (canUseImage) {
+            val multimodalRaw = executeGeneration(
+                model = model,
+                systemRule = sysRule,
+                userText = if (useSystem) {
                     contextBlock.ifBlank { "Classify the attached image with concise tags." }
                 } else {
-                    "$sysRule\n\nNote:\n$contextBlock"
-                }
-                val requestBuilder = when {
-                    canUseImage && useSystem -> GenerateContentRequest.Builder(
-                        SystemInstruction(sysRule),
-                        ImagePart(primaryImageBitmap!!),
-                        TextPart(notePromptBody)
-                    )
-                    canUseImage -> GenerateContentRequest.Builder(
-                        ImagePart(primaryImageBitmap!!),
-                        TextPart(notePromptBody)
-                    )
-                    useSystem -> GenerateContentRequest.Builder(
-                        SystemInstruction(sysRule),
-                        TextPart(notePromptBody)
-                    )
-                    else -> GenerateContentRequest.Builder(TextPart(notePromptBody))
-                }
-                val request = requestBuilder.apply {
-                    temperature = 0.1f
-                    topK = 8
-                    maxOutputTokens = 44
-                    candidateCount = 1
-                    enableThinking = false
-                }.build()
-                model.generateContent(request).candidates.firstOrNull()?.text
-            }.getOrNull()
-        } ?: return@withContext emptyList()
+                    "Note:\n${contextBlock.ifBlank { "Classify the attached image." }}"
+                },
+                imageBitmap = primaryImageBitmap,
+                useSystemPrompt = useSystem,
+                temperature = 0.1f,
+                topK = 8,
+                maxOutputTokens = 44,
+                timeoutMs = multimodalTimeoutMs
+            )
+            val parsedMultimodal = multimodalRaw?.let {
+                parseTagTokens(
+                    raw = it,
+                    allowedVocabulary = combinedAllowedVocab,
+                    existingNoteTags = existingLower,
+                    maxTags = cappedMax,
+                    allowNewTopicTags = allowNewTopicTags,
+                    usedFast = usedFast
+                )
+            }.orEmpty()
+            if (parsedMultimodal.isNotEmpty() || contextBlock.isBlank()) {
+                return@withContext parsedMultimodal
+            }
+        }
+
+        val rawResponse = executeGeneration(
+            model = model,
+            systemRule = sysRule,
+            userText = if (useSystem) contextBlock else "Note:\n$contextBlock",
+            imageBitmap = null,
+            useSystemPrompt = useSystem,
+            temperature = 0.1f,
+            topK = 8,
+            maxOutputTokens = 44,
+            timeoutMs = textTimeoutMs
+        ) ?: return@withContext emptyList()
 
         parseTagTokens(
             raw = rawResponse,
@@ -440,9 +460,156 @@ class MlKitGeminiNanoAssistant(
         )
     }
 
+    override suspend fun enhanceOrExtractOcrText(
+        imageBitmap: Bitmap?,
+        rawOcrText: String,
+        rawOcrConfidence: Float,
+        preferFast: Boolean
+    ): String? = withContext(Dispatchers.IO) {
+        val baseline = rawOcrText.trim()
+        val hasImage = imageBitmap != null && !imageBitmap.isRecycled
+        if (!hasImage && baseline.length < 20) return@withContext null
+
+        val (model, usedFast) = selectReadyModel(preferFast = preferFast) ?: return@withContext null
+        val useSystem = supportsSystemPrompt(model)
+        val ocrTimeoutMs = if (usedFast) FAST_OCR_TIMEOUT_MS else FULL_OCR_TIMEOUT_MS
+
+        if (hasImage) {
+            val sysRule = if (baseline.isBlank()) {
+                "Transcribe all readable text in this image verbatim, keeping exact numbers, dates, and line breaks. Output ONLY the extracted text with no commentary. If there is no readable text, output NONE."
+            } else {
+                "Compare this image with the rough OCR draft and output the corrected verbatim text. Fix misread characters, broken words, and reading order without inventing text. Output ONLY the clean text. If unreadable, output NONE."
+            }
+            val userText = if (baseline.isBlank()) {
+                "Extract all readable text verbatim."
+            } else {
+                "Rough OCR draft:\n${baseline.take(1800)}"
+            }
+            val multimodalRaw = executeGeneration(
+                model = model,
+                systemRule = sysRule,
+                userText = userText,
+                imageBitmap = imageBitmap,
+                useSystemPrompt = useSystem,
+                temperature = 0.05f,
+                topK = 8,
+                maxOutputTokens = 384,
+                timeoutMs = ocrTimeoutMs
+            )
+            val cleaned = multimodalRaw?.let { sanitizeOcrAssistantOutput(it, baseline) }
+            if (!cleaned.isNullOrBlank()) return@withContext cleaned
+        }
+
+        if (baseline.length in 20..1800) {
+            val textRule = "Fix obvious OCR character typos, broken hyphenations, and spacing in the text below without changing meaning, numbers, or language. Output ONLY the cleaned text."
+            val textRaw = executeGeneration(
+                model = model,
+                systemRule = textRule,
+                userText = baseline,
+                imageBitmap = null,
+                useSystemPrompt = useSystem,
+                temperature = 0.05f,
+                topK = 8,
+                maxOutputTokens = 384,
+                timeoutMs = if (usedFast) FAST_GENERATE_TIMEOUT_MS else FULL_GENERATE_TIMEOUT_MS
+            )
+            val cleaned = textRaw?.let { sanitizeOcrAssistantOutput(it, baseline) }
+            if (!cleaned.isNullOrBlank()) return@withContext cleaned
+        }
+
+        null
+    }
+
+    override suspend fun expandSearchQuery(
+        query: String,
+        availableTags: List<String>,
+        preferFast: Boolean
+    ): List<String> = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        if (cleanQuery.length < 4) return@withContext emptyList()
+
+        val tagSlice = availableTags.take(24)
+        val cacheKey = "${cleanQuery.lowercase(Locale.ROOT)}|${tagSlice.joinToString(",")}|$preferFast"
+        synchronized(searchCacheLock) {
+            searchExpansionCache[cacheKey]?.let { return@withContext it }
+        }
+
+        val (model, usedFast) = selectReadyModel(preferFast = preferFast) ?: return@withContext emptyList()
+        val useSystem = supportsSystemPrompt(model)
+        val sysRule = "Given a note search query, return 2 to 5 single-word search keywords, synonyms, or matching tags (include English and German equivalents when useful). Comma-separated words only, no explanations. If none, output NONE."
+        val userText = buildString {
+            append("Query: ").append(cleanQuery)
+            if (tagSlice.isNotEmpty()) {
+                append("\nTags: ").append(tagSlice.joinToString(", "))
+            }
+        }
+        val rawResponse = executeGeneration(
+            model = model,
+            systemRule = sysRule,
+            userText = userText,
+            imageBitmap = null,
+            useSystemPrompt = useSystem,
+            temperature = 0.1f,
+            topK = 8,
+            maxOutputTokens = 32,
+            timeoutMs = if (usedFast) SEARCH_FAST_TIMEOUT_MS else SEARCH_FULL_TIMEOUT_MS
+        ) ?: return@withContext emptyList()
+
+        val expanded = parseSearchExpansionTerms(rawResponse, cleanQuery)
+        synchronized(searchCacheLock) {
+            searchExpansionCache[cacheKey] = expanded
+        }
+        expanded
+    }
+
     override fun close() {
         runCatching { fastClient?.close() }
         runCatching { fullClient?.close() }
+    }
+
+    private suspend fun supportsSystemPrompt(model: GenerativeModel): Boolean = runCatching {
+        withTimeoutOrNull(SYSTEM_CHECK_TIMEOUT_MS) { Feature.SYSTEM_PROMPT in model.getAvailableFeatures() } == true
+    }.getOrDefault(false)
+
+    private suspend fun executeGeneration(
+        model: GenerativeModel,
+        systemRule: String,
+        userText: String,
+        imageBitmap: Bitmap?,
+        useSystemPrompt: Boolean,
+        temperature: Float,
+        topK: Int,
+        maxOutputTokens: Int,
+        timeoutMs: Long
+    ): String? = withTimeoutOrNull(timeoutMs) {
+        runCatching {
+            val hasImage = imageBitmap != null && !imageBitmap.isRecycled
+            val finalBody = if (useSystemPrompt) userText else "$systemRule\n\n$userText"
+            val builder = when {
+                hasImage && useSystemPrompt -> GenerateContentRequest.Builder(
+                    SystemInstruction(systemRule),
+                    ImagePart(imageBitmap!!),
+                    TextPart(finalBody)
+                )
+                hasImage -> GenerateContentRequest.Builder(
+                    ImagePart(imageBitmap!!),
+                    TextPart(finalBody)
+                )
+                useSystemPrompt -> GenerateContentRequest.Builder(
+                    SystemInstruction(systemRule),
+                    TextPart(finalBody)
+                )
+                else -> GenerateContentRequest.Builder(TextPart(finalBody))
+            }
+            val request = builder.apply {
+                this.temperature = temperature
+                this.topK = topK
+                this.maxOutputTokens = maxOutputTokens
+                candidateCount = 1
+                enableThinking = false
+            }.build()
+            model.generateContent(request).candidates.firstOrNull()?.text
+        }.getOrNull()
     }
 
     private suspend fun selectReadyModel(preferFast: Boolean): Pair<GenerativeModel, Boolean>? {
@@ -577,10 +744,17 @@ class MlKitGeminiNanoAssistant(
     }
 
     private companion object {
+        const val MAX_SEARCH_CACHE_ENTRIES = 32
         const val STATUS_TIMEOUT_MS = 1_500L
         const val SYSTEM_CHECK_TIMEOUT_MS = 400L
         const val FAST_GENERATE_TIMEOUT_MS = 2_500L
         const val FULL_GENERATE_TIMEOUT_MS = 4_500L
+        const val FAST_MULTIMODAL_TIMEOUT_MS = 3_500L
+        const val FULL_MULTIMODAL_TIMEOUT_MS = 5_500L
+        const val FAST_OCR_TIMEOUT_MS = 4_500L
+        const val FULL_OCR_TIMEOUT_MS = 7_000L
+        const val SEARCH_FAST_TIMEOUT_MS = 1_200L
+        const val SEARCH_FULL_TIMEOUT_MS = 2_000L
         const val PROBE_CACHE_TTL_MS = 60_000L
         const val DOWNLOADING_CACHE_TTL_MS = 5_000L
         val LEADING_BULLET_OR_NUMBER_REGEX = Regex("""^(?:[-*•]\s*|\d+[.)]\s*)""")
@@ -588,9 +762,99 @@ class MlKitGeminiNanoAssistant(
             """^(?:title|titles|titel|suggestion|suggested tags|tags|tag|kategorien|categories)\s*:\s*""",
             RegexOption.IGNORE_CASE
         )
-        val REFUSAL_PREFIXES = listOf("sure,", "sure!", "here are", "here is", "sorry", "hier sind", "natürlich")
-        val REFUSAL_OR_GENERIC_TOKENS = setOf(
-            "tag", "tags", "note", "notes", "notiz", "none", "n/a", "no tags", "keine", "misc", "other", "general"
+        val LEADING_OCR_LABEL_REGEX = Regex(
+            """^(?:extracted text|recognized text|transcribed text|cleaned text|corrected text|ocr text|ocr|text)\s*:\s*""",
+            RegexOption.IGNORE_CASE
         )
+        val LEADING_SEARCH_PREAMBLE_REGEX = Regex(
+            """^(?:sure|certainly|here(?:\s+are|\s+is)|keywords|search\s+terms|synonyms|terms|tags|hier\s+sind)[^:\n]{0,40}:\s*""",
+            RegexOption.IGNORE_CASE
+        )
+        val REFUSAL_PREFIXES = listOf("sure,", "sure!", "here are", "here is", "sorry", "hier sind", "natürlich")
+        val OCR_DESCRIPTION_PREFIXES = listOf(
+            "the image shows", "this image shows", "in this image", "i can see", "there is no",
+            "no readable text", "das bild zeigt", "auf dem bild", "im bild sieht man"
+        )
+        val REFUSAL_OR_GENERIC_TOKENS = setOf(
+            "tag", "tags", "note", "notes", "notiz", "none", "n/a", "no tags", "keine", "misc", "other", "general",
+            "sure", "here", "okay", "certainly", "keywords", "synonyms", "terms", "hier", "natürlich", "gerne"
+        )
+        val EMPTY_OCR_MARKERS = setOf("none", "n/a", "na", "no text", "no readable text", "keine", "kein text")
+        val CODE_FENCE_REGEX = Regex("""^```[a-zA-Z]*\s*\n?|\n?```$""")
     }
+
+    internal object Parsers {
+        fun sanitizeOcrAssistantOutput(rawResponse: String, baselineOcr: String): String? {
+            var cleaned = rawResponse.trim()
+                .replace(LEADING_OCR_LABEL_REGEX, "")
+                .trim()
+                .replace(CODE_FENCE_REGEX, "")
+                .trim()
+                .replace(LEADING_OCR_LABEL_REGEX, "")
+                .trim()
+            if (cleaned.isBlank()) return null
+
+            val lower = cleaned.lowercase(Locale.ROOT)
+            if (lower in EMPTY_OCR_MARKERS) return null
+            if (REFUSAL_PREFIXES.any { lower.startsWith(it) || "i cannot" in lower || "i'm sorry" in lower || "as an ai" in lower }) {
+                return null
+            }
+            if (OCR_DESCRIPTION_PREFIXES.any { lower.startsWith(it) }) return null
+
+            cleaned = OcrTextPostProcessor.cleanRecognizedText(cleaned)
+            if (cleaned.isBlank()) return null
+
+            val baseClean = baselineOcr.trim()
+            if (baseClean.length >= 40) {
+                val maxAllowedLen = (baseClean.length * 1.65).toInt() + 80
+                val minAllowedLen = (baseClean.length * 0.45).toInt()
+                if (cleaned.length > maxAllowedLen || cleaned.length < minAllowedLen) {
+                    return null
+                }
+            }
+            return cleaned
+        }
+
+        fun parseSearchExpansionTerms(rawResponse: String, originalQuery: String): List<String> {
+            val originalTokens = originalQuery.lowercase(Locale.ROOT)
+                .split(Regex("\\s+"))
+                .map { it.trim(',', '.', ';', ':', '?', '!') }
+                .filter { it.isNotEmpty() }
+                .toSet()
+
+            val seen = HashSet<String>()
+            val result = ArrayList<String>(5)
+            val normalized = rawResponse.lineSequence().joinToString(",") { line ->
+                line.trim()
+                    .replace(LEADING_SEARCH_PREAMBLE_REGEX, "")
+                    .replace(LEADING_BULLET_OR_NUMBER_REGEX, "")
+                    .replace(LEADING_TITLE_LABEL_REGEX, "")
+            }
+            for (rawTok in normalized.split(',', '\n', ';')) {
+                val clean = rawTok.trim()
+                    .replace(LEADING_BULLET_OR_NUMBER_REGEX, "")
+                    .removePrefix("#")
+                    .trim('"', '\'', '.', ':', '!', '*', '`', ' ', '(', ')')
+                val lower = clean.lowercase(Locale.ROOT)
+                if (clean.length !in 3..22) continue
+                if (clean.any { it.isWhitespace() }) continue
+                if (!clean.any { it.isLetter() }) continue
+                if (lower in originalTokens) continue
+                if (lower in REFUSAL_OR_GENERIC_TOKENS) continue
+                if (REFUSAL_PREFIXES.any { lower.startsWith(it) }) continue
+                if (SmartTagsEngine.isGenericStopword(lower)) continue
+                if (seen.add(lower)) {
+                    result += clean
+                    if (result.size >= 5) break
+                }
+            }
+            return result
+        }
+    }
+
+    private fun sanitizeOcrAssistantOutput(rawResponse: String, baselineOcr: String): String? =
+        Parsers.sanitizeOcrAssistantOutput(rawResponse, baselineOcr)
+
+    private fun parseSearchExpansionTerms(rawResponse: String, originalQuery: String): List<String> =
+        Parsers.parseSearchExpansionTerms(rawResponse, originalQuery)
 }

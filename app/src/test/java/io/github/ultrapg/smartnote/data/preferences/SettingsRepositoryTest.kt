@@ -63,6 +63,11 @@ class SettingsRepositoryTest {
         assertFalse(defaults.fetchLinkPreviews)
         assertTrue(defaults.semanticRerankEnabled)
         assertTrue(defaults.effectiveSemanticRerankEnabled)
+        assertTrue(defaults.allowNewTopicTags)
+        assertTrue(defaults.useGeminiNanoForOcr)
+        assertTrue(defaults.effectiveUseGeminiNanoForOcr)
+        assertTrue(defaults.useGeminiNanoForSearch)
+        assertTrue(defaults.effectiveUseGeminiNanoForSearch)
         assertEquals(AiBackendPreference.AUTO, defaults.aiBackendPreference)
 
         repo.setThemePalette(ThemePalette.AMOLED)
@@ -96,6 +101,9 @@ class SettingsRepositoryTest {
         assertTrue(enabledAgain.effectiveAutoTitleEnabled)
 
         repo.setAutoTitleEnabled(false)
+        repo.setAllowNewTopicTags(false)
+        repo.setUseGeminiNanoForOcr(false)
+        repo.setUseGeminiNanoForSearch(false)
         val restored = repo.settingsFlow.first()
         assertTrue(restored.aiFeaturesEnabled)
         assertTrue(restored.effectiveSmartTagsEnabled)
@@ -104,5 +112,10 @@ class SettingsRepositoryTest {
         assertTrue(restored.effectiveSemanticRerankEnabled)
         assertFalse(restored.autoTitleEnabled)
         assertFalse(restored.effectiveAutoTitleEnabled)
+        assertFalse(restored.allowNewTopicTags)
+        assertFalse(restored.useGeminiNanoForOcr)
+        assertFalse(restored.effectiveUseGeminiNanoForOcr)
+        assertFalse(restored.useGeminiNanoForSearch)
+        assertFalse(restored.effectiveUseGeminiNanoForSearch)
     }
 }

@@ -389,7 +389,8 @@ fun SmartNoteApp(
                             systemEntityAnalyzer = container.systemEntityAnalyzer,
                             imageLabelingEngine = container.imageLabelingEngine,
                             geminiNanoAssistant = container.geminiNanoAssistant,
-                            smartTaggingCoordinator = container.smartTaggingCoordinator
+                            smartTaggingCoordinator = container.smartTaggingCoordinator,
+                            smartOcrCoordinator = container.smartOcrCoordinator
                         )
                     )
                     val uiState by vm.uiState.collectAsState()
@@ -407,6 +408,8 @@ fun SmartNoteApp(
                         onInsertMarkdown = vm::wrapOrInsertMarkdownSnippet,
                         onImportImages = vm::importImages,
                         onRemoveImageBlock = vm::removeImageBlock,
+                        onRescanAttachmentOcr = vm::rescanAttachmentOcr,
+                        onInsertOcrText = vm::insertOcrTextIntoNote,
                         onTogglePin = vm::togglePin,
                         onToggleArchive = vm::toggleArchive,
                         onDuplicateNote = {

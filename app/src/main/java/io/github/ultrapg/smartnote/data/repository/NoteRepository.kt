@@ -501,6 +501,27 @@ class NoteRepository(
         onNoteChangedForBackground(noteId)
     }
 
+    suspend fun updateAttachmentOcrResult(
+        noteId: String,
+        attachmentId: String,
+        recognizedText: String,
+        confidence: Float,
+        status: OcrStatus
+    ) {
+        val now = System.currentTimeMillis()
+        attachmentDao.upsertOcrResult(
+            OcrResultEntity(
+                attachmentId = attachmentId,
+                recognizedText = recognizedText,
+                avgConfidence = confidence,
+                status = status.name,
+                processedAtMs = now
+            )
+        )
+        searchIndexer.indexNote(noteId)
+        onNotesUiMutated()
+    }
+
     suspend fun removeAttachmentBlock(noteId: String, blockId: String, attachmentId: String?) {
         val detail = getNoteDetail(noteId) ?: return
         if (attachmentId != null) {

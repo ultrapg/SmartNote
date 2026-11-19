@@ -403,7 +403,7 @@ fun SmartFeaturesSettingsScreen(
         )
         SettingsSwitchRow(
             title = "Allow new topic tags",
-            subtitle = "When off, SmartNote sticks to curated categories and your own tags to avoid noisy single-word guesses",
+            subtitle = "Let SmartNote propose specific new topic tags when curated categories don't fully describe a note",
             checked = tagsConfigEnabled && settings.allowNewTopicTags,
             enabled = tagsConfigEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setAllowNewTopicTags(it) } }
@@ -602,39 +602,33 @@ fun SmartFeaturesSettingsScreen(
                             )
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable(enabled = variantEnabled) {
-                                    scope.launch {
-                                        settingsRepository.setUseGeminiNanoForTitles(!settings.useGeminiNanoForTitles)
-                                    }
-                                }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Use Gemini Nano for titles",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (variantEnabled) 1f else 0.38f)
-                                )
-                                Text(
-                                    text = "Synthesize titles with Gemini Nano when available",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (variantEnabled) 1f else 0.38f)
-                                )
+                        NanoCardToggleRow(
+                            title = "Use Gemini Nano for titles",
+                            subtitle = "Synthesize titles from note text and attached images with Gemini Nano",
+                            checked = settings.useGeminiNanoForTitles,
+                            enabled = variantEnabled,
+                            onCheckedChange = {
+                                scope.launch { settingsRepository.setUseGeminiNanoForTitles(it) }
                             }
-                            Switch(
-                                checked = settings.useGeminiNanoForTitles,
-                                enabled = variantEnabled,
-                                onCheckedChange = {
-                                    scope.launch { settingsRepository.setUseGeminiNanoForTitles(it) }
-                                }
-                            )
-                        }
+                        )
+                        NanoCardToggleRow(
+                            title = "Use Gemini Nano for OCR",
+                            subtitle = "Read hard-to-scan images and refine ML Kit text recognition with Gemini Nano",
+                            checked = settings.useGeminiNanoForOcr && settings.ocrEnabled,
+                            enabled = variantEnabled && settings.ocrEnabled,
+                            onCheckedChange = {
+                                scope.launch { settingsRepository.setUseGeminiNanoForOcr(it) }
+                            }
+                        )
+                        NanoCardToggleRow(
+                            title = "Use Gemini Nano for Search",
+                            subtitle = "Understand natural queries and synonyms with Gemini Nano, falling back to local search automatically",
+                            checked = settings.useGeminiNanoForSearch,
+                            enabled = variantEnabled,
+                            onCheckedChange = {
+                                scope.launch { settingsRepository.setUseGeminiNanoForSearch(it) }
+                            }
+                        )
                     }
                 }
             }
@@ -1606,6 +1600,44 @@ private fun SettingsSwitchRow(
             }
             Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
         }
+    }
+}
+
+@Composable
+private fun NanoCardToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val contentAlpha = if (enabled) 1f else 0.38f
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
+            )
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+            )
+        }
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange
+        )
     }
 }
 

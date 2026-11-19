@@ -51,6 +51,8 @@ class SettingsRepository(
         val GEMINI_NANO_MODE = stringPreferencesKey("gemini_nano_mode")
         val GEMINI_NANO_VARIANT = stringPreferencesKey("gemini_nano_variant")
         val USE_GEMINI_NANO_FOR_TITLES = booleanPreferencesKey("use_gemini_nano_for_titles")
+        val USE_GEMINI_NANO_FOR_OCR = booleanPreferencesKey("use_gemini_nano_for_ocr")
+        val USE_GEMINI_NANO_FOR_SEARCH = booleanPreferencesKey("use_gemini_nano_for_search")
         val TITLE_STYLE = stringPreferencesKey("title_style")
     }
 
@@ -70,8 +72,11 @@ class SettingsRepository(
             semanticRerankEnabled = prefs.getBoolean("semantic_rerank_enabled_v2", true),
             maxPredictedTags = prefs.getInt("max_predicted_tags", 3).coerceIn(1, 6),
             tagSensitivity = enumOrDefault(prefs.getString("tag_sensitivity", null), TagPredictionSensitivity.BALANCED),
+            allowNewTopicTags = prefs.getBoolean("allow_new_topic_tags", true),
             geminiNanoMode = enumOrDefault(prefs.getString("gemini_nano_mode", null), GeminiNanoMode.AUTO_HYBRID),
             geminiNanoVariant = enumOrDefault(prefs.getString("gemini_nano_variant", null), GeminiNanoVariant.FAST_FIRST),
+            useGeminiNanoForOcr = prefs.getBoolean("use_gemini_nano_for_ocr", true),
+            useGeminiNanoForSearch = prefs.getBoolean("use_gemini_nano_for_search", true),
             titleStyle = enumOrDefault(prefs.getString("title_style", null), TitleStylePreference.CONCISE)
         )
     }
@@ -87,8 +92,11 @@ class SettingsRepository(
             ?.putBoolean("semantic_rerank_enabled_v2", snapshot.semanticRerankEnabled)
             ?.putInt("max_predicted_tags", snapshot.effectiveMaxPredictedTags)
             ?.putString("tag_sensitivity", snapshot.tagSensitivity.name)
+            ?.putBoolean("allow_new_topic_tags", snapshot.allowNewTopicTags)
             ?.putString("gemini_nano_mode", snapshot.geminiNanoMode.name)
             ?.putString("gemini_nano_variant", snapshot.geminiNanoVariant.name)
+            ?.putBoolean("use_gemini_nano_for_ocr", snapshot.useGeminiNanoForOcr)
+            ?.putBoolean("use_gemini_nano_for_search", snapshot.useGeminiNanoForSearch)
             ?.putString("title_style", snapshot.titleStyle.name)
             ?.apply()
     }
@@ -119,7 +127,7 @@ class SettingsRepository(
                     prefs[Keys.TAG_SENSITIVITY],
                     TagPredictionSensitivity.BALANCED
                 ),
-                allowNewTopicTags = prefs[Keys.ALLOW_NEW_TOPIC_TAGS] ?: false,
+                allowNewTopicTags = prefs[Keys.ALLOW_NEW_TOPIC_TAGS] ?: true,
                 preferExistingTags = prefs[Keys.PREFER_EXISTING_TAGS] ?: true,
                 learnFromUserTags = prefs[Keys.LEARN_FROM_USER_TAGS] ?: true,
                 useImageLabelingForAi = prefs[Keys.USE_IMAGE_LABELING_FOR_AI] ?: true,
@@ -134,6 +142,8 @@ class SettingsRepository(
                     GeminiNanoVariant.FAST_FIRST
                 ),
                 useGeminiNanoForTitles = prefs[Keys.USE_GEMINI_NANO_FOR_TITLES] ?: true,
+                useGeminiNanoForOcr = prefs[Keys.USE_GEMINI_NANO_FOR_OCR] ?: true,
+                useGeminiNanoForSearch = prefs[Keys.USE_GEMINI_NANO_FOR_SEARCH] ?: true,
                 titleStyle = enumOrDefault(
                     prefs[Keys.TITLE_STYLE],
                     TitleStylePreference.CONCISE
@@ -242,6 +252,7 @@ class SettingsRepository(
 
     suspend fun setAllowNewTopicTags(enabled: Boolean) {
         currentSnapshot = currentSnapshot.copy(allowNewTopicTags = enabled)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.ALLOW_NEW_TOPIC_TAGS] = enabled }
     }
 
@@ -285,6 +296,18 @@ class SettingsRepository(
     suspend fun setUseGeminiNanoForTitles(enabled: Boolean) {
         currentSnapshot = currentSnapshot.copy(useGeminiNanoForTitles = enabled)
         dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_TITLES] = enabled }
+    }
+
+    suspend fun setUseGeminiNanoForOcr(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(useGeminiNanoForOcr = enabled)
+        persistBootCache(currentSnapshot)
+        dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_OCR] = enabled }
+    }
+
+    suspend fun setUseGeminiNanoForSearch(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(useGeminiNanoForSearch = enabled)
+        persistBootCache(currentSnapshot)
+        dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_SEARCH] = enabled }
     }
 
     suspend fun setTitleStyle(style: TitleStylePreference) {

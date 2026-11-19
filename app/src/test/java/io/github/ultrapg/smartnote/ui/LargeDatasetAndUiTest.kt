@@ -212,7 +212,11 @@ class LargeDatasetAndUiTest {
         // New AI tag settings & auto-detected model status render cleanly
         composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Allow new topic tags").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        runBlocking {
+            assertTrue(app.container.settingsRepository.settingsFlow.first().allowNewTopicTags)
+        }
         composeRule.onNodeWithText("6").performScrollTo().performClick()
         composeRule.onNodeWithText("Broad").performScrollTo().performClick()
         composeRule.waitUntil(3_000L) {
@@ -264,7 +268,11 @@ class LargeDatasetAndUiTest {
         // New AI tag settings & auto-detected model status render cleanly
         composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Allow new topic tags").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        runBlocking {
+            assertTrue(app.container.settingsRepository.settingsFlow.first().allowNewTopicTags)
+        }
         composeRule.onNodeWithText("6").performScrollTo().performClick()
         composeRule.onNodeWithText("Broad").performScrollTo().performClick()
         composeRule.waitUntil(3_000L) {

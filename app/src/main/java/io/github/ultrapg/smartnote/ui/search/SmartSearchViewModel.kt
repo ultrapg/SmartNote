@@ -6,15 +6,18 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.TagInfo
 import io.github.ultrapg.smartnote.search.SearchDateFilter
 import io.github.ultrapg.smartnote.search.SearchFilterSpec
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
 import io.github.ultrapg.smartnote.search.SmartSearchResultItem
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -29,6 +32,7 @@ data class SmartSearchUiState(
     val filter: SearchFilterSpec = SearchFilterSpec(),
     val results: List<SmartSearchResultItem> = emptyList(),
     val didYouMeanSuggestion: String? = null,
+    val aiExpandedTerms: List<String> = emptyList(),
     val recentSearches: List<String> = emptyList(),
     val recentSearchesEnabled: Boolean = true,
     val availableTags: List<TagInfo> = emptyList(),
@@ -47,11 +51,27 @@ class SmartSearchViewModel(
     private val filterFlow = MutableStateFlow(SearchFilterSpec())
     private val searchResultState = MutableStateFlow(SearchOutcome())
 
+    @Volatile
+    private var latestTagNames: List<String> = emptyList()
+
     private data class SearchOutcome(
         val results: List<SmartSearchResultItem> = emptyList(),
         val didYouMean: String? = null,
+        val aiExpandedTerms: List<String> = emptyList(),
         val durationMs: Long = 0L,
         val isSearching: Boolean = false
+    )
+
+    private data class SearchAiFlags(
+        val semanticRerank: Boolean,
+        val useNanoSearch: Boolean,
+        val nanoVariant: GeminiNanoVariant
+    )
+
+    private data class SearchTrigger(
+        val query: String,
+        val filter: SearchFilterSpec,
+        val aiFlags: SearchAiFlags
     )
 
     val uiState: StateFlow<SmartSearchUiState> = combine(
@@ -77,6 +97,7 @@ class SmartSearchViewModel(
             filter = filter,
             results = outcome.results,
             didYouMeanSuggestion = outcome.didYouMean,
+            aiExpandedTerms = outcome.aiExpandedTerms,
             recentSearches = if (settings.recentSearchesEnabled) recent else emptyList(),
             recentSearchesEnabled = settings.recentSearchesEnabled,
             availableTags = tags,
@@ -91,24 +112,63 @@ class SmartSearchViewModel(
 
     init {
         viewModelScope.launch {
+            tagRepository.observeAllTags().collect { list ->
+                latestTagNames = list.map { it.name }
+            }
+        }
+        viewModelScope.launch {
             combine(
                 queryFlow.debounce(90L),
                 filterFlow,
-                settingsRepository.settingsFlow.map { it.effectiveSemanticRerankEnabled }.distinctUntilChanged()
-            ) { q, f, semantic -> Triple(q, f, semantic) }
-                .collect { (query, filter, semantic) ->
+                settingsRepository.settingsFlow
+                    .map {
+                        SearchAiFlags(
+                            semanticRerank = it.effectiveSemanticRerankEnabled,
+                            useNanoSearch = it.effectiveUseGeminiNanoForSearch,
+                            nanoVariant = it.geminiNanoVariant
+                        )
+                    }
+                    .distinctUntilChanged()
+            ) { q, f, aiFlags -> SearchTrigger(q, f, aiFlags) }
+                .collectLatest { (query, filter, aiFlags) ->
                     searchResultState.update { it.copy(isSearching = true) }
-                    val response = searchEngine.search(
+                    val stage1 = searchEngine.search(
                         rawQuery = query,
                         filter = filter,
-                        enableSemanticRerank = semantic
+                        enableSemanticRerank = aiFlags.semanticRerank,
+                        enableAiQueryExpansion = false
                     )
                     searchResultState.value = SearchOutcome(
-                        results = response.results,
-                        didYouMean = response.didYouMeanSuggestion,
-                        durationMs = response.durationMs,
+                        results = stage1.results,
+                        didYouMean = stage1.didYouMeanSuggestion,
+                        aiExpandedTerms = emptyList(),
+                        durationMs = stage1.durationMs,
                         isSearching = false
                     )
+
+                    val trimmed = query.trim()
+                    if (aiFlags.useNanoSearch &&
+                        trimmed.length >= 4 &&
+                        (stage1.results.size < 4 || trimmed.contains(' '))
+                    ) {
+                        delay(220L)
+                        val stage2 = searchEngine.search(
+                            rawQuery = query,
+                            filter = filter,
+                            enableSemanticRerank = aiFlags.semanticRerank,
+                            enableAiQueryExpansion = true,
+                            availableTags = latestTagNames
+                        )
+                        if (stage2.aiExpandedTerms.isNotEmpty() || stage2.results.size > stage1.results.size) {
+                            searchResultState.value = SearchOutcome(
+                                results = stage2.results,
+                                didYouMean = stage2.didYouMeanSuggestion,
+                                aiExpandedTerms = stage2.aiExpandedTerms,
+                                durationMs = stage2.durationMs,
+                                isSearching = false
+                            )
+                        }
+                    }
                 }
         }
     }

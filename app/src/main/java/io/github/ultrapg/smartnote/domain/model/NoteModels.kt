@@ -130,7 +130,7 @@ data class AppSettings(
     val backgroundAnalysisEnabled: Boolean = true,
     val maxPredictedTags: Int = 3,
     val tagSensitivity: TagPredictionSensitivity = TagPredictionSensitivity.BALANCED,
-    val allowNewTopicTags: Boolean = false,
+    val allowNewTopicTags: Boolean = true,
     val preferExistingTags: Boolean = true,
     val learnFromUserTags: Boolean = true,
     val useImageLabelingForAi: Boolean = true,
@@ -139,6 +139,8 @@ data class AppSettings(
     val geminiNanoMode: GeminiNanoMode = GeminiNanoMode.AUTO_HYBRID,
     val geminiNanoVariant: GeminiNanoVariant = GeminiNanoVariant.FAST_FIRST,
     val useGeminiNanoForTitles: Boolean = true,
+    val useGeminiNanoForOcr: Boolean = true,
+    val useGeminiNanoForSearch: Boolean = true,
     val titleStyle: TitleStylePreference = TitleStylePreference.CONCISE
 ) {
     val effectiveSmartTagsEnabled: Boolean get() = aiFeaturesEnabled && smartTagsEnabled
@@ -152,6 +154,8 @@ data class AppSettings(
     val effectiveUseSemanticEmbeddingsForTags: Boolean get() = aiFeaturesEnabled && useSemanticEmbeddingsForTags
     val effectiveGeminiNanoEnabled: Boolean get() = aiFeaturesEnabled && geminiNanoMode != GeminiNanoMode.OFF
     val effectiveUseGeminiNanoForTitles: Boolean get() = effectiveGeminiNanoEnabled && useGeminiNanoForTitles
+    val effectiveUseGeminiNanoForOcr: Boolean get() = effectiveOcrEnabled && effectiveGeminiNanoEnabled && useGeminiNanoForOcr
+    val effectiveUseGeminiNanoForSearch: Boolean get() = effectiveGeminiNanoEnabled && useGeminiNanoForSearch
     val effectiveMaxTitleLength: Int get() = if (titleStyle == TitleStylePreference.DESCRIPTIVE) 64 else 44
 }
 

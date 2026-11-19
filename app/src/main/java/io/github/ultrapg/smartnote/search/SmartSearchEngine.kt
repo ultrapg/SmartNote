@@ -58,7 +58,8 @@ data class SmartSearchResponse(
     val results: List<SmartSearchResultItem>,
     val didYouMeanSuggestion: String?,
     val queryTokens: List<String>,
-    val durationMs: Long
+    val durationMs: Long,
+    val aiExpandedTerms: List<String> = emptyList()
 )
 
 data class ParsedSearchQuery(
@@ -201,24 +202,10 @@ object FuzzyVocabMatcher {
 class SmartSearchEngine(
     private val database: SmartNoteDatabase,
     private val noteRepository: NoteRepository,
-    private val semanticScoreProvider: (suspend (query: String, candidateIds: List<String>) -> Map<String, Float>)? = null
+    private val semanticScoreProvider: (suspend (query: String, candidateIds: List<String>) -> Map<String, Float>)? = null,
+    private val aiQueryExpander: (suspend (query: String, availableTags: List<String>) -> List<String>)? = null
 ) {
-    private val synonyms: Map<String, List<String>> = mapOf(
-        "bug" to listOf("error", "exception", "crash"),
-        "error" to listOf("exception", "crash", "failure"),
-        "crash" to listOf("exception", "error", "fatal"),
-        "pic" to listOf("screenshot", "image", "photo"),
-        "photo" to listOf("image", "screenshot"),
-        "screenshot" to listOf("image", "capture"),
-        "todo" to listOf("task", "checklist"),
-        "task" to listOf("todo", "checklist"),
-        "link" to listOf("url", "website"),
-        "url" to listOf("link", "website"),
-        "shop" to listOf("grocery", "shopping"),
-        "buy" to listOf("shopping", "grocery"),
-        "doc" to listOf("document", "notes"),
-        "code" to listOf("programming", "kotlin", "android")
-    )
+    private val synonyms: Map<String, List<String>> = buildBilingualSynonyms()
 
     fun observeRecentSearches(): Flow<List<String>> =
         database.searchAndMaintenanceDao().observeRecentSearches().map { list ->
@@ -245,6 +232,8 @@ class SmartSearchEngine(
         rawQuery: String,
         filter: SearchFilterSpec = SearchFilterSpec(),
         enableSemanticRerank: Boolean = false,
+        enableAiQueryExpansion: Boolean = false,
+        availableTags: List<String> = emptyList(),
         nowMs: Long = System.currentTimeMillis()
     ): SmartSearchResponse = withContext(Dispatchers.IO) {
         val startNs = System.nanoTime()
@@ -357,7 +346,55 @@ class SmartSearchEngine(
             }
         }
 
-        val candidateIds = (ftsScores.keys + trigramHits + fuzzyBoosts.keys).toSet()
+        // 4. Optional Gemini Nano query understanding / expansion (OR-matched below direct lexical hits)
+        val aiExpandedBoosts = HashMap<String, Double>()
+        val aiExpandedTerms = mutableListOf<String>()
+        val trimmedRawQuery = rawQuery.trim()
+        val expander = aiQueryExpander
+        if (enableAiQueryExpansion &&
+            expander != null &&
+            trimmedRawQuery.length >= 4 &&
+            (ftsScores.size < 4 || tokens.size >= 2)
+        ) {
+            val tokenSetLower = tokens.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
+            val suggested = runCatching { expander.invoke(trimmedRawQuery, availableTags) }.getOrDefault(emptyList())
+            val seenExpanded = HashSet<String>()
+            for (rawTerm in suggested) {
+                val clean = SearchQueryParser.sanitizeToken(rawTerm)
+                    .split(' ')
+                    .firstOrNull()
+                    .orEmpty()
+                val lower = clean.lowercase(Locale.ROOT)
+                if (clean.length >= 3 && lower !in tokenSetLower && seenExpanded.add(lower)) {
+                    aiExpandedTerms += clean
+                    if (aiExpandedTerms.size >= 5) break
+                }
+            }
+
+            if (aiExpandedTerms.isNotEmpty()) {
+                val aiFtsExpr = aiExpandedTerms.joinToString(" OR ") { term ->
+                    "${SearchQueryParser.escapeFtsToken(term)}*"
+                }
+                queryFts5Bm25(aiFtsExpr).forEach { (noteId, negBm25, snippet) ->
+                    if (noteId in summaryMap) {
+                        aiExpandedBoosts[noteId] = (negBm25 * 0.55).coerceIn(1.0, 9.0)
+                        if (snippet.isNotBlank()) ftsSnippets.putIfAbsent(noteId, snippet)
+                    }
+                }
+                for (summary in allSummaries) {
+                    val tagMatched = summary.tags.any { tag ->
+                        val lowerTag = tag.name.lowercase(Locale.ROOT)
+                        aiExpandedTerms.any { expTok -> lowerTag.contains(expTok.lowercase(Locale.ROOT)) }
+                    }
+                    if (tagMatched) {
+                        val current = aiExpandedBoosts[summary.id] ?: 0.0
+                        aiExpandedBoosts[summary.id] = (current + 5.5).coerceAtMost(9.0)
+                    }
+                }
+            }
+        }
+
+        val candidateIds = (ftsScores.keys + trigramHits + fuzzyBoosts.keys + aiExpandedBoosts.keys).toSet()
         val semanticBonuses = if (enableSemanticRerank && semanticScoreProvider != null && candidateIds.isNotEmpty()) {
             semanticScoreProvider.invoke(tokens.joinToString(" "), candidateIds.take(50))
         } else {
@@ -365,8 +402,12 @@ class SmartSearchEngine(
         }
 
         val joinedQuery = tokens.joinToString(" ").lowercase(Locale.ROOT)
-        val highlightList = (tokens + correctedHighlightTerms + tokens.flatMap { synonyms[it].orEmpty() })
-            .distinct()
+        val highlightList = (
+            tokens +
+                correctedHighlightTerms +
+                aiExpandedTerms +
+                tokens.flatMap { synonyms[foldGermanUmlauts(it.lowercase(Locale.ROOT))].orEmpty() }
+            ).distinct()
 
         val scoredResults = candidateIds.mapNotNull { noteId ->
             val summary = summaryMap[noteId] ?: return@mapNotNull null
@@ -401,7 +442,13 @@ class SmartSearchEngine(
                 }
             ) 40.0 else 0.0
             val prefixTitleBonus = if (exactTitleBonus == 0.0 && tokens.any { lowerTitle.contains(it) }) 20.0 else 0.0
-            val bm25Component = ftsScores[noteId] ?: fuzzyBoosts[noteId] ?: if (noteId in trigramHits) 4.0 else 0.0
+            val directLexicalBonus = if (noteId in ftsScores || noteId in trigramHits) 12.0 else 0.0
+            val aiScore = aiExpandedBoosts[noteId]
+            val bm25Component = ftsScores[noteId]
+                ?: fuzzyBoosts[noteId]
+                ?: aiScore
+                ?: if (noteId in trigramHits) 4.0 else 0.0
+            val aiReinforcement = if (ftsScores[noteId] != null && aiScore != null) aiScore * 0.25 else 0.0
             val tagMatchRatio = if (summary.tags.isEmpty()) 0.0 else {
                 val hits = tokens.count { tok -> summary.tags.any { it.name.lowercase(Locale.ROOT).contains(tok) } }
                 hits.toDouble() / tokens.size.toDouble()
@@ -416,8 +463,9 @@ class SmartSearchEngine(
             val recencyBonus = 3.0 * exp(-ageDays / 30.0)
             val semanticBonus = (semanticBonuses[noteId] ?: 0f) * 8.0
 
-            val totalScore = exactTitleBonus + prefixTitleBonus + bm25Component +
-                (12.0 * tagMatchRatio) + ocrPenaltyOrBoost + pinnedBonus + recencyBonus + semanticBonus
+            val totalScore = directLexicalBonus + exactTitleBonus + prefixTitleBonus + bm25Component +
+                aiReinforcement + (12.0 * tagMatchRatio) + ocrPenaltyOrBoost + pinnedBonus +
+                recencyBonus + semanticBonus
 
             val ocrSnippet = if (SearchMatchField.OCR in matchedFields) {
                 extractSnippetWindow(summary.ocrSnippet.orEmpty(), highlightList)
@@ -439,7 +487,8 @@ class SmartSearchEngine(
             results = scoredResults,
             didYouMeanSuggestion = didYouMeanParts?.joinToString(" "),
             queryTokens = tokens,
-            durationMs = elapsedMs
+            durationMs = elapsedMs,
+            aiExpandedTerms = aiExpandedTerms
         )
     }
 
@@ -450,13 +499,58 @@ class SmartSearchEngine(
             if (token.isBlank()) return@mapNotNull null
             val variants = linkedSetOf("${SearchQueryParser.escapeFtsToken(token)}*")
             if (includeSynonyms) {
-                synonyms[token]?.forEach { syn ->
+                val folded = foldGermanUmlauts(token.lowercase(Locale.ROOT))
+                synonyms[folded]?.forEach { syn ->
                     variants += "${SearchQueryParser.escapeFtsToken(syn)}*"
                 }
             }
             if (variants.size == 1) variants.first() else "(${variants.joinToString(" OR ")})"
         }
         return if (clauses.isEmpty()) null else clauses.joinToString(" AND ")
+    }
+
+    private fun foldGermanUmlauts(input: String): String =
+        input.replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+            .replace("ß", "ss")
+
+    private fun buildBilingualSynonyms(): Map<String, List<String>> {
+        val clusters = listOf(
+            listOf("bug", "error", "exception", "crash", "failure", "fehler"),
+            listOf("pic", "photo", "screenshot", "image", "capture", "bild", "foto"),
+            listOf("todo", "task", "checklist", "aufgabe", "checkliste"),
+            listOf("link", "url", "website", "webseite"),
+            listOf("doc", "document", "dokument", "notes", "notiz"),
+            listOf("code", "programming", "kotlin", "android"),
+            listOf("shop", "buy", "shopping", "grocery", "groceries", "einkauf", "supermarkt", "kaufen"),
+            listOf("doctor", "arzt", "health", "gesundheit", "pharmacy", "apotheke", "medicine", "medikament"),
+            listOf("flight", "flug", "hotel", "travel", "reise", "urlaub", "trip", "booking", "buchung"),
+            listOf("invoice", "rechnung", "receipt", "quittung", "tax", "steuer", "budget", "money", "geld", "payment"),
+            listOf("password", "passwort", "login", "wifi", "wlan", "account", "konto"),
+            listOf("recipe", "rezept", "cook", "kochen", "food", "essen", "dinner", "restaurant"),
+            listOf("meeting", "besprechung", "termin", "agenda", "work", "arbeit", "project", "projekt"),
+            listOf("car", "auto", "garage", "werkstatt", "repair", "reparatur"),
+            listOf("dog", "hund", "cat", "katze", "pet", "haustier", "vet", "tierarzt"),
+            listOf("movie", "film", "series", "serie", "book", "buch", "reading", "lesen"),
+            listOf("workout", "fitness", "gym", "sport", "training"),
+            listOf("gift", "geschenk", "birthday", "geburtstag", "party"),
+            listOf("home", "haus", "wohnung", "rent", "miete", "cleaning", "putzen")
+        )
+        val map = LinkedHashMap<String, MutableList<String>>()
+        for (cluster in clusters) {
+            for (term in cluster) {
+                val others = cluster.filter { it != term }.take(5)
+                val dest = map.getOrPut(term) { ArrayList(5) }
+                others.forEach { if (it !in dest && dest.size < 5) dest += it }
+                val folded = foldGermanUmlauts(term)
+                if (folded != term) {
+                    val foldedDest = map.getOrPut(folded) { ArrayList(5) }
+                    others.forEach { if (it !in foldedDest && foldedDest.size < 5) foldedDest += it }
+                }
+            }
+        }
+        return map
     }
 
     private suspend fun queryFts5Bm25(matchExpression: String): List<Triple<String, Double, String>> {

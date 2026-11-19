@@ -4,6 +4,28 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.16] - 2026-11-19
+
+### Added & Changed
+- **`Allow new topic tags` Default ON (`NoteModels.kt`, `SettingsRepository.kt`, `SettingsScreens.kt`)**:
+  - Enabled `allowNewTopicTags = true` by default across `AppSettings`, DataStore preferences, and boot cache, and updated its Settings description so SmartNote surfaces specific new topic tags out of the box when curated categories don't fully describe a note.
+- **Visual Multimodal Title Generation with Gemini Nano (`OcrEngine.kt`, `OnDeviceGenAiAssistant.kt`, `NoteEditorViewModel.kt`, `NoteProcessingWorker.kt`, `SmartTaggingCoordinator.kt`)**:
+  - Added EXIF-aware `SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(...)` so portrait photos and rotated screenshots are oriented upright before multimodal `ImagePart` inference.
+  - Removed the `ocrTexts.all { it.isBlank() }` blocker that previously prevented Gemini Nano from receiving attached images whenever OCR extracted any text: Gemini Nano now receives the upright image + note/OCR/link context whenever user-authored prose is short (`< 160` chars), with automatic text-only retry if multimodal inference fails or is unavailable on a device build.
+- **Upgraded ML Kit OCR + Gemini Nano-Assisted OCR & Editor Actions (`OcrEngine.kt`, `MlKitBundledOcrEngine.kt`, `SmartOcrCoordinator.kt`, `NoteRepository.kt`, `NoteProcessingWorker.kt`, `NoteEditorViewModel.kt`, `NoteEditorScreen.kt`)**:
+  - Added `OcrTextPostProcessor` for spatial bounding-box reading-order sorting (preserving column/price spacing and paragraph gaps), wrapped-hyphen rejoining, noise estimation, normalized tiled-screenshot boundary deduplication, higher `2560 px` decode ceiling, EXIF-safe band slicing, and automatic grayscale/contrast/upscale retry on small or low-confidence images.
+  - Added `SmartOcrCoordinator` and `OnDeviceGenAiAssistant.enhanceOrExtractOcrText(...)` so supported Gemini Nano devices transcribe unreadable/empty images visually and clean up noisy/low-confidence ML Kit drafts (strictly validated against refusal chatter and hallucination/truncation, falling back to ML Kit when off or unsupported).
+  - Upgraded the editor's Extracted Text sheet to bind live (`ocrViewerAttachmentId`), support text selection (`SelectionContainer`), **Re-scan** OCR on demand (`NoteEditorViewModel.rescanAttachmentOcr` + FTS5 re-index), **Insert into note** (`insertOcrTextIntoNote`), and **Copy**.
+- **Gemini Nano-Assisted SmartSearch with Bilingual Fallback (`SmartSearchEngine.kt`, `OnDeviceGenAiAssistant.kt`, `SmartSearchViewModel.kt`, `SmartSearchScreen.kt`, `AppContainer.kt`)**:
+  - Expanded local search with bidirectional EN/DE synonym clusters and German umlaut folding (`ä/ö/ü/ß` -> `ae/oe/ue/ss`) as an always-available fallback.
+  - Added `OnDeviceGenAiAssistant.expandSearchQuery(...)` with 32-entry LRU caching, strict keyword sanitization, and `aiQueryExpander` integration in `SmartSearchEngine` weighted cleanly below direct lexical matches.
+  - Added instant two-stage `collectLatest` search in `SmartSearchViewModel` (Stage 1 immediate lexical + LiteRT results; Stage 2 optional cancellable Gemini Nano query expansion + subtle `Smart match` hint in `SmartSearchScreen`) plus **Use Gemini Nano for OCR** and **Use Gemini Nano for Search** toggles in the auto-detected Gemini Nano Settings card.
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 38 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **9 suites, 38 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `58,009,225` bytes (`55.32 MiB`), `SHA-256: 3684ed8485078ac067199c09632551565cad27cee4383c3fccc0827f5c47f144`, `versionCode = 17`, `versionName = "1.0.16"`, 0 Kotlin source warnings, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.15] - 2026-11-19
 
 ### Added & Changed

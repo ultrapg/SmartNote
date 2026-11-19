@@ -68,6 +68,7 @@ class NoteProcessingWorker(
                 if (!settings.effectiveOcrEnabled) continue
 
                 val cached = container.database.attachmentDao().findCachedOcrBySha256(att.sha256)
+                    ?.takeIf { it.status == OcrStatus.COMPLETED.name || !settings.effectiveUseGeminiNanoForOcr }
                 if (cached != null) {
                     container.database.attachmentDao().upsertOcrResult(
                         OcrResultEntity(
@@ -84,7 +85,11 @@ class NoteProcessingWorker(
                 }
 
                 val file = container.attachmentStorage.resolvePrivateFile(att.relativeFilePath)
-                val outcome = container.ocrEngine.recognizeFile(file)
+                val outcome = container.smartOcrCoordinator.recognizeFileWithOptionalAi(
+                    file = file,
+                    settings = settings,
+                    forceAiAssist = false
+                )
                 val status = when {
                     !outcome.succeeded -> OcrStatus.FAILED
                     outcome.text.isBlank() -> OcrStatus.EMPTY
@@ -165,15 +170,20 @@ class NoteProcessingWorker(
             // 3. Auto-title generation after OCR / optional link metadata when blank or generic share placeholder
             if (settings.effectiveAutoTitleEnabled && SmartTitleGenerator.isPlaceholderOrBlankTitle(detail.title)) {
                 val refreshedLinks = container.noteRepository.getNoteDetail(noteId)?.links ?: detail.links
-                val sparseText = detail.blocks.sumOf { it.textContent.trim().length } < 20 && ocrTexts.all { it.isBlank() }
+                val userProseChars = detail.blocks.sumOf { it.textContent.trim().length }
+                val primaryAttachment = detail.blocks
+                    .firstOrNull { it.type == NoteBlockType.IMAGE }
+                    ?.attachmentId
+                    ?.let { attId -> detail.attachments.firstOrNull { it.id == attId } }
+                    ?: detail.attachments.firstOrNull()
                 val primaryBitmap = if (
                     settings.effectiveUseGeminiNanoForTitles &&
-                    sparseText &&
-                    detail.attachments.isNotEmpty()
+                    primaryAttachment != null &&
+                    userProseChars < 160
                 ) {
-                    SafeOcrBitmapLoader.decodeDownsampledBitmap(
-                        container.attachmentStorage.resolvePrivateFile(detail.attachments.first().relativeFilePath),
-                        maxDimPx = 512
+                    SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
+                        container.attachmentStorage.resolvePrivateFile(primaryAttachment.relativeFilePath),
+                        maxDimPx = 768
                     )
                 } else {
                     null
