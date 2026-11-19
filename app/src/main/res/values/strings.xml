@@ -8,7 +8,10 @@
     <string name="shortcut_search_short">SmartSearch</string>
     <string name="shortcut_search_long">Search all notes</string>
     <string name="qs_tile_label">Quick Note</string>
-    <string name="widget_quick_note_desc">Instantly create a new note or checklist in SmartNote</string>
-    <string name="widget_pinned_note_desc">Pin an important note directly on your home screen</string>
-    <string name="widget_overview_desc">View your recent and pinned SmartNote items</string>
+    <string name="widget_quick_note_desc">Instantly create notes, checklists, image notes, or open SmartSearch</string>
+    <string name="widget_quick_actions_desc">2x2 quick action tiles for notes, checklists, image capture, and search</string>
+    <string name="widget_search_bar_desc">Search your notes, OCR text, tags, and links straight from the home screen</string>
+    <string name="widget_pinned_note_desc">Pin any important note or automatically track your latest pinned note</string>
+    <string name="widget_checklist_desc">View and check off items from your active checklist directly on the home screen</string>
+    <string name="widget_overview_desc">Scroll through your recent and pinned SmartNote items</string>
 </resources>

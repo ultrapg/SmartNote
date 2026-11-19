@@ -10,7 +10,7 @@
 **SmartNote** is a native Android note-taking application built in Kotlin with Jetpack Compose and **Material 3 Expressive**. Everything—note storage, full-text & semantic search, OCR, auto-tagging, title generation, duplicate detection, backups, and biometric/PIN locking—runs locally on your device with no accounts, no cloud sync, no telemetry, and no external AI API keys.
 
 - **Package ID:** `io.github.ultrapg.smartnote`
-- **Latest Release:** [`v1.0.19`](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.19) (`versionCode = 20`)
+- **Latest Release:** [`v1.0.20`](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.20) (`versionCode = 21`)
 - **Compatibility:** Android 9+ (`minSdk = 28`, `targetSdk = 36`, `compileSdk = 37`)
 - **ABIs:** `arm64-v8a`, `x86_64`
 - **License:** Apache License 2.0 ([LICENSE](LICENSE))
@@ -22,7 +22,7 @@
 ### Capture, Editor & Design
 - **Material 3 Expressive UI**: Near-critically damped spring motion (`SmartNoteSoftMotionScheme` + refined menu springs in `SmartNoteMotion` with automatic `MotionScheme.standard()` reduced-motion fallback), dynamic Material You colors + **SmartNote Violet**, **Neutral**, and **True-Black AMOLED** themes, adaptive bottom bar / `NavigationRail` (`>= 600dp`), **Staggered Cards** or **Compact List** layouts, lockstep morphing `+` creation menu, and spring pop-out bubble overview menus.
 - **Full-Screen Block Editor**: Author titles, Markdown-styled prose (`#` headings, `**bold**`, `*italic*`, `` `code` ``), reorderable checklists, embedded images with EXIF-correct thumbnails and OCR viewer/re-scan/insert actions, and rich link preview cards.
-- **Crash-Safe Persistence, Share AI Pipeline & Backups**: Debounced `NoteAutosaveCoordinator` with `SavedStateHandle` draft recovery, atomic Room transactions, **Archive** & **30-day Recycle Bin**, **SmartCapture Sharesheet** (`ACTION_SEND` / `ACTION_SEND_MULTIPLE` with live multi-engine SmartTags, on-demand ✨ title generation, and immediate post-save OCR / link preview / SmartTags / auto-title processing), Home Screen **Glance Widgets**, **Quick Settings Tile**, App Shortcuts, and **`.smartnote.zip` Local Backup/Restore** with strict ZIP-Slip protection.
+- **Crash-Safe Persistence, Share AI Pipeline & Backups**: Debounced `NoteAutosaveCoordinator` with `SavedStateHandle` draft recovery, atomic Room transactions, **Archive** & **30-day Recycle Bin**, **SmartCapture Sharesheet** (`ACTION_SEND` / `ACTION_SEND_MULTIPLE` with live multi-engine SmartTags, on-demand ✨ title generation, and immediate post-save OCR / link preview / SmartTags / auto-title processing), 6 Material 3 **Glance Home Screen Widgets** (**Quick Capture**, **Quick Actions 2×2**, **Search Bar**, **Pinned Note**, **Interactive Checklist**, and **Recent Notes Overview**), **Quick Settings Tile**, App Shortcuts, and **`.smartnote.zip` Local Backup/Restore** with strict ZIP-Slip protection.
 
 ### Security & Privacy
 - **Native Android App Lock (`Settings → Security & App Lock`)**: Lock SmartNote behind your device's native **fingerprint, face unlock, or PIN / pattern / password** (`android.hardware.biometrics.BiometricPrompt` + `KeyguardManager` fallback across API 28–36). Requires native confirmation to enable or disable, supports configurable auto-lock timeouts (**Immediately**, **After 30 sec**, **After 1 min**, **After 5 min**), includes **Lock SmartNote now**, and enforces `FLAG_SECURE` (`Hide content in Recents`) to conceal note previews from app switchers and screenshots.
@@ -45,11 +45,11 @@ Inside **Settings → AI & Smart Features → Gemini Nano**, each AI feature has
 
 ## Installation
 
-1. Download **`smartnote-release.apk`** from the [v1.0.19 GitHub Release](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.19).
+1. Download **`smartnote-release.apk`** from the [v1.0.20 GitHub Release](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.20).
 2. Verify the APK checksum before installing:
    - **File:** `smartnote-release.apk`
-   - **Size:** `58,091,165` bytes (`55.40 MiB`)
-   - **SHA-256:** `4d5f3a0c1f56867399408240e2f6c00cab030ffd65d90bb38e96e26eadfb369a`
+   - **Size:** `58,187,714` bytes (`55.49 MiB`)
+   - **SHA-256:** `453d7b60235a505a40b2a75a40ad88aa6139e0b96eef7b468bbb35a2e1b272be`
    - **APK Signature Scheme v3 Signer Cert SHA-256 (4096-bit RSA):**
      `b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`
 3. Install on an Android 9+ device via system package installer or `adb install smartnote-release.apk`.
@@ -105,15 +105,16 @@ The R8-minified, resource-shrunk, signed APK is output to `app/build/outputs/apk
 
 ### Verified on Build Host (2026-11-19)
 - `./gradlew testDebugUnitTest --rerun-tasks --no-daemon --warning-mode=summary`, `./gradlew testReleaseUnitTest --rerun-tasks --no-daemon --warning-mode=summary`, and `./gradlew assembleRelease --no-daemon --warning-mode=summary` completed cleanly (`BUILD SUCCESSFUL`) with zero Kotlin source compiler warnings:
-  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 9 suites, **40 tests passed, 0 failures, 0 errors, 0 skipped**.
-  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 9 suites, **40 tests passed, 0 failures, 0 errors, 0 skipped** (verifying R8/ProGuard behavior alongside FTS5 + bilingual synonym + zero-result/forced semantic SmartSearch `< 250 ms` on 2,500 synthetic notes, ZIP-Slip traversal rejection, empty ghost note cleanup, Share-to-SmartNote `NoteProcessingPipeline` OCR/link-metadata/auto-title/SmartTags & revision deduplication, EXIF-upright & spatial layout OCR + `SmartOcrCoordinator` `Off`/`Auto`/`Force` routing, SSRF-safe `Fetch Link Previews` defaults & HTML entity/thumbnail resolution, native `AppLockSessionTracker` lifecycle/timeout locking & Recents settings, per-feature `Off`/`Auto`/`Force` Gemini Nano controls, 34-category SmartTags, Room migrations `1->2->3`, and end-to-end Compose UI + menu open/close/switch flows).
+  - **Debug Unit/Integration/UI Suites (`testDebugUnitTest`):** 10 suites, **47 tests passed, 0 failures, 0 errors, 0 skipped**.
+  - **Release Unit/Integration/UI Suites (`testReleaseUnitTest`):** 10 suites, **47 tests passed, 0 failures, 0 errors, 0 skipped** (verifying R8/ProGuard behavior alongside FTS5 + bilingual synonym + zero-result/forced semantic SmartSearch `< 250 ms` on 2,500 synthetic notes, ZIP-Slip traversal rejection, empty ghost note cleanup, Share-to-SmartNote `NoteProcessingPipeline` OCR/link-metadata/auto-title/SmartTags & revision deduplication, EXIF-upright & spatial layout OCR + `SmartOcrCoordinator` `Off`/`Auto`/`Force` routing, SSRF-safe `Fetch Link Previews` defaults & HTML entity/thumbnail resolution, native `AppLockSessionTracker` lifecycle/timeout locking & Recents settings, per-feature `Off`/`Auto`/`Force` Gemini Nano controls, 34-category SmartTags, Room migrations `1->2->3`, Glance widget manifest exports/APPWIDGET_CONFIGURE/preview layouts/preferences/responsive modes/checklist toggling, and end-to-end Compose UI + menu open/close/switch flows).
 - **Release APK Verification (`build-tools/37.0.0`):**
   - `zipalign -c -P 16 -v 4 smartnote-release.apk`: **Verification successful** (16 KB ELF page-aligned).
   - `apksigner verify --verbose --print-certs smartnote-release.apk`: **Verifies** under APK Signature Scheme v3 (RSA-4096).
-  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='20'`, `versionName='1.0.19'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`.
+  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='21'`, `versionName='1.0.20'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`.
 
 ### Hardware-Dependent Checks (Require Physical Android Device)
 Because this Linux build host has no `/dev/kvm` or attached physical Android device, the following behaviors are compile-verified and covered by host contract/fallback tests rather than executed on live phone hardware:
+- **Home Screen Launcher Widget Rendering:** Live Glance `RemoteViews` placement, resizing, and interaction across OEM launchers such as Samsung One UI and Pixel Launcher (covered on host via manifest/configure export checks, XML layout inflation, responsive breakpoint tests, and repository/config activity unit tests).
 - **Native Android Biometric / Device PIN Prompt:** System `BiometricPrompt` / `KeyguardManager` UI dialogs and enrolled fingerprint/PIN verification across Android 9–16 devices.
 - **On-Device Model Runtimes:** Live AICore Gemini Nano (`Fast`/`Full`) download & inference, bundled ML Kit OCR pipeline inference on camera/screenshot bitmaps, Play Services Image Labeling downloads, OEM `TextClassifier` extraction, and LiteRT NPU/GPU delegates.
 - **Network Link Preview Fetching:** Live HTTP(S) OpenGraph metadata and image thumbnail downloads when **Fetch Link Previews** is explicitly enabled by the user.

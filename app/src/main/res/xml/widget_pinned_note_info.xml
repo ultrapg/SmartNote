@@ -1,12 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
-    android:description="@string/widget_pinned_note_desc"
+    xmlns:tools="http://schemas.android.com/tools"
     android:configure="io.github.ultrapg.smartnote.integration.widgets.PinnedNoteWidgetConfigActivity"
+    android:description="@string/widget_pinned_note_desc"
+    android:initialLayout="@layout/glance_default_loading_layout"
     android:minWidth="180dp"
     android:minHeight="110dp"
+    android:minResizeWidth="140dp"
+    android:minResizeHeight="100dp"
+    android:previewLayout="@layout/widget_preview_pinned_note"
+    android:resizeMode="horizontal|vertical"
     android:targetCellWidth="3"
     android:targetCellHeight="2"
-    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
-    android:widgetFeatures="reconfigurable"
-    android:updatePeriodMillis="1800000" />
+    android:widgetFeatures="reconfigurable|configuration_optional"
+    tools:targetApi="31" />

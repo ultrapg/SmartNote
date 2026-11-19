@@ -42,3 +42,9 @@
 -dontwarn com.google.mlkit.genai.**
 -dontwarn com.google.android.gms.**
 -dontwarn javax.annotation.**
+
+# Jetpack Glance AppWidgets & ActionCallbacks
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget { *; }
+-keep class * extends androidx.glance.appwidget.GlanceAppWidgetReceiver { *; }
+-keep class * extends androidx.glance.appwidget.action.ActionCallback { *; }
+-keep class io.github.ultrapg.smartnote.integration.widgets.** { *; }

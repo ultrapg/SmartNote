@@ -4,6 +4,31 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.20] - 2026-11-19
+
+### Fixed
+- **Home Screen Widget Crashes & Reliability (`AndroidManifest.xml`, `SmartNoteGlanceWidgets.kt`, `WidgetConfigActivities.kt`, `WidgetPreferencesStore.kt`, `proguard-rules.pro`)**:
+  - Fixed the fatal `SecurityException` when adding or reconfiguring **SmartNote Pinned Note**: exported `PinnedNoteWidgetConfigActivity` (`android:exported="true"`) with `<intent-filter>` for `android.appwidget.action.APPWIDGET_CONFIGURE` and added `configuration_optional` to `android:widgetFeatures`.
+  - Eliminated config activity edge-case crashes and deadlocks: set `RESULT_CANCELED` default on `BaseWidgetNoteConfigActivity`, added a highlighted **Automatic** mode so setup succeeds even with 0 notes, and wrapped `GlanceAppWidgetManager.getGlanceIdBy` + `update` with `updateAll` fallback.
+  - Eliminated Glance composition crashes across all widgets via `BaseSmartNoteGlanceWidget` (`onCompositionError` logging + safe `widget_error_fallback` RemoteViews without rethrowing), safe `Dispatchers.IO` `runCatching` repository loading, `SharedPreferences`-backed `WidgetPreferencesStore` (with `onDeleted` cleanup) instead of unguarded DataStore `currentState`, Glance `LazyColumn` instead of the 10-child `Column` ceiling in `NotesOverviewWidget`, unique `smartnote://widget/...` `Intent.data` URIs preventing `PendingIntent` collisions across note rows, and explicit R8 keep rules preserving all widget classes, receivers, and `ActionCallback`s.
+- **Quick Capture Widget Design (`SmartNoteGlanceWidgets.kt`, `widget_quick_note_info.xml`)**:
+  - Replaced cramped multi-word side pills that wrapped `"+ Quick Note"` into 3 lines on Samsung One UI `3x1` grids with `SizeMode.Responsive` breakpoints (`QuickCaptureLayoutMode`) pairing a single-line primary `New note` pill (`maxLines = 1`) with vector icon buttons (and an icon-only compact row below `190dp` or 2-row layout when resized vertically).
+
+### Added & Changed
+- **Expanded 6-Widget Material 3 Glance Suite (`SmartNoteGlanceWidgets.kt`, `WidgetConfigActivities.kt`, `MainActivity.kt`, `SmartNoteApp.kt`, `SettingsScreens.kt`, `res/xml/`, `res/layout/`, `res/drawable/`)**:
+  - **Quick Capture** (`QuickNoteWidget`, `4x1` / resizable): Instant `+ New note`, Checklist, Image Note (`ACTION_NEW_IMAGE_NOTE`), and SmartSearch buttons adapted per width/height.
+  - **Quick Actions 2×2** (`QuickActionsGridWidget`, `2x2`): Four rounded bento tiles for Note, Checklist, Image, and Search.
+  - **Search Bar** (`SmartSearchBarWidget`, `4x1`): Dedicated home-screen SmartSearch pill with a quick `+` new-note circle button.
+  - **Pinned Note** (`PinnedNoteWidget`, `3x2`, reconfigurable): Shows pin header, optional `#tag` chip, body snippet or checklist preview lines, or automatic latest pinned/recent note.
+  - **Interactive Checklist** (`ChecklistWidget`, `3x3`, reconfigurable): Scrollable `LazyColumn` checklist items with one-tap live home-screen toggle via `ToggleChecklistItemCallback` (`ActionCallback`) and `ChecklistWidgetConfigActivity`.
+  - **Recent Notes Overview** (`NotesOverviewWidget`, `4x3`): Scrollable `LazyColumn` recent & pinned notes list with checklist counters, pin badges, Search icon, and `+ New` action.
+  - Added Material 3 Day/Night/Material You (`values-v31`) static XML `previewLayout`s, vector widget icons, and 6-widget pin buttons in **Settings → System Integrations**.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 47 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 47 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `58,187,714` bytes (`55.49 MiB`), `SHA-256: 453d7b60235a505a40b2a75a40ad88aa6139e0b96eef7b468bbb35a2e1b272be`, `versionCode = 21`, `versionName = "1.0.20"`, 0 Kotlin source warnings, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.19] - 2026-11-19
 
 ### Fixed

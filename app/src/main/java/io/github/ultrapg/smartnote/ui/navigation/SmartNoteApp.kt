@@ -140,6 +140,7 @@ fun SmartNoteApp(
                     NoteEditorRoute(
                         noteId = null,
                         startChecklist = deepLink.startChecklist,
+                        autoPickImage = deepLink.autoPickImage,
                         sourceQuickTile = deepLink.fromQuickTile
                     )
                 )

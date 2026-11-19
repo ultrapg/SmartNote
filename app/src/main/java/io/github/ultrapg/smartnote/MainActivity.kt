@@ -26,7 +26,11 @@ import kotlinx.coroutines.launch
 sealed interface LaunchDeepLink {
     data object Overview : LaunchDeepLink
     data class OpenNote(val noteId: String) : LaunchDeepLink
-    data class NewNote(val startChecklist: Boolean = false, val fromQuickTile: Boolean = false) : LaunchDeepLink
+    data class NewNote(
+        val startChecklist: Boolean = false,
+        val fromQuickTile: Boolean = false,
+        val autoPickImage: Boolean = false
+    ) : LaunchDeepLink
     data object OpenSearch : LaunchDeepLink
 }
 
@@ -208,6 +212,7 @@ class MainActivity : ComponentActivity() {
                 fromQuickTile = intent.getBooleanExtra(EXTRA_SOURCE_QUICK_TILE, false)
             )
             ACTION_NEW_CHECKLIST -> LaunchDeepLink.NewNote(startChecklist = true)
+            ACTION_NEW_IMAGE_NOTE -> LaunchDeepLink.NewNote(autoPickImage = true)
             ACTION_OPEN_SEARCH -> LaunchDeepLink.OpenSearch
             else -> LaunchDeepLink.Overview
         }
@@ -217,6 +222,7 @@ class MainActivity : ComponentActivity() {
         const val ACTION_OPEN_NOTE = "io.github.ultrapg.smartnote.action.OPEN_NOTE"
         const val ACTION_NEW_NOTE = "io.github.ultrapg.smartnote.action.NEW_NOTE"
         const val ACTION_NEW_CHECKLIST = "io.github.ultrapg.smartnote.action.NEW_CHECKLIST"
+        const val ACTION_NEW_IMAGE_NOTE = "io.github.ultrapg.smartnote.action.NEW_IMAGE_NOTE"
         const val ACTION_OPEN_SEARCH = "io.github.ultrapg.smartnote.action.OPEN_SEARCH"
         const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_SOURCE_QUICK_TILE = "extra_source_quick_tile"

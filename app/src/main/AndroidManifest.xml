@@ -64,8 +64,23 @@
 
         <activity
             android:name=".integration.widgets.PinnedNoteWidgetConfigActivity"
-            android:exported="false"
-            android:theme="@style/Theme.SmartNote" />
+            android:exported="true"
+            android:label="Choose note for widget"
+            android:theme="@style/Theme.SmartNote">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".integration.widgets.ChecklistWidgetConfigActivity"
+            android:exported="true"
+            android:label="Choose checklist for widget"
+            android:theme="@style/Theme.SmartNote">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
 
         <!-- Outgoing Note/Image Sharing -->
         <provider
@@ -116,6 +131,30 @@
         </receiver>
 
         <receiver
+            android:name=".integration.widgets.QuickActionsGridWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Quick Actions">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_actions_info" />
+        </receiver>
+
+        <receiver
+            android:name=".integration.widgets.SmartSearchBarWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Search Bar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_search_bar_info" />
+        </receiver>
+
+        <receiver
             android:name=".integration.widgets.PinnedNoteWidgetReceiver"
             android:exported="true"
             android:label="SmartNote Pinned Note">
@@ -125,6 +164,18 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_pinned_note_info" />
+        </receiver>
+
+        <receiver
+            android:name=".integration.widgets.ChecklistWidgetReceiver"
+            android:exported="true"
+            android:label="SmartNote Checklist">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_checklist_info" />
         </receiver>
 
         <receiver

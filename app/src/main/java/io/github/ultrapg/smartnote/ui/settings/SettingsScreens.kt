@@ -106,9 +106,12 @@ import io.github.ultrapg.smartnote.domain.model.TagPredictionSensitivity
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
 import io.github.ultrapg.smartnote.domain.model.TitleStylePreference
 import io.github.ultrapg.smartnote.integration.QuickNoteTileService
+import io.github.ultrapg.smartnote.integration.widgets.ChecklistWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.NotesOverviewWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.PinnedNoteWidgetReceiver
+import io.github.ultrapg.smartnote.integration.widgets.QuickActionsGridWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.QuickNoteWidgetReceiver
+import io.github.ultrapg.smartnote.integration.widgets.SmartSearchBarWidgetReceiver
 import io.github.ultrapg.smartnote.security.AppLockAuthenticator
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
@@ -1185,56 +1188,38 @@ fun IntegrationsSettingsScreen(
         SystemIntegrationCard(
             icon = Icons.Rounded.Widgets,
             title = "Home Screen Widgets",
-            badge = "3 Widgets",
-            description = "Three Material 3 Glance widgets: Quick Capture, Pinned Note, and Notes Overview.",
+            badge = "6 Widgets",
+            description = "Six Material 3 Glance widgets: Quick Capture, Quick Actions (2x2), Search Bar, Pinned Note, Interactive Checklist, and Recent Notes Overview.",
             actions = if (canPinWidgets) {
                 {
+                    val widgetOptions = listOf(
+                        "Pin Quick Capture" to QuickNoteWidgetReceiver::class.java,
+                        "Pin Quick Actions" to QuickActionsGridWidgetReceiver::class.java,
+                        "Pin Search Bar" to SmartSearchBarWidgetReceiver::class.java,
+                        "Pin Pinned Note" to PinnedNoteWidgetReceiver::class.java,
+                        "Pin Checklist" to ChecklistWidgetReceiver::class.java,
+                        "Pin Overview" to NotesOverviewWidgetReceiver::class.java
+                    )
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                val pinned = runCatching {
-                                    appWidgetManager?.requestPinAppWidget(
-                                        ComponentName(context, QuickNoteWidgetReceiver::class.java),
-                                        null,
-                                        null
-                                    ) == true
-                                }.getOrDefault(false)
-                                if (!pinned) {
-                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
+                        widgetOptions.forEach { (label, receiverClass) ->
+                            OutlinedButton(
+                                onClick = {
+                                    val pinned = runCatching {
+                                        appWidgetManager?.requestPinAppWidget(
+                                            ComponentName(context, receiverClass),
+                                            null,
+                                            null
+                                        ) == true
+                                    }.getOrDefault(false)
+                                    if (!pinned) {
+                                        actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
+                                    }
                                 }
-                            }
-                        ) { Text("Pin Quick Capture") }
-                        OutlinedButton(
-                            onClick = {
-                                val pinned = runCatching {
-                                    appWidgetManager?.requestPinAppWidget(
-                                        ComponentName(context, NotesOverviewWidgetReceiver::class.java),
-                                        null,
-                                        null
-                                    ) == true
-                                }.getOrDefault(false)
-                                if (!pinned) {
-                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
-                                }
-                            }
-                        ) { Text("Pin Overview") }
-                        OutlinedButton(
-                            onClick = {
-                                val pinned = runCatching {
-                                    appWidgetManager?.requestPinAppWidget(
-                                        ComponentName(context, PinnedNoteWidgetReceiver::class.java),
-                                        null,
-                                        null
-                                    ) == true
-                                }.getOrDefault(false)
-                                if (!pinned) {
-                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
-                                }
-                            }
-                        ) { Text("Pin Pinned Note") }
+                            ) { Text(label) }
+                        }
                     }
                 }
             } else {
