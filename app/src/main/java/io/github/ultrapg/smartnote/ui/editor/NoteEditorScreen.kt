@@ -122,6 +122,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -544,13 +546,45 @@ fun NoteEditorScreen(
                                 }
                             }
                         )
-                        if (uiState.autoTitleEnabled) {
-                            IconButton(onClick = onGenerateSmartTitle) {
-                                Icon(
-                                    imageVector = Icons.Rounded.AutoAwesome,
-                                    contentDescription = "Generate smart title",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                        val hasTitleSourceContent = remember(uiState.blocks, uiState.attachments, uiState.links) {
+                            uiState.blocks.any { it.textContent.isNotBlank() || !it.linkUrl.isNullOrBlank() } ||
+                                uiState.attachments.values.any { !it.ocrText.isNullOrBlank() } ||
+                                uiState.links.isNotEmpty()
+                        }
+                        if (uiState.aiFeaturesEnabled && hasTitleSourceContent) {
+                            if (!uiState.autoTitleEnabled && uiState.title.isBlank()) {
+                                Surface(
+                                    onClick = onGenerateSmartTitle,
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.semantics { contentDescription = "Generate title" }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.AutoAwesome,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                        Text(
+                                            text = "Generate",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
+                                }
+                            } else {
+                                IconButton(onClick = onGenerateSmartTitle) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.AutoAwesome,
+                                        contentDescription = "Generate title",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
                     }

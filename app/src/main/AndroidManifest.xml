@@ -103,6 +103,8 @@
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_COMPLETE" />
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_DISMISSED" />
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_SNOOZE" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_TODAY_SYNC" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_WEAR_APPEND" />
             </intent-filter>
         </receiver>
 
@@ -114,6 +116,7 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>

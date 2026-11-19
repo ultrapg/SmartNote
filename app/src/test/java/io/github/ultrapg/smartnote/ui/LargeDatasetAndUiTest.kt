@@ -181,6 +181,9 @@ class LargeDatasetAndUiTest {
                     .any { it.title == "Quarterly architecture planning session" }
             }
         )
+        runBlocking {
+            app.container.settingsRepository.setAutoTitleEnabled(false)
+        }
 
         // Navigate to Tags tab & SmartSearch tab
         composeRule.onNodeWithText("Tags").performClick()
@@ -583,15 +586,27 @@ class LargeDatasetAndUiTest {
 
     @Test
     fun reworkedReminderAndTagMenusWorkEndToEndInEditor() {
+        val app = ApplicationProvider.getApplicationContext<Context>().applicationContext as SmartNoteApplication
+        runBlocking {
+            app.container.settingsRepository.setAiFeaturesEnabled(true)
+            app.container.settingsRepository.setAutoTitleEnabled(false)
+        }
         openNewTextNoteFromPill()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
         }
 
-        // 1. Typing note text feeds live SmartTags suggestions and natural-date reminder detection
-        composeRule.onNodeWithText("Title").performTextInput("Dentist tomorrow")
+        // 1. Even with auto-title disabled by default, typing body reveals on-demand "Generate" button
         composeRule.onNodeWithText("Start writing", substring = true)
-            .performTextInput("Buy milk and coffee #Errand")
+            .performTextInput("Dentist appointment tomorrow.\nBuy milk and coffee #Errand")
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Generate title").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(composeRule.onAllNodesWithText("Auto-title:", substring = true).fetchSemanticsNodes().isEmpty())
+        composeRule.onNodeWithContentDescription("Generate title").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Dentist appointment tomorrow", substring = true).fetchSemanticsNodes().size >= 2
+        }
 
         // Open ManageTagsSheet via "Add tag", verify suggested tags and add "Health" in 1 tap
         composeRule.onNodeWithContentDescription("Add tag").performClick()
@@ -607,14 +622,28 @@ class LargeDatasetAndUiTest {
         }
         composeRule.onNodeWithText("#Health").assertIsDisplayed()
 
-        // 2. Open reworked ReminderPickerSheet, verify detected phrase + Custom days + 30m before + Priority
+        // 2. Open simplified ReminderPickerSheet: progressive disclosure hides Custom days until More options is opened
         composeRule.onNodeWithContentDescription("Set reminder").performClick()
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Note Reminder").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.waitForIdle()
         composeRule.onNodeWithText("From note:", substring = true).performScrollTo().assertIsDisplayed()
+        assertTrue(composeRule.onAllNodesWithText("Custom days").fetchSemanticsNodes().isEmpty())
+
+        // Verify centered Time Picker Dialog opens cleanly without bottom-sheet clipping
+        composeRule.onNodeWithText("Time").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Select time").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("OK").performSemanticsAction(SemanticsActions.OnClick)
+
         composeRule.onNodeWithText("Tomorrow 09:00").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithTag("reminder_more_options_toggle").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Custom days").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
         composeRule.onNodeWithText("Custom days").performSemanticsAction(SemanticsActions.OnClick)
         composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithContentDescription("Wednesday").fetchSemanticsNodes().isNotEmpty()

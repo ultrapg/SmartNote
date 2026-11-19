@@ -166,6 +166,24 @@ object ReminderCalculator {
         else -> "${preAlertMinutes}m before"
     }
 
+    fun isSameLocalDay(
+        epochMs: Long,
+        referenceMs: Long = System.currentTimeMillis(),
+        zone: ZoneId = ZoneId.systemDefault()
+    ): Boolean {
+        val targetDate = Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+        val refDate = Instant.ofEpochMilli(referenceMs).atZone(zone).toLocalDate()
+        return targetDate == refDate
+    }
+
+    fun startOfReminderLocalDayMs(
+        triggerAtMs: Long,
+        zone: ZoneId = ZoneId.systemDefault()
+    ): Long {
+        val date = Instant.ofEpochMilli(triggerAtMs).atZone(zone).toLocalDate()
+        return date.atTime(0, 1, 0).atZone(zone).toInstant().toEpochMilli()
+    }
+
     private fun advanceOnce(
         zdt: ZonedDateTime,
         rule: RepeatRule,

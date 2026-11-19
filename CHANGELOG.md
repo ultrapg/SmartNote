@@ -4,6 +4,26 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12] - 2026-11-19
+
+### Added & Changed
+- **On-Demand Title Generation Button When Auto-Title Is Off (`NoteEditorViewModel.kt`, `NoteEditorScreen.kt`)**:
+  - When automatic titling (`autoTitleEnabled = false` by default) is off and the title is blank while the note has body, link, or OCR content, a borderless tonal **`Generate`** pill button appears next to the title field so users can generate an offline title on demand in 1 tap (while honoring the master **`Enable AI Features`** switch and preserving opt-out of automatic background/save titling).
+- **Simpler Reminder UI, Centered Time Picker Dialog & Fixed Option Text Clipping (`ReminderPickerSheet.kt`, `SettingsScreens.kt`)**:
+  - Replaced the tall hero box and redundant time-of-day strip with a compact inline countdown badge (`In 2h` / `Past time`) in the sheet header, quick presets, prominent tonal Date & Time cards, and a collapsible **`More options`** progressive-disclosure card (`Repeat`, `Early alert`, `Priority alert`, `Now Bar today`) so creating simple reminders fits cleanly without scrolling.
+  - Replaced the half-extending bottom-sheet Time Picker with a centered Material 3 **`Dialog`** containing quick hour chips (`09:00`, `12:00`, `18:00`, `21:00`), clock/keyboard toggle, full scrollable `TimePicker` / `TimeInput`, and `Cancel` / `OK` buttons.
+  - Fixed rounded-clip edge clipping on clickable option rows (`ReminderOptionSwitchRow` and `AiProcessingSettingsScreen`) by adding generous horizontal & vertical padding inside `.clip(RoundedCornerShape(...))`.
+- **Discreet "Today Only" Now Bar Live Updates & Audible/Vibrating Due Alerts (`ReminderNotificationBuilder.kt`, `ReminderScheduler.kt`, `ReminderCalculator.kt`, `ReminderBroadcastReceiver.kt`, `SystemTimeBootReceiver.kt`, `SmartNoteApplication.kt`)**:
+  - Added silent, phone-local `CHANNEL_NOWBAR_TODAY` (`smartnote_nowbar_today_v1`, `IMPORTANCE_DEFAULT`, no sound/vibration) so only reminders scheduled for **today** stay discreetly in Android 16's Live Update / Samsung Now Bar (with a `00:01` `ACTION_REMINDER_TODAY_SYNC` alarm + `DATE_CHANGED` & app-launch sync for future-day reminders).
+  - Migrated due and urgent alert channels to fresh IDs (`smartnote_reminders_due_v2` and `smartnote_reminders_urgent_v2`) with explicit `RingtoneManager` sound URIs, `AudioAttributes`, vibration patterns, and automatic cancellation of the silent Today Now Bar card (`50_000+`) right before posting the fresh audible/vibrating due alert (`40_000+`).
+- **Zero-Watch-App Wear OS Bridging (`ReminderNotificationBuilder.kt`, `NoteRepository.kt`, `ReminderBroadcastReceiver.kt`, `SettingsScreens.kt`)**:
+  - Added `NotificationCompat.WearableExtender` metadata to due and pre-alert notifications (`setLocalOnly(false)`, synchronized `setDismissalId`, `setBridgeTag("smartnote_reminder")`, inline wrist actions for `Complete` / `Snooze` / `Snooze 1h`), plus a Wear OS `RemoteInput` **`Add note`** action that appends dictated/typed quick lines directly onto the note (`NoteRepository.appendQuickLineToNote`) without needing any companion Wear OS watch app.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 34 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 34 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,206,704` bytes (`54.56 MiB`), `SHA-256: 0c1486456b42bf8c65f69985032276425189ccef216fcc3de2015200dd728f7a`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.11] - 2026-11-19
 
 ### Added & Changed

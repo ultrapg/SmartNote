@@ -56,6 +56,7 @@ class ReminderScheduler(
         database.reminderDao().upsertReminder(entity)
         notificationBuilder.cancelReminderNotification(noteId)
         schedulePlatformAlarm(entity)
+        syncTodayNowBarForReminder(entity)
     }
 
     suspend fun cancelReminderForNote(noteId: String, deleteFromDb: Boolean = true) {
@@ -94,6 +95,7 @@ class ReminderScheduler(
             )
             database.reminderDao().upsertReminder(updated)
             schedulePlatformAlarm(updated)
+            syncTodayNowBarForReminder(updated, nowMs)
         } else {
             database.reminderDao().upsertReminder(
                 reminder.copy(isCompleted = true, completedAtMs = nowMs)
@@ -165,8 +167,47 @@ class ReminderScheduler(
                 }
             } else {
                 schedulePlatformAlarm(updated)
+                syncTodayNowBarForReminder(updated, now)
             }
         }
+    }
+
+    suspend fun syncTodayNowBarForReminder(
+        reminder: ReminderEntity,
+        nowMs: Long = System.currentTimeMillis()
+    ) {
+        if (!reminder.isCompleted &&
+            reminder.useLiveUpdate &&
+            reminder.triggerAtMs > nowMs &&
+            ReminderCalculator.isSameLocalDay(reminder.triggerAtMs, nowMs)
+        ) {
+            val note = database.noteDao().getNoteById(reminder.noteId)
+            if (note != null && !note.isDeleted) {
+                notificationBuilder.postTodayNowBarNotification(
+                    noteId = reminder.noteId,
+                    noteTitle = note.title.ifBlank { "SmartNote Reminder" },
+                    notePreview = note.plainTextPreview,
+                    triggerAtMs = reminder.triggerAtMs,
+                    useLiveUpdate = reminder.useLiveUpdate
+                )
+            } else {
+                notificationBuilder.cancelTodayNowBarNotification(reminder.noteId)
+            }
+        } else {
+            notificationBuilder.cancelTodayNowBarNotification(reminder.noteId)
+        }
+    }
+
+    suspend fun syncTodayNowBarReminders(nowMs: Long = System.currentTimeMillis()) {
+        val active = database.reminderDao().getAllActiveReminders()
+        for (reminder in active) {
+            syncTodayNowBarForReminder(reminder, nowMs)
+        }
+    }
+
+    suspend fun clearAllTodayNowBarReminders() {
+        val active = database.reminderDao().getAllActiveReminders()
+        notificationBuilder.cancelAllTodayNowBarNotifications(active.map { it.noteId })
     }
 
     internal fun schedulePlatformAlarm(reminder: ReminderEntity) {
@@ -201,6 +242,24 @@ class ReminderScheduler(
         } else {
             preAlertPending.cancel()
         }
+
+        // Day-start sync alarm for future-day reminders so they appear discreetly in Today Now Bar at 00:01
+        val todaySyncPending = buildAlarmPendingIntent(
+            reminderId = reminder.id,
+            noteId = reminder.noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_TODAY_SYNC,
+            requestOffset = TODAY_SYNC_REQUEST_OFFSET
+        )
+        manager.cancel(todaySyncPending)
+        val dayStartMs = ReminderCalculator.startOfReminderLocalDayMs(reminder.triggerAtMs)
+        if (reminder.useLiveUpdate &&
+            !ReminderCalculator.isSameLocalDay(reminder.triggerAtMs, now) &&
+            dayStartMs > now + 5_000L
+        ) {
+            scheduleSingleAlarm(manager, dayStartMs, todaySyncPending)
+        } else {
+            todaySyncPending.cancel()
+        }
     }
 
     internal fun cancelPlatformAlarm(reminderId: String, noteId: String) {
@@ -222,6 +281,15 @@ class ReminderScheduler(
         )
         manager.cancel(preAlertPending)
         preAlertPending.cancel()
+
+        val todaySyncPending = buildAlarmPendingIntent(
+            reminderId = reminderId,
+            noteId = noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_TODAY_SYNC,
+            requestOffset = TODAY_SYNC_REQUEST_OFFSET
+        )
+        manager.cancel(todaySyncPending)
+        todaySyncPending.cancel()
     }
 
     private fun scheduleSingleAlarm(
@@ -261,5 +329,6 @@ class ReminderScheduler(
 
     private companion object {
         const val PRE_ALERT_REQUEST_OFFSET = 10_000
+        const val TODAY_SYNC_REQUEST_OFFSET = 20_000
     }
 }

@@ -32,6 +32,7 @@ class SmartNoteApplication : Application(), Configuration.Provider, ImageLoaderF
         val launchMs = System.currentTimeMillis()
         container.applicationScope.launch {
             runCatching { container.noteRepository.pruneBlankUntouchedNotes(olderThanOrEqualMs = launchMs) }
+            runCatching { container.reminderScheduler.syncTodayNowBarReminders() }
         }
     }
 }

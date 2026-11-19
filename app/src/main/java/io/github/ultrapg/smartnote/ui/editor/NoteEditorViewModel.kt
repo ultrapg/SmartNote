@@ -58,6 +58,7 @@ data class NoteEditorUiState(
     val duplicateMatches: List<DuplicatePairInfo> = emptyList(),
     val autosaveStatus: AutosaveStatus = AutosaveStatus.IDLE,
     val suggestedTitle: String? = null,
+    val aiFeaturesEnabled: Boolean = true,
     val autoTitleEnabled: Boolean = false,
     val smartTagsEnabled: Boolean = true,
     val availableTags: List<String> = emptyList(),
@@ -91,6 +92,7 @@ class NoteEditorViewModel(
     private var editRevision = 0L
     private var hasUserEditedLocally = false
     private var userManuallyClearedTitle = false
+    private var aiFeaturesEnabledCache = settingsRepository.currentSnapshot.aiFeaturesEnabled
     private var autoTitleEnabledCache = settingsRepository.currentSnapshot.effectiveAutoTitleEnabled
     private var smartTagsEnabledCache = settingsRepository.currentSnapshot.effectiveSmartTagsEnabled
     private var availableTagsCache: List<String> = emptyList()
@@ -118,6 +120,7 @@ class NoteEditorViewModel(
         if (initialNoteId != null) {
             return NoteEditorUiState(
                 noteId = activeNoteId,
+                aiFeaturesEnabled = aiFeaturesEnabledCache,
                 autoTitleEnabled = autoTitleEnabledCache,
                 isLoaded = false
             )
@@ -135,6 +138,7 @@ class NoteEditorViewModel(
             noteId = activeNoteId,
             title = restoredTitle,
             blocks = listOf(initialBlock),
+            aiFeaturesEnabled = aiFeaturesEnabledCache,
             autoTitleEnabled = autoTitleEnabledCache,
             smartTagsEnabled = smartTagsEnabledCache,
             suggestedTitle = computeSuggestedTitle(
@@ -169,8 +173,10 @@ class NoteEditorViewModel(
                 QuadSnapshot(detail, saveStatus, settings, allTags.map { it.name })
             }.collect { (detail, saveStatus, settings, allTagNames) ->
                 availableTagsCache = allTagNames
+                val aiActive = settings.aiFeaturesEnabled
                 val autoTitleActive = settings.effectiveAutoTitleEnabled
                 val smartTagsActive = settings.effectiveSmartTagsEnabled
+                aiFeaturesEnabledCache = aiActive
                 autoTitleEnabledCache = autoTitleActive
                 smartTagsEnabledCache = smartTagsActive
 
@@ -199,6 +205,7 @@ class NoteEditorViewModel(
                             cur.copy(
                                 autosaveStatus = saveStatus,
                                 suggestedTitle = candidateTitle,
+                                aiFeaturesEnabled = aiActive,
                                 autoTitleEnabled = autoTitleActive,
                                 smartTagsEnabled = smartTagsActive,
                                 availableTags = allTagNames,
@@ -228,6 +235,7 @@ class NoteEditorViewModel(
                         detail = detail,
                         dupes = dupes,
                         saveStatus = saveStatus,
+                        aiFeaturesActive = aiActive,
                         autoTitleActive = autoTitleActive,
                         smartTagsActive = smartTagsActive,
                         availableTags = allTagNames
@@ -248,6 +256,7 @@ class NoteEditorViewModel(
         detail: NoteDetail,
         dupes: List<DuplicatePairInfo>,
         saveStatus: AutosaveStatus,
+        aiFeaturesActive: Boolean,
         autoTitleActive: Boolean,
         smartTagsActive: Boolean,
         availableTags: List<String>
@@ -283,6 +292,7 @@ class NoteEditorViewModel(
                 duplicateMatches = dupes,
                 autosaveStatus = saveStatus,
                 suggestedTitle = candidateTitle,
+                aiFeaturesEnabled = aiFeaturesActive,
                 autoTitleEnabled = autoTitleActive,
                 smartTagsEnabled = smartTagsActive,
                 availableTags = availableTags,
@@ -331,6 +341,7 @@ class NoteEditorViewModel(
             duplicateMatches = dupes,
             autosaveStatus = saveStatus,
             suggestedTitle = candidateTitle,
+            aiFeaturesEnabled = aiFeaturesActive,
             autoTitleEnabled = autoTitleActive,
             smartTagsEnabled = smartTagsActive,
             availableTags = availableTags,
@@ -350,6 +361,7 @@ class NoteEditorViewModel(
                 detail = detail,
                 dupes = cachedDupes,
                 saveStatus = autosaveCoordinator.statusFlow.value,
+                aiFeaturesActive = aiFeaturesEnabledCache,
                 autoTitleActive = autoTitleEnabledCache,
                 smartTagsActive = smartTagsEnabledCache,
                 availableTags = availableTagsCache
@@ -401,7 +413,7 @@ class NoteEditorViewModel(
     }
 
     fun generateSmartTitleNow() {
-        if (!autoTitleEnabledCache) return
+        if (!aiFeaturesEnabledCache) return
         val state = _uiState.value
         viewModelScope.launch {
             val ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
@@ -409,7 +421,7 @@ class NoteEditorViewModel(
                 blocks = state.blocks,
                 ocrTexts = ocrTexts,
                 links = state.links,
-                allowNeuralScoring = autoTitleEnabledCache
+                allowNeuralScoring = aiFeaturesEnabledCache
             )
             if (generated.isNotBlank()) {
                 userManuallyClearedTitle = false

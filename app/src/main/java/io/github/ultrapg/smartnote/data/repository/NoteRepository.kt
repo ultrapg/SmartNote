@@ -308,6 +308,44 @@ class NoteRepository(
     }
 
     /**
+     * Appends a quick line (e.g. from a bridged Wear OS notification reply) to an existing note.
+     */
+    suspend fun appendQuickLineToNote(noteId: String, text: String): Boolean {
+        val cleaned = text.trim()
+        if (cleaned.isBlank()) return false
+        val detail = getNoteDetail(noteId) ?: return false
+        if (detail.isDeleted) return false
+
+        val existingBlocks = detail.blocks
+        val lastBlock = existingBlocks.lastOrNull()
+        val updatedBlocks = if (lastBlock != null && lastBlock.type == NoteBlockType.TEXT) {
+            val newText = if (lastBlock.textContent.isBlank()) {
+                cleaned
+            } else {
+                "${lastBlock.textContent.trimEnd()}\n• $cleaned"
+            }
+            existingBlocks.dropLast(1) + lastBlock.copy(textContent = newText)
+        } else {
+            existingBlocks + NoteBlock(
+                id = UUID.randomUUID().toString(),
+                noteId = noteId,
+                position = existingBlocks.size,
+                type = NoteBlockType.TEXT,
+                textContent = cleaned
+            )
+        }
+
+        saveNoteContent(
+            noteId = noteId,
+            title = detail.title,
+            blocks = updatedBlocks,
+            isPinned = detail.isPinned,
+            scheduleBackgroundWork = false
+        )
+        return true
+    }
+
+    /**
      * Atomically applies an offline-generated title if and only if the note has not moved
      * past [expectedRevision] and still has a blank or generic placeholder title.
      */

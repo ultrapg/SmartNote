@@ -536,6 +536,15 @@ fun SmartNoteApp(
                         canScheduleExactAlarms = container.reminderScheduler.canScheduleExactAlarms(),
                         canPostLiveUpdates = container.reminderNotificationBuilder.canPromoteLiveUpdates(),
                         settingsRepository = container.settingsRepository,
+                        onLiveUpdateSettingChanged = { enabled ->
+                            scope.launch {
+                                if (enabled) {
+                                    container.reminderScheduler.syncTodayNowBarReminders()
+                                } else {
+                                    container.reminderScheduler.clearAllTodayNowBarReminders()
+                                }
+                            }
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 }

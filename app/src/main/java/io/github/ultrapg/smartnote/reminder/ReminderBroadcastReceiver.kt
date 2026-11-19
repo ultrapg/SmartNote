@@ -3,6 +3,8 @@ package io.github.ultrapg.smartnote.reminder
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import io.github.ultrapg.smartnote.SmartNoteApplication
 import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +66,25 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
                         val minutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 10)
                         container.reminderScheduler.snoozeReminder(noteId, minutes)
                     }
+                    ACTION_REMINDER_TODAY_SYNC -> {
+                        val reminder = container.database.reminderDao().getReminderForNote(noteId)
+                        if (reminder != null) {
+                            container.reminderScheduler.syncTodayNowBarForReminder(reminder)
+                        }
+                    }
+                    ACTION_REMINDER_WEAR_APPEND -> {
+                        val replyText = RemoteInput.getResultsFromIntent(intent)
+                            ?.getCharSequence(KEY_WEAR_NOTE_REPLY)
+                            ?.toString()
+                            ?.trim()
+                        if (!replyText.isNullOrBlank()) {
+                            container.noteRepository.appendQuickLineToNote(noteId, replyText)
+                        }
+                        runCatching {
+                            NotificationManagerCompat.from(context)
+                                .cancel(container.reminderNotificationBuilder.notificationIdFor(noteId))
+                        }
+                    }
                 }
             } finally {
                 pendingResult.finish()
@@ -77,6 +98,9 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
         const val ACTION_REMINDER_COMPLETE = "io.github.ultrapg.smartnote.action.REMINDER_COMPLETE"
         const val ACTION_REMINDER_DISMISSED = "io.github.ultrapg.smartnote.action.REMINDER_DISMISSED"
         const val ACTION_REMINDER_SNOOZE = "io.github.ultrapg.smartnote.action.REMINDER_SNOOZE"
+        const val ACTION_REMINDER_TODAY_SYNC = "io.github.ultrapg.smartnote.action.REMINDER_TODAY_SYNC"
+        const val ACTION_REMINDER_WEAR_APPEND = "io.github.ultrapg.smartnote.action.REMINDER_WEAR_APPEND"
+        const val KEY_WEAR_NOTE_REPLY = "wear_note_reply"
         const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_REMINDER_ID = "extra_reminder_id"
         const val EXTRA_SNOOZE_MINUTES = "extra_snooze_minutes"

@@ -1,15 +1,20 @@
 package io.github.ultrapg.smartnote.reminder
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.content.Context
 import androidx.core.app.NotificationCompat
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
+import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
+import io.github.ultrapg.smartnote.data.repository.NoteRepository
+import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.RepeatRule
+import io.github.ultrapg.smartnote.search.SearchIndexer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -133,6 +138,21 @@ class ReminderAndLiveUpdateTest {
         assertEquals("Every 3 days", ReminderCalculator.formatRepeatSummary(RepeatRule.DAILY, repeatInterval = 3))
         assertEquals("Mon, Wed, Fri", ReminderCalculator.formatRepeatSummary(RepeatRule.CUSTOM_DAYS, repeatDaysMask = customMask))
         assertEquals("In 2h 30m", ReminderCalculator.formatRelativeCountdown(1_000_000L + 150 * 60_000L, 1_000_000L))
+
+        val sameDayMs = LocalDateTime.of(2026, 11, 18, 22, 15)
+            .atZone(ZoneId.of(zone))
+            .toInstant()
+            .toEpochMilli()
+        val nextDayMs = LocalDateTime.of(2026, 11, 19, 8, 0)
+            .atZone(ZoneId.of(zone))
+            .toInstant()
+            .toEpochMilli()
+        assertTrue(ReminderCalculator.isSameLocalDay(sameDayMs, wedMs, ZoneId.of(zone)))
+        assertFalse(ReminderCalculator.isSameLocalDay(nextDayMs, wedMs, ZoneId.of(zone)))
+        val dayStartLocal = Instant.ofEpochMilli(
+            ReminderCalculator.startOfReminderLocalDayMs(nextDayMs, ZoneId.of(zone))
+        ).atZone(ZoneId.of(zone)).toLocalDateTime()
+        assertEquals(LocalDateTime.of(2026, 11, 19, 0, 1, 0), dayStartLocal)
     }
 
     @Test
@@ -183,13 +203,51 @@ class ReminderAndLiveUpdateTest {
         )
 
         assertNotNull(notification)
+        assertEquals(ReminderNotificationBuilder.CHANNEL_REMINDERS, notification.channelId)
         assertEquals(NotificationCompat.CATEGORY_REMINDER, notification.category)
         assertEquals(3, notification.actions?.size ?: 0)
         assertEquals("Complete", notification.actions[0].title.toString())
         assertTrue(notification.actions[1].title.toString().startsWith("Snooze"))
         assertEquals("Snooze 1h", notification.actions[2].title.toString())
-        // On SDK 34 test runner, Live Update ongoing flag should NOT be set
+        // Due reminder notification must bridge to Wear OS and NOT be suppressed as an ongoing card
         assertFalse((notification.flags and Notification.FLAG_ONGOING_EVENT) != 0)
+        assertFalse(NotificationCompat.getLocalOnly(notification))
+
+        // Verify sound & vibration channels plus silent Today Now Bar channel
+        val notifMgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val dueChannel = notifMgr.getNotificationChannel(ReminderNotificationBuilder.CHANNEL_REMINDERS)!!
+        val urgentChannel = notifMgr.getNotificationChannel(ReminderNotificationBuilder.CHANNEL_REMINDERS_URGENT)!!
+        val todayNowBarChannel = notifMgr.getNotificationChannel(ReminderNotificationBuilder.CHANNEL_NOWBAR_TODAY)!!
+        assertEquals(NotificationManager.IMPORTANCE_HIGH, dueChannel.importance)
+        assertNotNull(dueChannel.sound)
+        assertTrue(dueChannel.shouldVibrate())
+        assertTrue((dueChannel.vibrationPattern?.size ?: 0) >= 2)
+        assertNotNull(urgentChannel.sound)
+        assertTrue(urgentChannel.shouldVibrate())
+        assertEquals(NotificationManager.IMPORTANCE_DEFAULT, todayNowBarChannel.importance)
+        assertNull(todayNowBarChannel.sound)
+        assertFalse(todayNowBarChannel.shouldVibrate())
+
+        // Verify Wear OS WearableExtender (synchronized dismissal, bridge tag, 4 wrist actions + voice reply)
+        val wearableExt = NotificationCompat.WearableExtender(notification)
+        assertEquals(ReminderNotificationBuilder.WEAR_BRIDGE_TAG, wearableExt.bridgeTag)
+        assertEquals("smartnote_rem_note-rem-1_$triggerMs", wearableExt.dismissalId)
+        assertEquals(4, wearableExt.actions.size)
+        val replyAction = wearableExt.actions.last()
+        assertEquals("Add note", replyAction.title.toString())
+        assertFalse(replyAction.remoteInputs.isNullOrEmpty())
+
+        // Verify discreet silent Today Now Bar notification (phone-local only)
+        val todayNotif = notifBuilder.buildTodayNowBarNotification(
+            noteId = "note-rem-today",
+            noteTitle = "Call dentist",
+            notePreview = "Confirm 15:00 slot",
+            triggerAtMs = triggerMs,
+            forcePromotedForTest = true
+        )
+        assertEquals(ReminderNotificationBuilder.CHANNEL_NOWBAR_TODAY, todayNotif.channelId)
+        assertTrue(NotificationCompat.getLocalOnly(todayNotif))
+        assertTrue((todayNotif.flags and Notification.FLAG_ONGOING_EVENT) != 0)
 
         val urgentNotif = notifBuilder.buildDueReminderNotification(
             noteId = "note-rem-2",
@@ -214,5 +272,18 @@ class ReminderAndLiveUpdateTest {
         assertTrue(
             preAlertNotif.extras.getCharSequence(NotificationCompat.EXTRA_TEXT).toString().contains("Upcoming in 30m")
         )
+
+        // Verify quick Wear OS reply note append helper
+        val indexer = SearchIndexer(database)
+        val tagRepo = TagRepository(database, indexer)
+        val noteRepo = NoteRepository(database, AttachmentStorage(context), indexer, tagRepo)
+        val createdId = noteRepo.createNote(
+            title = "Dentist",
+            blocks = listOf(NoteBlock("b1", "n_wear", 0, NoteBlockType.TEXT, "Bring insurance card")),
+            scheduleBackgroundWork = false
+        )
+        assertTrue(noteRepo.appendQuickLineToNote(createdId, "Called front desk"))
+        val updated = noteRepo.getNoteDetail(createdId)!!
+        assertTrue(updated.blocks.first().textContent.contains("• Called front desk"))
     }
 }

@@ -50,6 +50,7 @@ import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Watch
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -299,7 +300,7 @@ fun SmartFeaturesSettingsScreen(
         SectionLabel("Individual AI Features", enabled = aiEnabled)
         SettingsSwitchRow(
             title = "Auto-Title Generation",
-            subtitle = "Generate concise offline titles for untitled notes and shared screenshots",
+            subtitle = "Automatically title untitled notes and shared screenshots (when off, use the on-demand Generate button in the editor)",
             checked = settings.effectiveAutoTitleEnabled,
             enabled = aiEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setAutoTitleEnabled(it) } }
@@ -424,7 +425,7 @@ fun AiProcessingSettingsScreen(
                                     onRefreshDiagnostics()
                                 }
                             }
-                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                            .padding(vertical = 8.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
@@ -534,6 +535,7 @@ fun ReminderSettingsScreen(
     canScheduleExactAlarms: Boolean,
     canPostLiveUpdates: Boolean,
     settingsRepository: SettingsRepository,
+    onLiveUpdateSettingChanged: (Boolean) -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -587,11 +589,12 @@ fun ReminderSettingsScreen(
                 DiagRow(
                     "Android 16 Live Updates / Now Bar",
                     when {
-                        Build.VERSION.SDK_INT < 36 -> "Requires Android 16+ (using standard notifications)"
-                        canPostLiveUpdates -> "Available for active due/snoozed reminders"
-                        else -> "Disabled in system settings (using standard notifications)"
+                        Build.VERSION.SDK_INT < 36 -> "Requires Android 16+ (using standard alerts)"
+                        canPostLiveUpdates -> "Available for today's reminders (silent until due)"
+                        else -> "Disabled in system settings (using standard alerts)"
                     }
                 )
+                DiagRow("Wear OS Watch Sync", "Active (bridged alerts, wrist actions & voice reply)")
                 if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     TextButton(
                         onClick = { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
@@ -639,10 +642,15 @@ fun ReminderSettingsScreen(
 
         if (Build.VERSION.SDK_INT >= 36) {
             SettingsSwitchRow(
-                title = "Live Updates for Active Reminders",
-                subtitle = "Promotes only due or snoozed reminder countdowns on Android 16+ / One UI 8+ Now Bar",
+                title = "Now Bar for Today's Reminders",
+                subtitle = "Shows today's upcoming reminders discreetly in the Android 16 Live Update / Now Bar (silent until due)",
                 checked = settings.liveUpdateRemindersEnabled,
-                onCheckedChange = { scope.launch { settingsRepository.setLiveUpdateRemindersEnabled(it) } }
+                onCheckedChange = { enabled ->
+                    scope.launch {
+                        settingsRepository.setLiveUpdateRemindersEnabled(enabled)
+                        onLiveUpdateSettingChanged(enabled)
+                    }
+                }
             )
         }
     }
@@ -787,6 +795,13 @@ fun IntegrationsSettingsScreen(
             title = "Android Sharesheet",
             badge = "Active",
             description = "Share text, URLs, screenshots, or multiple images from any app straight into SmartNote for private storage, offline OCR, and SmartTags."
+        )
+
+        SystemIntegrationCard(
+            icon = Icons.Rounded.Watch,
+            title = "Wear OS Watch Bridging",
+            badge = "No Watch App",
+            description = "Due reminders bridge directly to your paired Wear OS watch with synchronized dismissal, wrist Complete/Snooze buttons, and voice-reply note additions."
         )
     }
 }
