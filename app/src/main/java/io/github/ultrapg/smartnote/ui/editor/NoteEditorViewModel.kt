@@ -24,7 +24,13 @@ import io.github.ultrapg.smartnote.domain.model.NoteTag
 import io.github.ultrapg.smartnote.domain.model.ReminderInfo
 import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
+import io.github.ultrapg.smartnote.links.DetectedLink
+import io.github.ultrapg.smartnote.links.SmartLinkDetector
+import io.github.ultrapg.smartnote.reminder.DetectedReminderSuggestion
+import io.github.ultrapg.smartnote.reminder.NaturalDateTimeParser
 import io.github.ultrapg.smartnote.reminder.ReminderScheduler
+import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
+import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -53,6 +59,10 @@ data class NoteEditorUiState(
     val autosaveStatus: AutosaveStatus = AutosaveStatus.IDLE,
     val suggestedTitle: String? = null,
     val autoTitleEnabled: Boolean = false,
+    val smartTagsEnabled: Boolean = true,
+    val availableTags: List<String> = emptyList(),
+    val liveTagSuggestions: List<SmartTagSuggestion> = emptyList(),
+    val detectedReminderSuggestion: DetectedReminderSuggestion? = null,
     val updatedAtMs: Long = System.currentTimeMillis(),
     val isLoaded: Boolean = false
 )
@@ -70,7 +80,8 @@ class NoteEditorViewModel(
     private val reminderScheduler: ReminderScheduler,
     private val duplicateDetector: SmartDuplicateDetector,
     private val settingsRepository: SettingsRepository,
-    private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator()
+    private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator(),
+    private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine()
 ) : ViewModel() {
 
     private val activeNoteId: String = savedStateHandle.get<String>(KEY_NOTE_ID)
@@ -81,6 +92,8 @@ class NoteEditorViewModel(
     private var hasUserEditedLocally = false
     private var userManuallyClearedTitle = false
     private var autoTitleEnabledCache = settingsRepository.currentSnapshot.effectiveAutoTitleEnabled
+    private var smartTagsEnabledCache = settingsRepository.currentSnapshot.effectiveSmartTagsEnabled
+    private var availableTagsCache: List<String> = emptyList()
     private var lastDupeCheckRevision: Long = -1L
     private var lastDupeEnabled: Boolean = false
     private var cachedDupes: List<DuplicatePairInfo> = emptyList()
@@ -123,6 +136,7 @@ class NoteEditorViewModel(
             title = restoredTitle,
             blocks = listOf(initialBlock),
             autoTitleEnabled = autoTitleEnabledCache,
+            smartTagsEnabled = smartTagsEnabledCache,
             suggestedTitle = computeSuggestedTitle(
                 enabled = autoTitleEnabledCache,
                 title = restoredTitle,
@@ -130,6 +144,16 @@ class NoteEditorViewModel(
                 attachments = emptyList(),
                 links = emptyList()
             ),
+            liveTagSuggestions = computeLiveTagSuggestions(
+                enabled = smartTagsEnabledCache,
+                title = restoredTitle,
+                blocks = listOf(initialBlock),
+                attachments = emptyList(),
+                links = emptyList(),
+                existingNoteTags = emptyList(),
+                vocabulary = availableTagsCache
+            ),
+            detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(restoredTitle, listOf(initialBlock)),
             isLoaded = true
         )
     }
@@ -139,37 +163,54 @@ class NoteEditorViewModel(
             combine(
                 noteRepository.observeNoteDetail(activeNoteId),
                 autosaveCoordinator.statusFlow,
-                settingsRepository.settingsFlow
-            ) { detail, saveStatus, settings ->
-                Triple(detail, saveStatus, settings)
-            }.collect { (detail, saveStatus, settings) ->
+                settingsRepository.settingsFlow,
+                tagRepository.observeAllTags()
+            ) { detail, saveStatus, settings, allTags ->
+                QuadSnapshot(detail, saveStatus, settings, allTags.map { it.name })
+            }.collect { (detail, saveStatus, settings, allTagNames) ->
+                availableTagsCache = allTagNames
+                val autoTitleActive = settings.effectiveAutoTitleEnabled
+                val smartTagsActive = settings.effectiveSmartTagsEnabled
+                autoTitleEnabledCache = autoTitleActive
+                smartTagsEnabledCache = smartTagsActive
+
                 if (detail == null) {
-                    val autoTitleActive = settings.effectiveAutoTitleEnabled
-                    autoTitleEnabledCache = autoTitleActive
                     _uiState.update { cur ->
                         if (!cur.isLoaded) {
                             cur
                         } else {
+                            val atts = cur.attachments.values.toList()
                             val candidateTitle = computeSuggestedTitle(
                                 enabled = autoTitleActive,
                                 title = cur.title,
                                 blocks = cur.blocks,
-                                attachments = cur.attachments.values.toList(),
+                                attachments = atts,
                                 links = cur.links
+                            )
+                            val tagSug = computeLiveTagSuggestions(
+                                enabled = smartTagsActive,
+                                title = cur.title,
+                                blocks = cur.blocks,
+                                attachments = atts,
+                                links = cur.links,
+                                existingNoteTags = cur.tags,
+                                vocabulary = allTagNames
                             )
                             cur.copy(
                                 autosaveStatus = saveStatus,
                                 suggestedTitle = candidateTitle,
-                                autoTitleEnabled = autoTitleActive
+                                autoTitleEnabled = autoTitleActive,
+                                smartTagsEnabled = smartTagsActive,
+                                availableTags = allTagNames,
+                                liveTagSuggestions = tagSug,
+                                detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(cur.title, cur.blocks)
                             )
                         }
                     }
                     return@collect
                 }
                 persistedInDb = true
-                val autoTitleActive = settings.effectiveAutoTitleEnabled
                 val dupeActive = settings.effectiveDuplicateDetectionEnabled
-                autoTitleEnabledCache = autoTitleActive
                 if (!dupeActive) {
                     cachedDupes = emptyList()
                     lastDupeCheckRevision = detail.contentRevision
@@ -187,28 +228,49 @@ class NoteEditorViewModel(
                         detail = detail,
                         dupes = dupes,
                         saveStatus = saveStatus,
-                        autoTitleActive = autoTitleActive
+                        autoTitleActive = autoTitleActive,
+                        smartTagsActive = smartTagsActive,
+                        availableTags = allTagNames
                     )
                 }
             }
         }
     }
 
+    private data class QuadSnapshot(
+        val detail: NoteDetail?,
+        val saveStatus: AutosaveStatus,
+        val settings: io.github.ultrapg.smartnote.domain.model.AppSettings,
+        val allTagNames: List<String>
+    )
+
     private fun NoteEditorUiState.withDetailSnapshot(
         detail: NoteDetail,
         dupes: List<DuplicatePairInfo>,
         saveStatus: AutosaveStatus,
-        autoTitleActive: Boolean
+        autoTitleActive: Boolean,
+        smartTagsActive: Boolean,
+        availableTags: List<String>
     ): NoteEditorUiState {
         val attMap = detail.attachments.associateBy { it.id }
+        val atts = attMap.values.toList()
         // Preserve active local typing buffer while only refreshing metadata/OCR/tags/links
         if (hasUserEditedLocally && isLoaded && saveStatus == AutosaveStatus.PENDING) {
             val candidateTitle = computeSuggestedTitle(
                 enabled = autoTitleActive,
                 title = title,
                 blocks = blocks,
-                attachments = attMap.values.toList(),
+                attachments = atts,
                 links = detail.links
+            )
+            val tagSug = computeLiveTagSuggestions(
+                enabled = smartTagsActive,
+                title = title,
+                blocks = blocks,
+                attachments = atts,
+                links = detail.links,
+                existingNoteTags = detail.tags,
+                vocabulary = availableTags
             )
             return copy(
                 isPinned = detail.isPinned,
@@ -221,7 +283,11 @@ class NoteEditorViewModel(
                 duplicateMatches = dupes,
                 autosaveStatus = saveStatus,
                 suggestedTitle = candidateTitle,
-                autoTitleEnabled = autoTitleActive
+                autoTitleEnabled = autoTitleActive,
+                smartTagsEnabled = smartTagsActive,
+                availableTags = availableTags,
+                liveTagSuggestions = tagSug,
+                detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(title, blocks)
             )
         }
         val resolvedTitle = if (hasUserEditedLocally) title else detail.title
@@ -239,8 +305,17 @@ class NoteEditorViewModel(
             enabled = autoTitleActive,
             title = resolvedTitle,
             blocks = resolvedBlocks,
-            attachments = attMap.values.toList(),
+            attachments = atts,
             links = detail.links
+        )
+        val tagSug = computeLiveTagSuggestions(
+            enabled = smartTagsActive,
+            title = resolvedTitle,
+            blocks = resolvedBlocks,
+            attachments = atts,
+            links = detail.links,
+            existingNoteTags = detail.tags,
+            vocabulary = availableTags
         )
         return NoteEditorUiState(
             noteId = detail.id,
@@ -257,6 +332,10 @@ class NoteEditorViewModel(
             autosaveStatus = saveStatus,
             suggestedTitle = candidateTitle,
             autoTitleEnabled = autoTitleActive,
+            smartTagsEnabled = smartTagsActive,
+            availableTags = availableTags,
+            liveTagSuggestions = tagSug,
+            detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(resolvedTitle, resolvedBlocks),
             updatedAtMs = detail.updatedAtMs,
             isLoaded = true
         )
@@ -271,7 +350,9 @@ class NoteEditorViewModel(
                 detail = detail,
                 dupes = cachedDupes,
                 saveStatus = autosaveCoordinator.statusFlow.value,
-                autoTitleActive = autoTitleEnabledCache
+                autoTitleActive = autoTitleEnabledCache,
+                smartTagsActive = smartTagsEnabledCache,
+                availableTags = availableTagsCache
             )
         }
     }
@@ -286,14 +367,29 @@ class NoteEditorViewModel(
         hasUserEditedLocally = true
         savedStateHandle[KEY_DRAFT_TITLE] = newTitle
         _uiState.update { state ->
+            val atts = state.attachments.values.toList()
             val suggestion = computeSuggestedTitle(
                 enabled = state.autoTitleEnabled,
                 title = newTitle,
                 blocks = state.blocks,
-                attachments = state.attachments.values.toList(),
+                attachments = atts,
                 links = state.links
             )
-            state.copy(title = newTitle, suggestedTitle = suggestion)
+            val tagSug = computeLiveTagSuggestions(
+                enabled = state.smartTagsEnabled,
+                title = newTitle,
+                blocks = state.blocks,
+                attachments = atts,
+                links = state.links,
+                existingNoteTags = state.tags,
+                vocabulary = state.availableTags
+            )
+            state.copy(
+                title = newTitle,
+                suggestedTitle = suggestion,
+                liveTagSuggestions = tagSug,
+                detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(newTitle, state.blocks)
+            )
         }
         enqueueAutosave()
     }
@@ -376,14 +472,29 @@ class NoteEditorViewModel(
             updated.firstOrNull { it.type == NoteBlockType.TEXT }?.let {
                 savedStateHandle[KEY_DRAFT_FIRST_TEXT] = it.textContent
             }
+            val atts = state.attachments.values.toList()
             val suggestion = computeSuggestedTitle(
                 enabled = state.autoTitleEnabled,
                 title = state.title,
                 blocks = updated,
-                attachments = state.attachments.values.toList(),
+                attachments = atts,
                 links = state.links
             )
-            state.copy(blocks = updated, suggestedTitle = suggestion)
+            val tagSug = computeLiveTagSuggestions(
+                enabled = state.smartTagsEnabled,
+                title = state.title,
+                blocks = updated,
+                attachments = atts,
+                links = state.links,
+                existingNoteTags = state.tags,
+                vocabulary = state.availableTags
+            )
+            state.copy(
+                blocks = updated,
+                suggestedTitle = suggestion,
+                liveTagSuggestions = tagSug,
+                detectedReminderSuggestion = NaturalDateTimeParser.extractFromNote(state.title, updated)
+            )
         }
         enqueueAutosave()
     }
@@ -614,31 +725,12 @@ class NoteEditorViewModel(
     }
 
     fun addUserTag(rawName: String) {
-        viewModelScope.launch {
-            prepareNoteForForeignMutation()
-            tagRepository.addUserTagToNote(activeNoteId, rawName)
-        }
-    }
-
-    fun confirmSuggestedTag(tagId: String) {
-        viewModelScope.launch {
-            tagRepository.confirmSuggestedTag(activeNoteId, tagId)
-        }
-    }
-
-    fun dismissOrRemoveTag(tagId: String) {
-        viewModelScope.launch {
-            tagRepository.dismissOrRemoveTagFromNote(activeNoteId, tagId)
-        }
-    }
-
-    fun saveReminder(triggerAtMs: Long, repeatRule: RepeatRule, useLiveUpdate: Boolean) {
         activeImportsCount.incrementAndGet()
         viewModelScope.launch {
             try {
                 withContext(NonCancellable) {
                     prepareNoteForForeignMutation()
-                    reminderScheduler.scheduleOrUpdateReminder(activeNoteId, triggerAtMs, repeatRule, useLiveUpdate)
+                    tagRepository.addUserTagToNote(activeNoteId, rawName)
                     refreshUiFromDetailSnapshot()
                 }
             } finally {
@@ -647,9 +739,97 @@ class NoteEditorViewModel(
         }
     }
 
+    fun applyAutoTagsNow() {
+        val state = _uiState.value
+        val suggestions = state.liveTagSuggestions
+        if (!state.smartTagsEnabled || suggestions.isEmpty()) return
+        activeImportsCount.incrementAndGet()
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) {
+                    prepareNoteForForeignMutation()
+                    tagRepository.applySuggestedTags(
+                        noteId = activeNoteId,
+                        suggestions = suggestions.map { it.name to it.confidence }
+                    )
+                    refreshUiFromDetailSnapshot()
+                }
+            } finally {
+                activeImportsCount.decrementAndGet()
+            }
+        }
+    }
+
+    fun confirmSuggestedTag(tagId: String) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                tagRepository.confirmSuggestedTag(activeNoteId, tagId)
+                refreshUiFromDetailSnapshot()
+            }
+        }
+    }
+
+    fun dismissOrRemoveTag(tagId: String) {
+        viewModelScope.launch {
+            withContext(NonCancellable) {
+                tagRepository.dismissOrRemoveTagFromNote(activeNoteId, tagId)
+                refreshUiFromDetailSnapshot()
+            }
+        }
+    }
+
+    fun saveReminder(
+        triggerAtMs: Long,
+        repeatRule: RepeatRule,
+        useLiveUpdate: Boolean,
+        repeatDaysMask: Int = 0,
+        repeatInterval: Int = 1,
+        preAlertMinutes: Int = 0,
+        isImportant: Boolean = false
+    ) {
+        activeImportsCount.incrementAndGet()
+        viewModelScope.launch {
+            try {
+                withContext(NonCancellable) {
+                    prepareNoteForForeignMutation()
+                    reminderScheduler.scheduleOrUpdateReminder(
+                        noteId = activeNoteId,
+                        triggerAtMs = triggerAtMs,
+                        repeatRule = repeatRule,
+                        useLiveUpdate = useLiveUpdate,
+                        repeatDaysMask = repeatDaysMask,
+                        repeatInterval = repeatInterval,
+                        preAlertMinutes = preAlertMinutes,
+                        isImportant = isImportant
+                    )
+                    refreshUiFromDetailSnapshot()
+                }
+            } finally {
+                activeImportsCount.decrementAndGet()
+            }
+        }
+    }
+
+    fun completeReminder() {
+        viewModelScope.launch {
+            reminderScheduler.markReminderCompleted(activeNoteId)
+            refreshUiFromDetailSnapshot()
+        }
+    }
+
+    fun snoozeReminder(minutes: Int) {
+        viewModelScope.launch {
+            reminderScheduler.snoozeReminder(activeNoteId, minutes)
+            refreshUiFromDetailSnapshot()
+        }
+    }
+
     fun removeReminder() {
         viewModelScope.launch {
-            reminderScheduler.cancelReminderForNote(activeNoteId)
+            withContext(NonCancellable) {
+                reminderScheduler.cancelReminderForNote(activeNoteId)
+                refreshUiFromDetailSnapshot()
+            }
         }
     }
 
@@ -780,6 +960,45 @@ class NoteEditorViewModel(
         )
     }
 
+    private fun computeLiveTagSuggestions(
+        enabled: Boolean,
+        title: String,
+        blocks: List<NoteBlock>,
+        attachments: List<AttachmentInfo>,
+        links: List<LinkPreviewInfo>,
+        existingNoteTags: List<NoteTag>,
+        vocabulary: List<String>
+    ): List<SmartTagSuggestion> {
+        if (!enabled) return emptyList()
+        val hasAnyContent = title.isNotBlank() ||
+            blocks.any { it.textContent.isNotBlank() || !it.linkUrl.isNullOrBlank() } ||
+            attachments.any { !it.ocrText.isNullOrBlank() || it.isScreenshot } ||
+            links.isNotEmpty()
+        if (!hasAnyContent) return emptyList()
+
+        val ocrTexts = attachments.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
+        val detectedLinks = buildList {
+            links.forEach { l -> add(DetectedLink(l.rawUrl, l.canonicalUrl, l.domain)) }
+            blocks.forEach { blk ->
+                when (blk.type) {
+                    NoteBlockType.TEXT, NoteBlockType.CHECKLIST -> addAll(SmartLinkDetector.extractLinks(blk.textContent))
+                    NoteBlockType.LINK -> blk.linkUrl?.let { SmartLinkDetector.parseSingleUrl(it)?.let(::add) }
+                    NoteBlockType.IMAGE -> Unit
+                }
+            }
+        }.distinctBy { it.canonicalUrl }
+
+        val existingLower = existingNoteTags.map { it.name.lowercase() }.toSet()
+        return smartTagsEngine.suggestTags(
+            title = title,
+            blocks = blocks,
+            ocrTexts = ocrTexts,
+            links = detectedLinks,
+            hasScreenshot = attachments.any { it.isScreenshot },
+            existingUserVocabulary = vocabulary
+        ).filter { it.name.lowercase() !in existingLower }
+    }
+
     private fun computeSuggestedTitle(
         enabled: Boolean,
         title: String,
@@ -842,7 +1061,8 @@ class NoteEditorViewModel(
         private val reminderScheduler: ReminderScheduler,
         private val duplicateDetector: SmartDuplicateDetector,
         private val settingsRepository: SettingsRepository,
-        private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator()
+        private val smartTitleGenerator: SmartTitleGenerator = SmartTitleGenerator(),
+        private val smartTagsEngine: SmartTagsEngine = SmartTagsEngine()
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(
@@ -863,7 +1083,8 @@ class NoteEditorViewModel(
                 reminderScheduler = reminderScheduler,
                 duplicateDetector = duplicateDetector,
                 settingsRepository = settingsRepository,
-                smartTitleGenerator = smartTitleGenerator
+                smartTitleGenerator = smartTitleGenerator,
+                smartTagsEngine = smartTagsEngine
             ) as T
         }
     }

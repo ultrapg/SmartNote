@@ -4,6 +4,24 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.11] - 2026-11-19
+
+### Added & Changed
+- **Significantly Upgraded Offline Auto-Tagger (`SmartTagsEngine.kt`, `SmartNoteAiEngine.kt`, `NoteProcessingWorker.kt`, `NoteEditorScreen.kt`)**:
+  - **Stage 0 Inline `#Hashtag` Extraction**: Parses `#TagName` directly from note titles and prose blocks (with up to 6 tags supported per note and explicit filtering for Markdown `# Heading` headings and hex colors like `#FFFFFF`).
+  - **27-Category Bilingual EN+DE Taxonomy**: Expanded category rules and self-names with morphological stemming, umlaut folding (`ä/ö/ü/ß` -> `ae/oe/ue/ss`), multi-word phrase matching (`2.6f`), multi-root German compound-word decomposition (`2.4f`, e.g., `Steuererklärung`, `Flugbuchung`), and weak-word single-hit noise guards (`Shopping`, `Work`, `Tasks`).
+  - **Personal Tag Profile Learning & Stage 3 LiteRT Semantic Affinity**: `NoteProcessingWorker` builds personal token-to-tag affinity profiles from user-confirmed `USER` tags, computes batched LiteRT prototype affinities (`computeEmbeddingAndTagAffinities` with cached 27-category embeddings), and reuses the precomputed note embedding across indexing steps.
+  - **Live Editor Suggestions & Reworked `ManageTagsSheet`**: Shows live `Auto-tag (N)` controls while typing, an expandable `ManageTagsSheet` with borderless tonal custom-tag input, per-suggestion reason cards (`Suggested for this note`), unused personal vocabulary pills, and automatic scroll-to-top visibility when adding tags.
+- **Completely Reworked Reminder Menu & End-to-End Reminder Engine (`ReminderPickerSheet.kt`, `NaturalDateTimeParser.kt`, `ReminderCalculator.kt`, `ReminderScheduler.kt`, `ReminderNotificationBuilder.kt`, `ReminderBroadcastReceiver.kt`)**:
+  - **Borderless M3 Expressive `ReminderPickerSheet`**: Rebuilt around a pinned header & footer (`Cancel`/`Remove` + past-time-guarded `Save Reminder`/`Update Reminder`), live schedule & relative-countdown hero card, quick `Mark Done` / `+15m` / `+1h` action pills for active reminders, runtime `POST_NOTIFICATIONS` & Exact Alarm permission banners, horizontal quick-preset & time-of-day strips, tonal Date & Time cards with clock-dial/keyboard `TimeInput` toggle, repeat interval stepper (`Every N days/weeks/months`), `Yearly` & `Custom days` (Mon–Sun circle picker), early alert lead-time pills (`At time`, `10m before`, `30m before`, `1h before`, `1 day before`), and a Priority / Android 16 Live Update card.
+  - **Offline EN+DE Natural Date/Time Detection (`NaturalDateTimeParser`)**: Detects relative durations, explicit dates (`dd.MM.yyyy`, `yyyy-MM-dd`), named days/weekdays (`tomorrow`, `morgen`, `nächsten Montag`, `Friday 14:30`), times, and recurrence hints from note text for 1-tap `From note:` application.
+  - **Early Pre-Alerts, Urgent Notification Channel, 3 Notification Actions & Swipe-Dismiss Advance**: Schedules parallel pre-alert alarms (`PRE_ALERT_REQUEST_OFFSET = 10_000`), adds `CHANNEL_REMINDERS_URGENT` for priority reminders, upgrades notifications to 3 quick actions (`Complete`, configurable default `Snooze <m>m`, `Snooze 1h`), advances recurring schedules cleanly via `ACTION_REMINDER_DISMISSED`, sorts the `Reminders` overview filter chronologically (`triggerAtMs ASC`), adds a live `Notifications` permission toggle row in `ReminderSettingsScreen`, and upgrades Room schema to `version = 2` with `MIGRATION_1_2` and Backup `schemaVersion = 2`.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 34 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 34 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,190,229` bytes (`54.54 MiB`), `SHA-256: 82ef41f64a4f9692ab84c510d65e0e5f4f4e97d146eab35c89163a8c5a5bce30`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.10] - 2026-11-19
 
 ### Changed

@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.immediateTransaction
+import androidx.room.migration.Migration
 import androidx.room.useWriterConnection
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
@@ -27,7 +28,7 @@ import kotlinx.coroutines.Dispatchers
         DismissedDuplicateEntity::class,
         NoteEmbeddingEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class SmartNoteDatabase : RoomDatabase() {
@@ -57,6 +58,7 @@ abstract class SmartNoteDatabase : RoomDatabase() {
             )
                 .setDriver(BundledSQLiteDriver())
                 .setQueryCoroutineContext(Dispatchers.IO)
+                .addMigrations(MIGRATION_1_2)
                 .addCallback(ftsCallback())
                 .build()
         }
@@ -67,8 +69,26 @@ abstract class SmartNoteDatabase : RoomDatabase() {
             )
                 .setDriver(BundledSQLiteDriver())
                 .setQueryCoroutineContext(Dispatchers.IO)
+                .addMigrations(MIGRATION_1_2)
                 .addCallback(ftsCallback())
                 .build()
+        }
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(connection: SQLiteConnection) {
+                connection.execSQL(
+                    "ALTER TABLE reminders ADD COLUMN repeat_days_mask INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execSQL(
+                    "ALTER TABLE reminders ADD COLUMN repeat_interval INTEGER NOT NULL DEFAULT 1"
+                )
+                connection.execSQL(
+                    "ALTER TABLE reminders ADD COLUMN pre_alert_minutes INTEGER NOT NULL DEFAULT 0"
+                )
+                connection.execSQL(
+                    "ALTER TABLE reminders ADD COLUMN is_important INTEGER NOT NULL DEFAULT 0"
+                )
+            }
         }
 
         private fun ftsCallback(): Callback = object : Callback() {

@@ -69,6 +69,7 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
@@ -125,7 +126,10 @@ import io.github.ultrapg.smartnote.domain.model.NoteFilterType
 import io.github.ultrapg.smartnote.domain.model.NoteSortOrder
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
+import io.github.ultrapg.smartnote.domain.model.ReminderInfo
+import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.TagSource
+import io.github.ultrapg.smartnote.reminder.ReminderCalculator
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveBadgeShapeKind
 import io.github.ultrapg.smartnote.ui.designsystem.components.ExpressiveShapeBadge
 import io.github.ultrapg.smartnote.ui.designsystem.components.expressivePressable
@@ -1276,7 +1280,7 @@ private fun NoteStaggeredCard(
                 }
 
                 if (note.reminder != null && !note.reminder.isCompleted) {
-                    ReminderPill(note.reminder.triggerAtMs)
+                    ReminderPill(note.reminder)
                 }
 
                 if (note.tags.isNotEmpty()) {
@@ -1478,12 +1482,29 @@ private fun SwipeableCompactNoteRow(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         if (note.reminder != null && !note.reminder.isCompleted) {
-                            Icon(
-                                Icons.Rounded.Alarm,
-                                contentDescription = "Reminder set",
-                                modifier = Modifier.size(13.dp),
-                                tint = MaterialTheme.colorScheme.tertiary
-                            )
+                            val isOverdue = note.reminder.triggerAtMs <= System.currentTimeMillis()
+                            val remTint = if (isOverdue || note.reminder.isImportant) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.tertiary
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.Alarm,
+                                    contentDescription = "Reminder set",
+                                    modifier = Modifier.size(13.dp),
+                                    tint = remTint
+                                )
+                                Text(
+                                    text = ReminderCalculator.formatHumanDateTime(note.reminder.triggerAtMs),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = remTint,
+                                    maxLines = 1
+                                )
+                            }
                         }
                         note.tags.take(2).forEach { t ->
                             Text(
@@ -1515,13 +1536,28 @@ private fun SwipeableCompactNoteRow(
 }
 
 @Composable
-private fun ReminderPill(triggerAtMs: Long) {
-    val label = remember(triggerAtMs) {
-        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(triggerAtMs))
+private fun ReminderPill(reminder: ReminderInfo) {
+    val isOverdue = remember(reminder.triggerAtMs) {
+        reminder.triggerAtMs <= System.currentTimeMillis()
+    }
+    val isEmphasized = isOverdue || reminder.isImportant
+    val bgColor = if (isEmphasized) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val fgColor = if (isEmphasized) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    }
+    val label = remember(reminder.triggerAtMs, isOverdue) {
+        val base = ReminderCalculator.formatHumanDateTime(reminder.triggerAtMs)
+        if (isOverdue) "Overdue · $base" else base
     }
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer
+        color = bgColor
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -1532,15 +1568,23 @@ private fun ReminderPill(triggerAtMs: Long) {
                 imageVector = Icons.Rounded.Alarm,
                 contentDescription = null,
                 modifier = Modifier.size(13.dp),
-                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                tint = fgColor
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = fgColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            if (reminder.repeatRule != RepeatRule.NONE) {
+                Icon(
+                    imageVector = Icons.Rounded.Repeat,
+                    contentDescription = null,
+                    modifier = Modifier.size(12.dp),
+                    tint = fgColor
+                )
+            }
         }
     }
 }

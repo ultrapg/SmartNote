@@ -284,7 +284,15 @@ data class ReminderEntity(
     @ColumnInfo(name = "snooze_count")
     val snoozeCount: Int = 0,
     @ColumnInfo(name = "use_live_update")
-    val useLiveUpdate: Boolean = true
+    val useLiveUpdate: Boolean = true,
+    @ColumnInfo(name = "repeat_days_mask", defaultValue = "0")
+    val repeatDaysMask: Int = 0,
+    @ColumnInfo(name = "repeat_interval", defaultValue = "1")
+    val repeatInterval: Int = 1,
+    @ColumnInfo(name = "pre_alert_minutes", defaultValue = "0")
+    val preAlertMinutes: Int = 0,
+    @ColumnInfo(name = "is_important", defaultValue = "0")
+    val isImportant: Boolean = false
 )
 
 @Entity(

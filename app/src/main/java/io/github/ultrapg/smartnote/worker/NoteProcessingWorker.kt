@@ -14,8 +14,10 @@ import io.github.ultrapg.smartnote.data.local.ProcessingJobEntity
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
+import io.github.ultrapg.smartnote.domain.model.TagSource
 import io.github.ultrapg.smartnote.domain.util.TextHashing
 import io.github.ultrapg.smartnote.links.SmartLinkDetector
+import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import kotlinx.coroutines.flow.first
 
 class NoteProcessingWorker(
@@ -152,15 +154,39 @@ class NoteProcessingWorker(
                 }
             }.distinctBy { it.canonicalUrl }
 
+            val combinedForEmbedding = buildString {
+                append(currentTitleForTags).append('\n')
+                detail.blocks.forEach { append(it.textContent).append('\n') }
+                ocrTexts.forEach { append(it).append('\n') }
+            }
+            var precomputedNoteVec: FloatArray? = null
+
             if (settings.effectiveSmartTagsEnabled) {
                 val existingUserVocab = container.tagRepository.getAllTagsSnapshot().map { it.name }
+                val (userTagProfiles, userTagNoteIds) = buildUserTagContext(
+                    container = container,
+                    excludeNoteId = noteId
+                )
+                val semanticTagScores = if (settings.aiFeaturesEnabled && combinedForEmbedding.isNotBlank()) {
+                    val (vec, affinities) = container.aiEngine.computeEmbeddingAndTagAffinities(
+                        noteText = combinedForEmbedding,
+                        categoryPrototypes = container.smartTagsEngine.categoryPrototypes(),
+                        userTagNoteIds = userTagNoteIds
+                    )
+                    precomputedNoteVec = vec
+                    affinities
+                } else {
+                    emptyMap()
+                }
                 val suggestions = container.smartTagsEngine.suggestTags(
                     title = currentTitleForTags,
                     blocks = detail.blocks,
                     ocrTexts = ocrTexts,
                     links = detectedLinks,
                     hasScreenshot = hasScreenshot,
-                    existingUserVocabulary = existingUserVocab
+                    existingUserVocabulary = existingUserVocab,
+                    semanticTagScores = semanticTagScores,
+                    userTagProfiles = userTagProfiles
                 )
                 container.tagRepository.applySuggestedTags(
                     noteId = noteId,
@@ -172,14 +198,14 @@ class NoteProcessingWorker(
             container.searchIndexer.indexNote(noteId)
 
             // 6. Optional neural embedding update when semantic re-ranking is enabled
-            if (settings.effectiveSemanticRerankEnabled) {
-                val combined = buildString {
-                    append(currentTitleForTags).append('\n')
-                    detail.blocks.forEach { append(it.textContent).append('\n') }
-                    ocrTexts.forEach { append(it).append('\n') }
+            if (settings.effectiveSemanticRerankEnabled && combinedForEmbedding.isNotBlank()) {
+                val hash = TextHashing.sha256Hex(combinedForEmbedding)
+                val vec = precomputedNoteVec
+                if (vec != null && vec.isNotEmpty()) {
+                    container.aiEngine.savePrecomputedEmbeddingIfNeeded(noteId, hash, vec)
+                } else {
+                    container.aiEngine.updateNoteEmbeddingIfNeeded(noteId, hash, combinedForEmbedding)
                 }
-                val hash = TextHashing.sha256Hex(combined)
-                container.aiEngine.updateNoteEmbeddingIfNeeded(noteId, hash, combined)
             }
 
             container.database.searchAndMaintenanceDao().upsertProcessingJob(
@@ -209,8 +235,63 @@ class NoteProcessingWorker(
         }
     }
 
+    private suspend fun buildUserTagContext(
+        container: io.github.ultrapg.smartnote.di.AppContainer,
+        excludeNoteId: String
+    ): Pair<Map<String, Map<String, Float>>, Map<String, List<String>>> {
+        val summaries = container.noteRepository.getAllSummariesSnapshot(includeArchived = true)
+        val rawTokenCounts = LinkedHashMap<String, MutableMap<String, Int>>()
+        val tagNoteIds = LinkedHashMap<String, MutableList<String>>()
+        val tagDocCounts = HashMap<String, Int>()
+
+        for (summary in summaries) {
+            if (summary.id == excludeNoteId || summary.isDeleted) continue
+            val userTags = summary.tags.filter { it.source == TagSource.USER }
+            if (userTags.isEmpty()) continue
+
+            val noteTokens = TextHashing.tokenizeWords("${summary.title} ${summary.previewText}")
+                .map { SmartTagsEngine.foldToAsciiLower(it) }
+                .filter { it.length >= 3 && it !in USER_PROFILE_STOPWORDS }
+                .distinct()
+
+            for (tag in userTags) {
+                val ids = tagNoteIds.getOrPut(tag.name) { mutableListOf() }
+                if (ids.size < 16) ids += summary.id
+                tagDocCounts[tag.name] = (tagDocCounts[tag.name] ?: 0) + 1
+                val counts = rawTokenCounts.getOrPut(tag.name) { mutableMapOf() }
+                for (tok in noteTokens) {
+                    counts[tok] = (counts[tok] ?: 0) + 1
+                }
+            }
+        }
+
+        val profiles = LinkedHashMap<String, Map<String, Float>>()
+        for ((tagName, counts) in rawTokenCounts) {
+            val docCount = (tagDocCounts[tagName] ?: 1).coerceAtLeast(1)
+            val weighted = counts.entries
+                .sortedByDescending { it.value }
+                .take(12)
+                .associate { (tok, count) ->
+                    val salience = (1.0f + (count.toFloat() / docCount.toFloat())).coerceIn(1.0f, 2.5f)
+                    tok to salience
+                }
+            if (weighted.isNotEmpty()) {
+                profiles[tagName] = weighted
+            }
+        }
+        return profiles to tagNoteIds
+    }
+
     companion object {
         const val KEY_NOTE_ID = "note_id"
+
+        private val USER_PROFILE_STOPWORDS = setOf(
+            "the", "and", "for", "with", "from", "that", "this", "have", "are", "was", "were",
+            "you", "your", "not", "but", "can", "will", "just", "about", "into", "more", "some",
+            "der", "die", "das", "und", "fuer", "mit", "von", "auf", "ein", "eine", "einen",
+            "ist", "sind", "war", "nicht", "auch", "noch", "nur", "oder", "aber", "als", "bei",
+            "note", "notes", "notiz", "notizen", "http", "https", "www", "com"
+        )
 
         fun enqueueForNote(context: Context, noteId: String) {
             val request = OneTimeWorkRequestBuilder<NoteProcessingWorker>()

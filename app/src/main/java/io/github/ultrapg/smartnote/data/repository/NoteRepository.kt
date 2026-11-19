@@ -90,7 +90,16 @@ class NoteRepository(
                 }
                 matchesTag && matchesFilter
             }
-            .sortSummaries(sortOrder)
+            .let { filtered ->
+                if (filterType == NoteFilterType.REMINDERS) {
+                    filtered.sortedWith(
+                        compareBy<NoteSummary> { it.reminder?.triggerAtMs ?: Long.MAX_VALUE }
+                            .thenByDescending { it.updatedAtMs }
+                    )
+                } else {
+                    filtered.sortSummaries(sortOrder)
+                }
+            }
     }.flowOn(Dispatchers.Default)
 
     fun observeArchivedNotes(): Flow<List<NoteSummary>> = combine(
@@ -865,7 +874,11 @@ class NoteRepository(
         isCompleted = entity.isCompleted,
         completedAtMs = entity.completedAtMs,
         snoozeCount = entity.snoozeCount,
-        useLiveUpdate = entity.useLiveUpdate
+        useLiveUpdate = entity.useLiveUpdate,
+        repeatDaysMask = entity.repeatDaysMask,
+        repeatInterval = entity.repeatInterval.coerceAtLeast(1),
+        preAlertMinutes = entity.preAlertMinutes.coerceAtLeast(0),
+        isImportant = entity.isImportant
     )
 
     private fun List<NoteSummary>.sortSummaries(sortOrder: NoteSortOrder): List<NoteSummary> = when (sortOrder) {

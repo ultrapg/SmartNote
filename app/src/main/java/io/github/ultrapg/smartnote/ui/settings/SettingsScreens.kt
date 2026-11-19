@@ -1,13 +1,19 @@
 package io.github.ultrapg.smartnote.ui.settings
 
+import android.Manifest
+import android.app.AlarmManager
 import android.app.StatusBarManager
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.core.app.AlarmManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -63,8 +69,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -528,6 +538,38 @@ fun ReminderSettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    fun checkNotifGranted(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    } else {
+        true
+    }
+
+    fun checkExactAlarmGranted(): Boolean {
+        val mgr = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return canScheduleExactAlarms
+        return AlarmManagerCompat.canScheduleExactAlarms(mgr) || canScheduleExactAlarms
+    }
+
+    var hasNotifPermission by remember { mutableStateOf(checkNotifGranted()) }
+    var effectiveExactAlarms by remember { mutableStateOf(checkExactAlarmGranted()) }
+
+    val notifPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasNotifPermission = granted || checkNotifGranted()
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasNotifPermission = checkNotifGranted()
+                effectiveExactAlarms = checkExactAlarmGranted()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     SettingsSubScaffold(title = "Reminders", onBack = onBack) {
         Surface(
@@ -540,7 +582,8 @@ fun ReminderSettingsScreen(
                 modifier = Modifier.padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                DiagRow("Exact Alarm Access", if (canScheduleExactAlarms) "Granted" else "Fallback window (5 min)")
+                DiagRow("Notifications", if (hasNotifPermission) "Granted" else "Not granted (alerts blocked)")
+                DiagRow("Exact Alarm Access", if (effectiveExactAlarms) "Granted" else "Fallback window (5 min)")
                 DiagRow(
                     "Android 16 Live Updates / Now Bar",
                     when {
@@ -549,7 +592,12 @@ fun ReminderSettingsScreen(
                         else -> "Disabled in system settings (using standard notifications)"
                     }
                 )
-                if (!canScheduleExactAlarms && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (!hasNotifPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    TextButton(
+                        onClick = { notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                    ) { Text("Allow Notifications") }
+                }
+                if (!effectiveExactAlarms && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     TextButton(
                         onClick = {
                             runCatching {

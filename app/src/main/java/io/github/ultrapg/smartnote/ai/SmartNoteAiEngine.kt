@@ -212,6 +212,8 @@ class SmartNoteAiEngine(
     val diagnosticsFlow: StateFlow<AiDiagnosticsState> = _diagnostics.asStateFlow()
 
     private var idleUnloadJob: Job? = null
+    @Volatile
+    private var cachedPrototypeEmbeddings: Map<String, FloatArray>? = null
 
     suspend fun refreshDiagnostics(): AiDiagnosticsState {
         val settings = settingsRepository.settingsFlow.first()
@@ -335,6 +337,92 @@ class SmartNoteAiEngine(
         )
     }
 
+    suspend fun savePrecomputedEmbeddingIfNeeded(
+        noteId: String,
+        contentSha256: String,
+        vector: FloatArray
+    ) {
+        if (vector.isEmpty()) return
+        val s = settingsRepository.settingsFlow.first()
+        if (!s.effectiveSemanticRerankEnabled) return
+        val existing = database.searchAndMaintenanceDao().getEmbedding(noteId)
+        if (existing != null && existing.contentSha256 == contentSha256 && existing.modelId == MODEL_ID) {
+            return
+        }
+        database.searchAndMaintenanceDao().upsertEmbedding(
+            NoteEmbeddingEntity(
+                noteId = noteId,
+                modelId = MODEL_ID,
+                contentSha256 = contentSha256,
+                dims = vector.size,
+                vectorBlob = TextFeatureVectorizer.toByteArray(vector),
+                updatedAtMs = System.currentTimeMillis()
+            )
+        )
+    }
+
+    suspend fun computeEmbeddingAndTagAffinities(
+        noteText: String,
+        categoryPrototypes: Map<String, String>,
+        userTagNoteIds: Map<String, List<String>>
+    ): Pair<FloatArray, Map<String, Float>> {
+        val truncated = noteText.take(4000)
+        if (truncated.isBlank()) {
+            return FloatArray(TextFeatureVectorizer.OUTPUT_DIMS) to emptyMap()
+        }
+        val s = settingsRepository.settingsFlow.first()
+        if (!s.aiFeaturesEnabled) {
+            unloadModel()
+            return FloatArray(TextFeatureVectorizer.OUTPUT_DIMS) to emptyMap()
+        }
+
+        val noteVec = embedText(truncated)
+        val affinities = LinkedHashMap<String, Float>()
+
+        val protoEmbeddings = cachedPrototypeEmbeddings ?: withContext(aiDispatcher) {
+            val resolved = LinkedHashMap<String, FloatArray>(categoryPrototypes.size)
+            for ((tagName, protoText) in categoryPrototypes) {
+                val feats = TextFeatureVectorizer.vectorizeInput(protoText)
+                val projected = if (_diagnostics.value.isModelLoaded) {
+                    runtimeBridge.runProjection(feats).getOrNull()
+                } else {
+                    null
+                }
+                resolved[tagName] = projected ?: deterministicCpuFallbackProjection(feats)
+            }
+            resolved.also { cachedPrototypeEmbeddings = it }
+        }
+
+        for ((tagName, protoVec) in protoEmbeddings) {
+            val sim = TextFeatureVectorizer.cosineSimilarity(noteVec, protoVec)
+            if (sim >= 0.55f) {
+                affinities[tagName] = sim
+            }
+        }
+
+        val allCandidateNoteIds = userTagNoteIds.values.flatten().distinct()
+        if (allCandidateNoteIds.isNotEmpty()) {
+            val stored = database.searchAndMaintenanceDao().getEmbeddings(allCandidateNoteIds)
+                .associateBy { it.noteId }
+            for ((tagName, noteIds) in userTagNoteIds) {
+                val vectors = noteIds.mapNotNull { id ->
+                    stored[id]?.let { TextFeatureVectorizer.fromByteArray(it.vectorBlob) }
+                }
+                if (vectors.isEmpty()) continue
+                val centroid = averageAndNormalizeVectors(vectors)
+                val sim = TextFeatureVectorizer.cosineSimilarity(noteVec, centroid)
+                if (sim >= 0.55f) {
+                    val prev = affinities[tagName] ?: 0f
+                    if (sim > prev) {
+                        affinities[tagName] = sim
+                    }
+                }
+            }
+        }
+
+        return noteVec to affinities
+    }
+
     suspend fun scoreSemanticSimilarity(query: String, candidateNoteIds: List<String>): Map<String, Float> {
         if (query.isBlank() || candidateNoteIds.isEmpty()) return emptyMap()
         val s = settingsRepository.settingsFlow.first()
@@ -353,10 +441,23 @@ class SmartNoteAiEngine(
 
     suspend fun unloadModel() {
         idleUnloadJob?.cancel()
+        cachedPrototypeEmbeddings = null
         withContext(aiDispatcher) {
             runtimeBridge.close()
             _diagnostics.value = _diagnostics.value.copy(isModelLoaded = false)
         }
+    }
+
+    private fun averageAndNormalizeVectors(vectors: List<FloatArray>): FloatArray {
+        val dims = vectors.firstOrNull()?.size ?: return FloatArray(TextFeatureVectorizer.OUTPUT_DIMS)
+        val avg = FloatArray(dims)
+        for (vec in vectors) {
+            val limit = minOf(dims, vec.size)
+            for (i in 0 until limit) {
+                avg[i] += vec[i]
+            }
+        }
+        return TextFeatureVectorizer.l2Normalize(avg)
     }
 
     private fun scheduleIdleUnload(energyEfficient: Boolean = false) {

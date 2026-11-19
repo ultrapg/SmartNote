@@ -132,4 +132,80 @@ class SmartTagsAndDuplicatesTest {
         val remaining = duplicateDetector.findDuplicatesForAllNotes()
         assertEquals(1, remaining.size)
     }
+
+    @Test
+    fun smartTagsHandlesHashtagsGermanCompoundsPersonalProfilesAndSemanticAffinity() {
+        // 1. Inline #hashtags work while Markdown # Heading and hex colors #FFAA00 are ignored
+        val hashtagSuggestions = smartTagsEngine.suggestTags(
+            title = "# Weekly Sync",
+            blocks = listOf(
+                NoteBlock(
+                    "b1", "n1", 0, NoteBlockType.TEXT,
+                    "Palette color is #FFAA00 and #fff, track #ProjectApollo tasks."
+                )
+            ),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("ProjectApollo" in hashtagSuggestions)
+        assertFalse("Weekly" in hashtagSuggestions)
+        assertFalse("FFAA00" in hashtagSuggestions)
+        assertFalse("fff" in hashtagSuggestions)
+
+        // 2. Short single-intent notes match category self-names & strong anchors cleanly
+        val shortShopping = smartTagsEngine.suggestTags(
+            title = "Shopping",
+            blocks = emptyList(),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Shopping" in shortShopping)
+
+        // 3. German compounds & umlaut folding
+        val germanSuggestions = smartTagsEngine.suggestTags(
+            title = "Notiz",
+            blocks = listOf(
+                NoteBlock(
+                    "b2", "n2", 0, NoteBlockType.TEXT,
+                    "Einkaufsliste schreiben, Arzttermin vereinbaren, Flugbuchung checken, Steuererklärung vorbereiten"
+                )
+            ),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        ).map { it.name }
+        assertTrue("Shopping" in germanSuggestions)
+        assertTrue("Health" in germanSuggestions)
+        assertTrue("Travel" in germanSuggestions)
+        assertTrue("Finance" in germanSuggestions)
+
+        // 4. Personal user-tag co-occurrence profiles + semantic affinity + weak-word noise guard
+        val noisyOnly = smartTagsEngine.suggestTags(
+            title = "Total notes change",
+            blocks = listOf(NoteBlock("b3", "n3", 0, NoteBlockType.TEXT, "Just a quick review finish")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = emptyList()
+        )
+        assertTrue("Weak generic words alone must not trigger noisy tags: $noisyOnly", noisyOnly.isEmpty())
+
+        val learnedProfileSuggestions = smartTagsEngine.suggestTags(
+            title = "Phoenix Q4 Rollout",
+            blocks = listOf(NoteBlock("b4", "n4", 0, NoteBlockType.TEXT, "Prepared apollo invoice and delivery")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            hasScreenshot = false,
+            existingUserVocabulary = listOf("ClientACME"),
+            semanticTagScores = mapOf("Research" to 0.85f),
+            userTagProfiles = mapOf("ClientACME" to mapOf("apollo" to 2.2f, "invoice" to 1.8f))
+        ).map { it.name }
+        assertTrue("ClientACME" in learnedProfileSuggestions)
+        assertTrue("Research" in learnedProfileSuggestions)
+    }
 }

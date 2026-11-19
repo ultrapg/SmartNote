@@ -4,7 +4,6 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.AlarmManagerCompat
 import io.github.ultrapg.smartnote.data.local.ReminderEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
@@ -29,7 +28,11 @@ class ReminderScheduler(
         noteId: String,
         triggerAtMs: Long,
         repeatRule: RepeatRule,
-        useLiveUpdate: Boolean = true
+        useLiveUpdate: Boolean = true,
+        repeatDaysMask: Int = 0,
+        repeatInterval: Int = 1,
+        preAlertMinutes: Int = 0,
+        isImportant: Boolean = false
     ) {
         val zone = ZoneId.systemDefault().id
         val localIso = ReminderCalculator.formatLocalIso(triggerAtMs, zone)
@@ -44,9 +47,14 @@ class ReminderScheduler(
             isCompleted = false,
             completedAtMs = null,
             snoozeCount = existing?.snoozeCount ?: 0,
-            useLiveUpdate = useLiveUpdate
+            useLiveUpdate = useLiveUpdate,
+            repeatDaysMask = repeatDaysMask and 0x7F,
+            repeatInterval = repeatInterval.coerceIn(1, 365),
+            preAlertMinutes = preAlertMinutes.coerceAtLeast(0),
+            isImportant = isImportant
         )
         database.reminderDao().upsertReminder(entity)
+        notificationBuilder.cancelReminderNotification(noteId)
         schedulePlatformAlarm(entity)
     }
 
@@ -71,7 +79,9 @@ class ReminderScheduler(
             currentTriggerMs = reminder.triggerAtMs,
             zoneId = reminder.zoneId,
             repeatRule = rule,
-            nowMs = nowMs
+            nowMs = nowMs,
+            repeatDaysMask = reminder.repeatDaysMask,
+            repeatInterval = reminder.repeatInterval
         )
 
         if (nextOccurrence != null) {
@@ -89,6 +99,13 @@ class ReminderScheduler(
                 reminder.copy(isCompleted = true, completedAtMs = nowMs)
             )
         }
+    }
+
+    suspend fun handleNotificationDismissed(noteId: String, nowMs: Long = System.currentTimeMillis()) {
+        val reminder = database.reminderDao().getReminderForNote(noteId) ?: return
+        val rule = runCatching { RepeatRule.valueOf(reminder.repeatRule) }.getOrDefault(RepeatRule.NONE)
+        if (rule == RepeatRule.NONE || reminder.isCompleted || reminder.triggerAtMs > nowMs) return
+        markReminderCompleted(noteId, nowMs)
     }
 
     suspend fun snoozeReminder(noteId: String, snoozeMinutes: Int, nowMs: Long = System.currentTimeMillis()) {
@@ -112,7 +129,8 @@ class ReminderScheduler(
                 noteTitle = note.title.ifBlank { "Note reminder" },
                 notePreview = note.plainTextPreview,
                 targetTriggerAtMs = newTriggerMs,
-                useLiveUpdate = updated.useLiveUpdate
+                useLiveUpdate = updated.useLiveUpdate,
+                isImportant = updated.isImportant
             )
         }
     }
@@ -133,13 +151,16 @@ class ReminderScheduler(
             }
             if (updated.triggerAtMs <= now - 5 * 60_000L) {
                 val note = database.noteDao().getNoteById(updated.noteId)
+                val rule = runCatching { RepeatRule.valueOf(updated.repeatRule) }.getOrDefault(RepeatRule.NONE)
                 if (note != null && !note.isDeleted) {
                     notificationBuilder.postDueReminderNotification(
                         noteId = updated.noteId,
                         noteTitle = note.title.ifBlank { "Note reminder" },
                         notePreview = note.plainTextPreview,
                         triggerAtMs = updated.triggerAtMs,
-                        useLiveUpdate = updated.useLiveUpdate
+                        useLiveUpdate = updated.useLiveUpdate,
+                        isImportant = updated.isImportant,
+                        repeatRule = rule
                     )
                 }
             } else {
@@ -150,8 +171,64 @@ class ReminderScheduler(
 
     internal fun schedulePlatformAlarm(reminder: ReminderEntity) {
         val manager = alarmManager ?: return
-        val pendingIntent = buildTriggerPendingIntent(reminder.id, reminder.noteId)
-        val triggerMs = reminder.triggerAtMs.coerceAtLeast(System.currentTimeMillis() + 1_000L)
+        val now = System.currentTimeMillis()
+
+        // Main reminder trigger alarm
+        val mainPending = buildAlarmPendingIntent(
+            reminderId = reminder.id,
+            noteId = reminder.noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_TRIGGER,
+            requestOffset = 0
+        )
+        val mainTriggerMs = reminder.triggerAtMs.coerceAtLeast(now + 1_000L)
+        scheduleSingleAlarm(manager, mainTriggerMs, mainPending)
+
+        // Optional early pre-alert alarm
+        val preAlertPending = buildAlarmPendingIntent(
+            reminderId = reminder.id,
+            noteId = reminder.noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_PRE_ALERT,
+            requestOffset = PRE_ALERT_REQUEST_OFFSET
+        )
+        manager.cancel(preAlertPending)
+        if (reminder.preAlertMinutes > 0) {
+            val preAlertMs = reminder.triggerAtMs - reminder.preAlertMinutes.toLong() * 60_000L
+            if (preAlertMs > now + 5_000L) {
+                scheduleSingleAlarm(manager, preAlertMs, preAlertPending)
+            } else {
+                preAlertPending.cancel()
+            }
+        } else {
+            preAlertPending.cancel()
+        }
+    }
+
+    internal fun cancelPlatformAlarm(reminderId: String, noteId: String) {
+        val manager = alarmManager ?: return
+        val mainPending = buildAlarmPendingIntent(
+            reminderId = reminderId,
+            noteId = noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_TRIGGER,
+            requestOffset = 0
+        )
+        manager.cancel(mainPending)
+        mainPending.cancel()
+
+        val preAlertPending = buildAlarmPendingIntent(
+            reminderId = reminderId,
+            noteId = noteId,
+            action = ReminderBroadcastReceiver.ACTION_REMINDER_PRE_ALERT,
+            requestOffset = PRE_ALERT_REQUEST_OFFSET
+        )
+        manager.cancel(preAlertPending)
+        preAlertPending.cancel()
+    }
+
+    private fun scheduleSingleAlarm(
+        manager: AlarmManager,
+        triggerMs: Long,
+        pendingIntent: PendingIntent
+    ) {
         if (AlarmManagerCompat.canScheduleExactAlarms(manager)) {
             runCatching {
                 manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pendingIntent)
@@ -163,24 +240,26 @@ class ReminderScheduler(
         }
     }
 
-    internal fun cancelPlatformAlarm(reminderId: String, noteId: String) {
-        val manager = alarmManager ?: return
-        val pi = buildTriggerPendingIntent(reminderId, noteId)
-        manager.cancel(pi)
-        pi.cancel()
-    }
-
-    private fun buildTriggerPendingIntent(reminderId: String, noteId: String): PendingIntent {
+    private fun buildAlarmPendingIntent(
+        reminderId: String,
+        noteId: String,
+        action: String,
+        requestOffset: Int
+    ): PendingIntent {
         val intent = Intent(context, ReminderBroadcastReceiver::class.java).apply {
-            action = ReminderBroadcastReceiver.ACTION_REMINDER_TRIGGER
+            this.action = action
             putExtra(ReminderBroadcastReceiver.EXTRA_NOTE_ID, noteId)
             putExtra(ReminderBroadcastReceiver.EXTRA_REMINDER_ID, reminderId)
         }
         return PendingIntent.getBroadcast(
             context,
-            noteId.hashCode(),
+            noteId.hashCode() + requestOffset,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+
+    private companion object {
+        const val PRE_ALERT_REQUEST_OFFSET = 10_000
     }
 }

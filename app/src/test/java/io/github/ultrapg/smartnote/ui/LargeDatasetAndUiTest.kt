@@ -1,6 +1,7 @@
 package io.github.ultrapg.smartnote.ui
 
 import android.content.Context
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -19,6 +20,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
@@ -577,6 +579,62 @@ class LargeDatasetAndUiTest {
             "Flying bottom bar pill must move right from Notes ($notesLeft) -> SmartSearch ($searchLeft) -> Tags ($tagsLeft)",
             notesLeft < searchLeft && searchLeft < tagsLeft
         )
+    }
+
+    @Test
+    fun reworkedReminderAndTagMenusWorkEndToEndInEditor() {
+        openNewTextNoteFromPill()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Title").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 1. Typing note text feeds live SmartTags suggestions and natural-date reminder detection
+        composeRule.onNodeWithText("Title").performTextInput("Dentist tomorrow")
+        composeRule.onNodeWithText("Start writing", substring = true)
+            .performTextInput("Buy milk and coffee #Errand")
+
+        // Open ManageTagsSheet via "Add tag", verify suggested tags and add "Health" in 1 tap
+        composeRule.onNodeWithContentDescription("Add tag").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Manage Tags").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Health").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("Suggested for this note").assertIsDisplayed()
+        composeRule.onNodeWithText("Health").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("#Health").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("#Health").assertIsDisplayed()
+
+        // 2. Open reworked ReminderPickerSheet, verify detected phrase + Custom days + 30m before + Priority
+        composeRule.onNodeWithContentDescription("Set reminder").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Note Reminder").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText("From note:", substring = true).performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Tomorrow 09:00").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithText("Custom days").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Wednesday").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription("Wednesday").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithText("30m before").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithText("Priority alert").performSemanticsAction(SemanticsActions.OnClick)
+        composeRule.onNodeWithTag("save_reminder_button").performSemanticsAction(SemanticsActions.OnClick)
+
+        // Verify in-editor Reminder Status Card renders with alert/priority info and completes to next recurrence
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithTag("editor_reminder_status_card").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("editor_reminder_status_card").assertIsDisplayed()
+        composeRule.onNodeWithText("Alert 30m before", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("Complete reminder").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Wed,", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun openNewTextNoteFromPill() {

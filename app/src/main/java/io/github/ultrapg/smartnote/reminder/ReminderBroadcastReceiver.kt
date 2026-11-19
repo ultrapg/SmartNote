@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import io.github.ultrapg.smartnote.SmartNoteApplication
+import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,17 +24,41 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
                         val note = container.database.noteDao().getNoteById(noteId)
                         val reminder = container.database.reminderDao().getReminderForNote(noteId)
                         if (note != null && !note.isDeleted && reminder != null && !reminder.isCompleted) {
+                            val rule = runCatching { RepeatRule.valueOf(reminder.repeatRule) }
+                                .getOrDefault(RepeatRule.NONE)
                             container.reminderNotificationBuilder.postDueReminderNotification(
                                 noteId = noteId,
                                 noteTitle = note.title.ifBlank { "SmartNote Reminder" },
                                 notePreview = note.plainTextPreview,
                                 triggerAtMs = reminder.triggerAtMs,
-                                useLiveUpdate = reminder.useLiveUpdate
+                                useLiveUpdate = reminder.useLiveUpdate,
+                                isImportant = reminder.isImportant,
+                                repeatRule = rule
+                            )
+                        }
+                    }
+                    ACTION_REMINDER_PRE_ALERT -> {
+                        val note = container.database.noteDao().getNoteById(noteId)
+                        val reminder = container.database.reminderDao().getReminderForNote(noteId)
+                        if (note != null && !note.isDeleted && reminder != null && !reminder.isCompleted &&
+                            reminder.preAlertMinutes > 0
+                        ) {
+                            container.reminderNotificationBuilder.postPreAlertNotification(
+                                noteId = noteId,
+                                noteTitle = note.title.ifBlank { "SmartNote Reminder" },
+                                notePreview = note.plainTextPreview,
+                                triggerAtMs = reminder.triggerAtMs,
+                                preAlertMinutes = reminder.preAlertMinutes,
+                                useLiveUpdate = reminder.useLiveUpdate,
+                                isImportant = reminder.isImportant
                             )
                         }
                     }
                     ACTION_REMINDER_COMPLETE -> {
                         container.reminderScheduler.markReminderCompleted(noteId)
+                    }
+                    ACTION_REMINDER_DISMISSED -> {
+                        container.reminderScheduler.handleNotificationDismissed(noteId)
                     }
                     ACTION_REMINDER_SNOOZE -> {
                         val minutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 10)
@@ -48,7 +73,9 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_REMINDER_TRIGGER = "io.github.ultrapg.smartnote.action.REMINDER_TRIGGER"
+        const val ACTION_REMINDER_PRE_ALERT = "io.github.ultrapg.smartnote.action.REMINDER_PRE_ALERT"
         const val ACTION_REMINDER_COMPLETE = "io.github.ultrapg.smartnote.action.REMINDER_COMPLETE"
+        const val ACTION_REMINDER_DISMISSED = "io.github.ultrapg.smartnote.action.REMINDER_DISMISSED"
         const val ACTION_REMINDER_SNOOZE = "io.github.ultrapg.smartnote.action.REMINDER_SNOOZE"
         const val EXTRA_NOTE_ID = "extra_note_id"
         const val EXTRA_REMINDER_ID = "extra_reminder_id"

@@ -386,7 +386,8 @@ fun SmartNoteApp(
                             reminderScheduler = container.reminderScheduler,
                             duplicateDetector = container.duplicateDetector,
                             settingsRepository = container.settingsRepository,
-                            smartTitleGenerator = container.smartTitleGenerator
+                            smartTitleGenerator = container.smartTitleGenerator,
+                            smartTagsEngine = container.smartTagsEngine
                         )
                     )
                     val uiState by vm.uiState.collectAsState()
@@ -414,9 +415,12 @@ fun SmartNoteApp(
                         onMoveToTrash = { vm.moveToRecycleBin { navController.popBackStack() } },
                         onShareNote = vm::shareCurrentNote,
                         onAddUserTag = vm::addUserTag,
+                        onApplyAutoTagsNow = vm::applyAutoTagsNow,
                         onConfirmSuggestedTag = vm::confirmSuggestedTag,
                         onDismissOrRemoveTag = vm::dismissOrRemoveTag,
                         onSaveReminder = vm::saveReminder,
+                        onCompleteReminder = vm::completeReminder,
+                        onSnoozeReminder = vm::snoozeReminder,
                         onRemoveReminder = vm::removeReminder,
                         onDismissDuplicate = vm::dismissDuplicatePair,
                         onOpenDuplicateNote = { otherId ->

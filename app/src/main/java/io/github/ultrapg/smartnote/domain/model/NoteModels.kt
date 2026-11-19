@@ -38,9 +38,11 @@ enum class LinkFetchStatus {
 enum class RepeatRule {
     NONE,
     DAILY,
+    WEEKDAYS,
     WEEKLY,
     MONTHLY,
-    WEEKDAYS
+    YEARLY,
+    CUSTOM_DAYS
 }
 
 enum class NoteSortOrder {
@@ -163,7 +165,11 @@ data class ReminderInfo(
     val isCompleted: Boolean,
     val completedAtMs: Long? = null,
     val snoozeCount: Int = 0,
-    val useLiveUpdate: Boolean = true
+    val useLiveUpdate: Boolean = true,
+    val repeatDaysMask: Int = 0,
+    val repeatInterval: Int = 1,
+    val preAlertMinutes: Int = 0,
+    val isImportant: Boolean = false
 )
 
 @Immutable

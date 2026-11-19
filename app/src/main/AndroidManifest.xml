@@ -99,7 +99,9 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_TRIGGER" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_PRE_ALERT" />
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_COMPLETE" />
+                <action android:name="io.github.ultrapg.smartnote.action.REMINDER_DISMISSED" />
                 <action android:name="io.github.ultrapg.smartnote.action.REMINDER_SNOOZE" />
             </intent-filter>
         </receiver>

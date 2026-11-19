@@ -74,21 +74,20 @@ import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Title
 import androidx.compose.material.icons.rounded.Unarchive
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -96,6 +95,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -121,6 +121,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -140,7 +141,10 @@ import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
 import io.github.ultrapg.smartnote.domain.model.OcrStatus
+import io.github.ultrapg.smartnote.domain.model.RepeatRule
 import io.github.ultrapg.smartnote.domain.model.TagSource
+import io.github.ultrapg.smartnote.reminder.ReminderCalculator
+import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
 import io.github.ultrapg.smartnote.ui.designsystem.components.VerticalLazyScrollbar
 import io.github.ultrapg.smartnote.ui.designsystem.components.rememberBoundedImageRequest
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
@@ -149,8 +153,6 @@ import io.github.ultrapg.smartnote.ui.designsystem.theme.SmartNoteMotion
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import java.io.File
-import java.text.DateFormat
-import java.util.Date
 
 @OptIn(
     ExperimentalMaterial3Api::class,
@@ -177,9 +179,12 @@ fun NoteEditorScreen(
     onMoveToTrash: () -> Unit,
     onShareNote: () -> Unit,
     onAddUserTag: (String) -> Unit,
+    onApplyAutoTagsNow: () -> Unit = {},
     onConfirmSuggestedTag: (String) -> Unit,
     onDismissOrRemoveTag: (String) -> Unit,
-    onSaveReminder: (Long, io.github.ultrapg.smartnote.domain.model.RepeatRule, Boolean) -> Unit,
+    onSaveReminder: (Long, RepeatRule, Boolean, Int, Int, Int, Boolean) -> Unit,
+    onCompleteReminder: () -> Unit = {},
+    onSnoozeReminder: (Int) -> Unit = {},
     onRemoveReminder: () -> Unit,
     onDismissDuplicate: (io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo) -> Unit,
     onOpenDuplicateNote: (String) -> Unit,
@@ -226,8 +231,10 @@ fun NoteEditorScreen(
         val target = pendingFocusTarget ?: return@LaunchedEffect
         val targetId = target.first
         yield()
+        val hasActiveReminder = uiState.reminder != null && !uiState.reminder.isCompleted
         val prefixItems = 1 +
-            (if (uiState.tags.isNotEmpty() || uiState.reminder != null) 1 else 0) +
+            (if (hasActiveReminder) 1 else 0) +
+            (if (uiState.tags.isNotEmpty()) 1 else 0) +
             (if (uiState.duplicateMatches.isNotEmpty()) 1 else 0)
         val blockIdx = uiState.blocks.indexOfFirst { it.id == targetId }
         if (blockIdx >= 0) {
@@ -569,88 +576,131 @@ fun NoteEditorScreen(
                 }
             }
 
-            if (uiState.tags.isNotEmpty() || uiState.reminder != null) {
+            uiState.reminder?.takeIf { !it.isCompleted }?.let { rem ->
+                item(key = "editor_reminder_banner") {
+                    EditorReminderStatusCard(
+                        reminder = rem,
+                        onOpenPicker = { showReminderSheet = true },
+                        onComplete = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onCompleteReminder()
+                        }
+                    )
+                }
+            }
+
+            if (uiState.tags.isNotEmpty()) {
                 item(key = "editor_meta_chips") {
                     FlowRow(
                         modifier = Modifier.animateContentSize(SmartNoteMotion.softSizeSpring()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        uiState.reminder?.takeIf { !it.isCompleted }?.let { rem ->
-                            val label = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                                .format(Date(rem.triggerAtMs))
-                            AssistChip(
-                                onClick = { showReminderSheet = true },
-                                label = { Text(label) },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Rounded.Alarm,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            )
-                        }
-
                         uiState.tags.forEach { tag ->
                             if (tag.source == TagSource.SUGGESTED) {
-                                InputChip(
-                                    selected = false,
+                                Surface(
                                     onClick = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         onConfirmSuggestedTag(tag.tagId)
                                     },
-                                    label = { Text("${tag.name}?") },
-                                    leadingIcon = {
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.65f),
+                                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
                                         Icon(
                                             Icons.Rounded.AutoAwesome,
                                             contentDescription = "SmartTag suggestion",
-                                            modifier = Modifier.size(15.dp)
+                                            modifier = Modifier.size(14.dp)
                                         )
-                                    },
-                                    trailingIcon = {
-                                        Row {
-                                            Icon(
-                                                imageVector = Icons.Rounded.Check,
-                                                contentDescription = "Confirm tag ${tag.name}",
-                                                modifier = Modifier
-                                                    .size(18.dp)
-                                                    .clickable { onConfirmSuggestedTag(tag.tagId) }
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Icon(
-                                                imageVector = Icons.Rounded.Close,
-                                                contentDescription = "Dismiss tag ${tag.name}",
-                                                modifier = Modifier
-                                                    .size(18.dp)
-                                                    .clickable { onDismissOrRemoveTag(tag.tagId) }
-                                            )
-                                        }
+                                        Text(
+                                            text = "${tag.name}?",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Rounded.Check,
+                                            contentDescription = "Confirm tag ${tag.name}",
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { onConfirmSuggestedTag(tag.tagId) }
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Rounded.Close,
+                                            contentDescription = "Dismiss tag ${tag.name}",
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { onDismissOrRemoveTag(tag.tagId) }
+                                        )
                                     }
-                                )
+                                }
                             } else {
-                                InputChip(
-                                    selected = true,
+                                Surface(
                                     onClick = { onDismissOrRemoveTag(tag.tagId) },
-                                    label = { Text("#${tag.name}") },
-                                    trailingIcon = {
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "#${tag.name}",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                         Icon(
                                             imageVector = Icons.Rounded.Close,
                                             contentDescription = "Remove tag ${tag.name}",
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(15.dp)
                                         )
                                     }
-                                )
+                                }
                             }
                         }
 
-                        AssistChip(
+                        Surface(
                             onClick = { showAddTagDialog = true },
-                            label = { Text("Tag") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Text("Tag", style = MaterialTheme.typography.labelLarge)
                             }
-                        )
+                        }
+
+                        if (uiState.liveTagSuggestions.isNotEmpty() && uiState.smartTagsEnabled) {
+                            Surface(
+                                onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onApplyAutoTagsNow()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Text("Auto-tag (${uiState.liveTagSuggestions.size})", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -828,39 +878,41 @@ fun NoteEditorScreen(
     }
 
     if (showAddTagDialog) {
-        var tagInput by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddTagDialog = false },
-            title = { Text("Add Tag") },
-            text = {
-                OutlinedTextField(
-                    value = tagInput,
-                    onValueChange = { tagInput = it },
-                    label = { Text("Tag name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+        ManageTagsSheet(
+            smartTagsEnabled = uiState.smartTagsEnabled,
+            liveSuggestions = uiState.liveTagSuggestions,
+            existingNoteTags = uiState.tags.map { it.name },
+            availableVocabulary = uiState.availableTags,
+            onAddTag = { tagName ->
+                showAddTagDialog = false
+                onAddUserTag(tagName)
+                scope.launch { listState.scrollToItem(0) }
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (tagInput.isNotBlank()) onAddUserTag(tagInput)
-                        showAddTagDialog = false
-                    }
-                ) { Text("Add") }
+            onApplyAllAutoTags = {
+                showAddTagDialog = false
+                onApplyAutoTagsNow()
+                scope.launch { listState.scrollToItem(0) }
             },
-            dismissButton = {
-                TextButton(onClick = { showAddTagDialog = false }) { Text("Cancel") }
-            }
+            onDismiss = { showAddTagDialog = false }
         )
     }
 
     if (showReminderSheet) {
         ReminderPickerSheet(
             existingReminder = uiState.reminder,
-            onSaveReminder = { triggerMs, rule, liveUpdate ->
+            detectedSuggestion = uiState.detectedReminderSuggestion,
+            onSaveReminder = { triggerMs, rule, liveUpdate, daysMask, interval, preAlertMins, important ->
                 showReminderSheet = false
-                onSaveReminder(triggerMs, rule, liveUpdate)
+                onSaveReminder(triggerMs, rule, liveUpdate, daysMask, interval, preAlertMins, important)
+                scope.launch { listState.scrollToItem(0) }
+            },
+            onCompleteReminder = {
+                showReminderSheet = false
+                onCompleteReminder()
+            },
+            onSnoozeReminder = { mins ->
+                showReminderSheet = false
+                onSnoozeReminder(mins)
             },
             onDeleteReminder = {
                 showReminderSheet = false
@@ -1202,6 +1254,287 @@ private fun LinkBlockCard(
                 contentDescription = "Open link in browser",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun EditorReminderStatusCard(
+    reminder: io.github.ultrapg.smartnote.domain.model.ReminderInfo,
+    onOpenPicker: () -> Unit,
+    onComplete: () -> Unit
+) {
+    val nowMs = System.currentTimeMillis()
+    val isOverdue = reminder.triggerAtMs <= nowMs
+    val isUrgent = isOverdue || reminder.isImportant
+    val bgColor = if (isUrgent) {
+        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.78f)
+    } else {
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
+    }
+    val fgColor = if (isUrgent) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    }
+
+    Surface(
+        onClick = onOpenPicker,
+        shape = RoundedCornerShape(18.dp),
+        color = bgColor,
+        contentColor = fgColor,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("editor_reminder_status_card")
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Alarm,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "${ReminderCalculator.formatHumanDateTime(reminder.triggerAtMs, nowMs)} · ${ReminderCalculator.formatRelativeCountdown(reminder.triggerAtMs, nowMs)}",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val extras = buildList {
+                    if (reminder.repeatRule != RepeatRule.NONE) {
+                        add(
+                            ReminderCalculator.formatRepeatSummary(
+                                reminder.repeatRule,
+                                reminder.repeatDaysMask,
+                                reminder.repeatInterval
+                            )
+                        )
+                    }
+                    if (reminder.preAlertMinutes > 0) {
+                        add("Alert ${ReminderCalculator.formatPreAlertLabel(reminder.preAlertMinutes)}")
+                    }
+                    if (reminder.isImportant) add("Priority")
+                }.joinToString(" · ")
+                if (extras.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (reminder.repeatRule != RepeatRule.NONE) {
+                            Icon(Icons.Rounded.Repeat, contentDescription = null, modifier = Modifier.size(13.dp))
+                        }
+                        Text(
+                            text = extras,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = fgColor.copy(alpha = 0.85f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            Surface(
+                onClick = onComplete,
+                shape = CircleShape,
+                color = fgColor.copy(alpha = 0.14f),
+                modifier = Modifier.size(34.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = "Complete reminder",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ManageTagsSheet(
+    smartTagsEnabled: Boolean,
+    liveSuggestions: List<SmartTagSuggestion>,
+    existingNoteTags: List<String>,
+    availableVocabulary: List<String>,
+    onAddTag: (String) -> Unit,
+    onApplyAllAutoTags: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var tagInput by remember { mutableStateOf("") }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val existingLower = remember(existingNoteTags) { existingNoteTags.map { it.lowercase() }.toSet() }
+    val unusedVocab = remember(availableVocabulary, existingLower, liveSuggestions) {
+        val suggestedLower = liveSuggestions.map { it.name.lowercase() }.toSet()
+        availableVocabulary.filter {
+            val l = it.lowercase()
+            l !in existingLower && l !in suggestedLower
+        }.take(16)
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "Manage Tags",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (smartTagsEnabled && liveSuggestions.isNotEmpty()) {
+                    TextButton(onClick = onApplyAllAutoTags) {
+                        Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Auto-tag")
+                    }
+                }
+            }
+
+            // Borderless tonal tag input bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    BasicTextField(
+                        value = tagInput,
+                        onValueChange = { tagInput = it },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (tagInput.isEmpty()) {
+                                    Text(
+                                        text = "Add custom tag...",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                inner()
+                            }
+                        }
+                    )
+                }
+                Button(
+                    enabled = tagInput.isNotBlank(),
+                    onClick = { if (tagInput.isNotBlank()) onAddTag(tagInput) }
+                ) {
+                    Text("Add")
+                }
+            }
+
+            if (smartTagsEnabled && liveSuggestions.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Suggested for this note",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        liveSuggestions.forEach { sug ->
+                            Surface(
+                                onClick = { onAddTag(sug.name) },
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Rounded.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Column {
+                                        Text(
+                                            text = sug.name,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = sug.reason,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.78f)
+                                        )
+                                    }
+                                    Icon(Icons.Rounded.Add, contentDescription = "Add ${sug.name}", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (unusedVocab.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Your tags",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        unusedVocab.forEach { tagName ->
+                            Surface(
+                                onClick = { onAddTag(tagName) },
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ) {
+                                Text(
+                                    text = "#$tagName",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) { Text("Done") }
+            }
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

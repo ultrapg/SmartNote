@@ -32,7 +32,7 @@ import java.util.zip.ZipOutputStream
 @Serializable
 data class BackupManifest(
     val format: String = "smartnote-backup",
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val appVersionName: String,
     val appVersionCode: Int,
     val createdAtEpochMs: Long,
@@ -46,7 +46,7 @@ data class BackupManifest(
 
 @Serializable
 data class BackupSnapshot(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val notes: List<BackupNoteDto>,
     val blocks: List<BackupBlockDto>,
     val tags: List<BackupTagDto>,
@@ -162,7 +162,11 @@ data class BackupReminderDto(
     val isCompleted: Boolean,
     val completedAtMs: Long? = null,
     val snoozeCount: Int,
-    val useLiveUpdate: Boolean
+    val useLiveUpdate: Boolean,
+    val repeatDaysMask: Int = 0,
+    val repeatInterval: Int = 1,
+    val preAlertMinutes: Int = 0,
+    val isImportant: Boolean = false
 )
 
 enum class RestoreMode {
@@ -351,7 +355,11 @@ class BackupManager(
                     isCompleted = it.isCompleted,
                     completedAtMs = it.completedAtMs,
                     snoozeCount = it.snoozeCount,
-                    useLiveUpdate = it.useLiveUpdate
+                    useLiveUpdate = it.useLiveUpdate,
+                    repeatDaysMask = it.repeatDaysMask,
+                    repeatInterval = it.repeatInterval,
+                    preAlertMinutes = it.preAlertMinutes,
+                    isImportant = it.isImportant
                 )
             }
         )
@@ -426,7 +434,7 @@ class BackupManager(
             }
 
             val manifest = json.decodeFromString(BackupManifest.serializer(), manifestFile.readText())
-            require(manifest.format == "smartnote-backup" && manifest.schemaVersion in 1..1) {
+            require(manifest.format == "smartnote-backup" && manifest.schemaVersion in 1..2) {
                 "Unsupported SmartNote backup format or schema version (${manifest.schemaVersion})."
             }
 
@@ -681,6 +689,8 @@ class BackupManager(
         id = id, noteId = noteId, triggerAtMs = triggerAtMs, zoneId = zoneId,
         localDateTimeIso = localDateTimeIso, repeatRule = repeatRule,
         isCompleted = isCompleted, completedAtMs = completedAtMs,
-        snoozeCount = snoozeCount, useLiveUpdate = useLiveUpdate
+        snoozeCount = snoozeCount, useLiveUpdate = useLiveUpdate,
+        repeatDaysMask = repeatDaysMask, repeatInterval = repeatInterval.coerceAtLeast(1),
+        preAlertMinutes = preAlertMinutes.coerceAtLeast(0), isImportant = isImportant
     )
 }
