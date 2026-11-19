@@ -91,6 +91,7 @@ class SmartTitleGenerator(
         imageLabels: List<String> = emptyList(),
         primaryImageBitmap: Bitmap? = null,
         allowGeminiNano: Boolean = true,
+        forceGeminiNano: Boolean = false,
         preferFastGemini: Boolean = true,
         maxTitleLength: Int = MAX_TITLE_LEN
     ): String = generateTitleCandidates(
@@ -103,6 +104,7 @@ class SmartTitleGenerator(
         imageLabels = imageLabels,
         primaryImageBitmap = primaryImageBitmap,
         allowGeminiNano = allowGeminiNano,
+        forceGeminiNano = forceGeminiNano,
         preferFastGemini = preferFastGemini,
         maxTitleLength = maxTitleLength
     ).firstOrNull().orEmpty()
@@ -117,6 +119,7 @@ class SmartTitleGenerator(
         imageLabels: List<String> = emptyList(),
         primaryImageBitmap: Bitmap? = null,
         allowGeminiNano: Boolean = true,
+        forceGeminiNano: Boolean = false,
         preferFastGemini: Boolean = true,
         maxTitleLength: Int = MAX_TITLE_LEN
     ): List<String> {
@@ -151,8 +154,10 @@ class SmartTitleGenerator(
                 }
             }
         }
-        // Keep explicit author Markdown # heading first
-        explicitHeadings.firstOrNull()?.let { addUnique(it) }
+        if (!forceGeminiNano) {
+            // Keep explicit author Markdown # heading first in Auto mode
+            explicitHeadings.firstOrNull()?.let { addUnique(it) }
+        }
 
         val checklistBlocks = blocks.filter { it.type == NoteBlockType.CHECKLIST && it.textContent.isNotBlank() }
         val combinedBodyText = buildString {
@@ -180,7 +185,11 @@ class SmartTitleGenerator(
             nanoTitles.forEach { addUnique(it) }
         }
 
-        explicitHeadings.drop(1).forEach { addUnique(it) }
+        if (forceGeminiNano) {
+            explicitHeadings.forEach { addUnique(it) }
+        } else {
+            explicitHeadings.drop(1).forEach { addUnique(it) }
+        }
 
         val flightEntity = systemEntities.firstOrNull { it.type == TextClassifier.TYPE_FLIGHT_NUMBER }
         val proseChars = textBlocks.sumOf { it.textContent.trim().length }

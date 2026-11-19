@@ -133,4 +133,58 @@ class AttachmentStorage(
             }
         }
     }
+
+    fun saveLinkPreviewThumbnail(
+        imageBytes: ByteArray,
+        urlKey: String,
+        maxDimensionPx: Int = 256
+    ): String? = runCatching {
+        if (imageBytes.isEmpty()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return null
+
+        var sampleSize = 1
+        val longest = max(width, height)
+        while (longest / (sampleSize * 2) >= maxDimensionPx) {
+            sampleSize *= 2
+        }
+
+        val decodeOpts = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val sampled = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, decodeOpts) ?: return null
+        val scaled = if (max(sampled.width, sampled.height) > maxDimensionPx) {
+            val ratio = maxDimensionPx.toFloat() / max(sampled.width, sampled.height).toFloat()
+            val targetW = (sampled.width * ratio).roundToInt().coerceAtLeast(1)
+            val targetH = (sampled.height * ratio).roundToInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(sampled, targetW, targetH, true).also {
+                if (it !== sampled) sampled.recycle()
+            }
+        } else {
+            sampled
+        }
+
+        val safeKey = urlKey.filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(32).ifBlank { "link" }
+        val relativePath = "thumbnails/link_${safeKey}.webp"
+        val destFile = resolvePrivateFile(relativePath)
+        destFile.parentFile?.mkdirs()
+        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            @Suppress("DEPRECATION")
+            Bitmap.CompressFormat.WEBP
+        }
+        try {
+            FileOutputStream(destFile).use { out ->
+                scaled.compress(format, 80, out)
+            }
+        } finally {
+            if (!scaled.isRecycled) scaled.recycle()
+        }
+        relativePath
+    }.getOrNull()
 }

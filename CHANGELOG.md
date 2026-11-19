@@ -4,6 +4,27 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.17] - 2026-11-19
+
+### Added & Changed
+- **Android-Native App Lock (`AppLockManager.kt`, `AppLockScreen.kt`, `MainActivity.kt`, `SettingsScreens.kt`, `SmartNoteRoutes.kt`, `SettingsRepository.kt`, `AndroidManifest.xml`)**:
+  - Added **Settings → Security & App Lock** with native Android fingerprint, face, and device PIN/pattern/password authentication (`BiometricPrompt` + `KeyguardManager` fallback for API 28+, requiring zero third-party auth SDKs).
+  - Requires native authentication both to enable and to turn off App Lock, supports configurable auto-lock timeouts (`Immediately`, `After 30 sec`, `After 1 min`, `After 5 min`), handles background/foreground session tracking safely across system biometric dialogs and configuration changes (`AppLockSessionTracker`), provides **Lock SmartNote now**, and enforces `FLAG_SECURE` (`Hide content in Recents`) when enabled.
+- **Zero-Result & Forced Gemini Nano SmartSearch (`OnDeviceGenAiAssistant.kt`, `SmartSearchEngine.kt`, `SmartSearchViewModel.kt`, `SmartSearchScreen.kt`, `AppContainer.kt`)**:
+  - Added `OnDeviceGenAiAssistant.matchNotesForSearchQuery(...)` (`SearchNoteDigest` catalog up to 36 notes, LRU-cached, strict index parser `Parsers.parseMatchedNoteIndices`) and wired `aiNoteMatcher` into `SmartSearchEngine` so **Gemini Nano** now runs automatically even when local lexical/synonym/fuzzy search returns **0 results** (including short `>= 2` character queries like `"gym"` or conceptual phrases like `"leg day"`), and when `Force` is selected for SmartSearch.
+- **Separate `Off` / `Auto` / `Force` Gemini Nano Controls (`NoteModels.kt`, `SettingsRepository.kt`, `SettingsScreens.kt`, `SmartTaggingCoordinator.kt`, `SmartTitleGenerator.kt`, `SmartOcrCoordinator.kt`, `NoteEditorViewModel.kt`, `NoteProcessingWorker.kt`)**:
+  - Added `GeminiNanoFeaturePolicy` (`OFF`, `AUTO`, `FORCE`) with four independent per-feature selectors in **Settings → AI & Smart Features** for **Tag generation**, **Title generation**, **SmartSearch**, and **Text recognition (OCR)**, updating `SmartTaggingCoordinator`, `SmartTitleGenerator` (prioritizing Nano ahead of `# Heading` when forced), `SmartSearchViewModel`, and `SmartOcrCoordinator` to honor each policy independently.
+- **Upgraded `Fetch Link Previews` — Still Disabled by Default (`LinkMetadataFetcher.kt`, `AttachmentStorage.kt`, `NoteProcessingWorker.kt`, `NoteEditorScreen.kt`, `SettingsScreens.kt`)**:
+  - Renamed setting label to **`Fetch Link Previews`** (still `false` by default).
+  - Upgraded `LinkMetadataFetcher` with manual per-hop redirect SSRF validation (`MAX_REDIRECTS = 4`), charset auto-detection, complete named + decimal/hex HTML entity decoding, `256 KB` HTML read cap, `twitter:description` / `og:site_name` / relative `og:image` & `twitter:image` resolution, and bounded WebP link preview thumbnail caching in `AttachmentStorage.saveLinkPreviewThumbnail`, surfaced in a refreshed `LinkBlockCard` in `NoteEditorScreen`.
+- **Public Documentation & Repository Release (`README.md`)**:
+  - Reorganized and expanded `README.md` for public release (`ultrapg/SmartNote`).
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 38 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **9 suites, 38 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `58,058,405` bytes (`55.37 MiB`), `SHA-256: 0f37243d27e45b218326100b287cadd3810e58f4942da33f882c819bdd6d76f9`, `versionCode = 18`, `versionName = "1.0.17"`, 0 Kotlin source warnings, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.16] - 2026-11-19
 
 ### Added & Changed

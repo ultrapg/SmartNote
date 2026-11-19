@@ -16,6 +16,7 @@ import io.github.ultrapg.smartnote.ocr.SafeOcrBitmapLoader
 import java.util.Locale
 import io.github.ultrapg.smartnote.data.local.OcrResultEntity
 import io.github.ultrapg.smartnote.data.local.ProcessingJobEntity
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
 import io.github.ultrapg.smartnote.domain.model.NoteBlockType
@@ -158,6 +159,7 @@ class NoteProcessingWorker(
                     entity.copy(
                         pageTitle = meta.pageTitle ?: entity.pageTitle,
                         description = meta.description ?: entity.description,
+                        previewImagePath = meta.localThumbnailPath ?: entity.previewImagePath,
                         fetchStatus = if (meta.succeeded) LinkFetchStatus.FETCHED.name else LinkFetchStatus.FAILED.name,
                         updatedAtMs = System.currentTimeMillis()
                     )
@@ -176,10 +178,13 @@ class NoteProcessingWorker(
                     ?.attachmentId
                     ?.let { attId -> detail.attachments.firstOrNull { it.id == attId } }
                     ?: detail.attachments.firstOrNull()
+                val titlePolicy = settings.effectiveGeminiNanoTitlesPolicy
+                val allowTitleNano = titlePolicy != GeminiNanoFeaturePolicy.OFF
+                val forceTitleNano = titlePolicy == GeminiNanoFeaturePolicy.FORCE
                 val primaryBitmap = if (
-                    settings.effectiveUseGeminiNanoForTitles &&
+                    allowTitleNano &&
                     primaryAttachment != null &&
-                    userProseChars < 160
+                    (forceTitleNano || userProseChars < 160)
                 ) {
                     SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
                         container.attachmentStorage.resolvePrivateFile(primaryAttachment.relativeFilePath),
@@ -197,7 +202,8 @@ class NoteProcessingWorker(
                         systemEntities = systemEntities,
                         imageLabels = imageLabels.map { it.text },
                         primaryImageBitmap = primaryBitmap,
-                        allowGeminiNano = settings.effectiveUseGeminiNanoForTitles,
+                        allowGeminiNano = allowTitleNano,
+                        forceGeminiNano = forceTitleNano,
                         preferFastGemini = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST,
                         maxTitleLength = settings.effectiveMaxTitleLength
                     )

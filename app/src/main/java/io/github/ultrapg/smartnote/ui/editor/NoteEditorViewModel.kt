@@ -23,6 +23,7 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AttachmentInfo
 import io.github.ultrapg.smartnote.domain.model.DuplicatePairInfo
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.LinkPreviewInfo
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
@@ -458,7 +459,10 @@ class NoteEditorViewModel(
                 .getOrDefault(latestSettingsCache)
             if (!settings.aiFeaturesEnabled) return@launch
             val preferFast = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST
-            if (settings.effectiveUseGeminiNanoForTitles) {
+            val titlePolicy = settings.effectiveGeminiNanoTitlesPolicy
+            val allowTitleNano = titlePolicy != GeminiNanoFeaturePolicy.OFF
+            val forceTitleNano = titlePolicy == GeminiNanoFeaturePolicy.FORCE
+            if (allowTitleNano) {
                 geminiNanoAssistant?.triggerBackgroundDownloadIfNeeded(preferFast)
             }
             val ocrTexts = state.attachments.values.mapNotNull { it.ocrText?.takeIf(String::isNotBlank) }
@@ -485,11 +489,11 @@ class NoteEditorViewModel(
                     ?.let { state.attachments[it] }
                     ?: state.attachments.values.firstOrNull()
                 val primaryBitmap = if (
-                    settings.effectiveUseGeminiNanoForTitles &&
+                    allowTitleNano &&
                     geminiNanoAssistant != null &&
                     attachmentStorage != null &&
                     primaryAttachment != null &&
-                    userProseChars < 160
+                    (forceTitleNano || userProseChars < 160)
                 ) {
                     SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
                         attachmentStorage.resolvePrivateFile(primaryAttachment.relativeFilePath),
@@ -507,7 +511,8 @@ class NoteEditorViewModel(
                         systemEntities = systemEntities,
                         imageLabels = imageLabels.map { it.text },
                         primaryImageBitmap = primaryBitmap,
-                        allowGeminiNano = settings.effectiveUseGeminiNanoForTitles,
+                        allowGeminiNano = allowTitleNano,
+                        forceGeminiNano = forceTitleNano,
                         preferFastGemini = preferFast,
                         maxTitleLength = settings.effectiveMaxTitleLength
                     )

@@ -25,6 +25,14 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
+@Immutable
+data class SearchNoteDigest(
+    val noteId: String,
+    val title: String,
+    val tags: List<String>,
+    val snippet: String
+)
+
 enum class GeminiNanoAvailability {
     AVAILABLE,
     DOWNLOADABLE,
@@ -136,6 +144,12 @@ interface OnDeviceGenAiAssistant {
         preferFast: Boolean = true
     ): List<String> = emptyList()
 
+    suspend fun matchNotesForSearchQuery(
+        query: String,
+        candidates: List<SearchNoteDigest>,
+        preferFast: Boolean = true
+    ): List<String> = emptyList()
+
     fun close()
 }
 
@@ -153,6 +167,10 @@ class MlKitGeminiNanoAssistant(
 
     private val searchCacheLock = Any()
     private val searchExpansionCache = object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean =
+            size > MAX_SEARCH_CACHE_ENTRIES
+    }
+    private val searchMatchCache = object : LinkedHashMap<String, List<String>>(32, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<String>>?): Boolean =
             size > MAX_SEARCH_CACHE_ENTRIES
     }
@@ -526,7 +544,7 @@ class MlKitGeminiNanoAssistant(
         preferFast: Boolean
     ): List<String> = withContext(Dispatchers.IO) {
         val cleanQuery = query.trim()
-        if (cleanQuery.length < 4) return@withContext emptyList()
+        if (cleanQuery.length < 2) return@withContext emptyList()
 
         val tagSlice = availableTags.take(24)
         val cacheKey = "${cleanQuery.lowercase(Locale.ROOT)}|${tagSlice.joinToString(",")}|$preferFast"
@@ -560,6 +578,61 @@ class MlKitGeminiNanoAssistant(
             searchExpansionCache[cacheKey] = expanded
         }
         expanded
+    }
+
+    override suspend fun matchNotesForSearchQuery(
+        query: String,
+        candidates: List<SearchNoteDigest>,
+        preferFast: Boolean
+    ): List<String> = withContext(Dispatchers.IO) {
+        val cleanQuery = query.trim()
+        val limitedCandidates = candidates.take(36)
+        if (cleanQuery.length < 2 || limitedCandidates.isEmpty()) return@withContext emptyList()
+
+        val fingerprint = limitedCandidates.joinToString(",") { it.noteId }.hashCode()
+        val cacheKey = "${cleanQuery.lowercase(Locale.ROOT)}|${limitedCandidates.size}|$fingerprint|$preferFast"
+        synchronized(searchCacheLock) {
+            searchMatchCache[cacheKey]?.let { return@withContext it }
+        }
+
+        val (model, usedFast) = selectReadyModel(preferFast = preferFast) ?: return@withContext emptyList()
+        val useSystem = supportsSystemPrompt(model)
+        val sysRule = "Match the user's search query to the most relevant notes by meaning, topic, or language (English & German). Return ONLY the comma-separated numbers of the 1 to 5 best matching notes, most relevant first. If no note matches, output NONE."
+        val catalogText = buildString {
+            append("Query: ").append(cleanQuery).append("\nNotes:\n")
+            limitedCandidates.forEachIndexed { idx, digest ->
+                if (length >= 2_400) return@forEachIndexed
+                val titlePart = digest.title.trim().ifBlank { "Untitled" }.take(32)
+                val tagsPart = if (digest.tags.isNotEmpty()) {
+                    " [${digest.tags.take(3).joinToString(",") { "#$it" }}]"
+                } else {
+                    ""
+                }
+                val snippetPart = digest.snippet.trim().replace(Regex("\\s+"), " ").take(55)
+                append("${idx + 1}: $titlePart$tagsPart")
+                if (snippetPart.isNotBlank()) append(" - $snippetPart")
+                append('\n')
+            }
+        }.trim()
+
+        val rawResponse = executeGeneration(
+            model = model,
+            systemRule = sysRule,
+            userText = catalogText,
+            imageBitmap = null,
+            useSystemPrompt = useSystem,
+            temperature = 0.05f,
+            topK = 8,
+            maxOutputTokens = 24,
+            timeoutMs = if (usedFast) SEARCH_MATCH_FAST_TIMEOUT_MS else SEARCH_MATCH_FULL_TIMEOUT_MS
+        ) ?: return@withContext emptyList()
+
+        val indices = Parsers.parseMatchedNoteIndices(rawResponse, limitedCandidates.size)
+        val matchedIds = indices.mapNotNull { oneBased -> limitedCandidates.getOrNull(oneBased - 1)?.noteId }
+        synchronized(searchCacheLock) {
+            searchMatchCache[cacheKey] = matchedIds
+        }
+        matchedIds
     }
 
     override fun close() {
@@ -755,6 +828,8 @@ class MlKitGeminiNanoAssistant(
         const val FULL_OCR_TIMEOUT_MS = 7_000L
         const val SEARCH_FAST_TIMEOUT_MS = 1_200L
         const val SEARCH_FULL_TIMEOUT_MS = 2_000L
+        const val SEARCH_MATCH_FAST_TIMEOUT_MS = 2_200L
+        const val SEARCH_MATCH_FULL_TIMEOUT_MS = 3_500L
         const val PROBE_CACHE_TTL_MS = 60_000L
         const val DOWNLOADING_CACHE_TTL_MS = 5_000L
         val LEADING_BULLET_OR_NUMBER_REGEX = Regex("""^(?:[-*•]\s*|\d+[.)]\s*)""")
@@ -845,6 +920,27 @@ class MlKitGeminiNanoAssistant(
                 if (SmartTagsEngine.isGenericStopword(lower)) continue
                 if (seen.add(lower)) {
                     result += clean
+                    if (result.size >= 5) break
+                }
+            }
+            return result
+        }
+
+        fun parseMatchedNoteIndices(rawResponse: String, maxIndex: Int): List<Int> {
+            if (maxIndex <= 0) return emptyList()
+            val cleaned = rawResponse.trim().lowercase(Locale.ROOT)
+            if (cleaned.isBlank() || cleaned in EMPTY_OCR_MARKERS || cleaned in REFUSAL_OR_GENERIC_TOKENS) {
+                return emptyList()
+            }
+            if (REFUSAL_PREFIXES.any { cleaned.startsWith(it) && cleaned.none { ch -> ch.isDigit() } }) {
+                return emptyList()
+            }
+            val seen = HashSet<Int>()
+            val result = ArrayList<Int>(5)
+            for (match in Regex("""\b(\d{1,3})\b""").findAll(rawResponse)) {
+                val idx = match.groupValues[1].toIntOrNull() ?: continue
+                if (idx in 1..maxIndex && seen.add(idx)) {
+                    result += idx
                     if (result.size >= 5) break
                 }
             }

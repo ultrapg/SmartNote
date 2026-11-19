@@ -2,6 +2,7 @@ package io.github.ultrapg.smartnote.search
 
 import androidx.compose.runtime.Immutable
 import androidx.room.useReaderConnection
+import io.github.ultrapg.smartnote.ai.SearchNoteDigest
 import io.github.ultrapg.smartnote.data.local.RecentSearchEntity
 import io.github.ultrapg.smartnote.data.local.SmartNoteDatabase
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
@@ -59,7 +60,8 @@ data class SmartSearchResponse(
     val didYouMeanSuggestion: String?,
     val queryTokens: List<String>,
     val durationMs: Long,
-    val aiExpandedTerms: List<String> = emptyList()
+    val aiExpandedTerms: List<String> = emptyList(),
+    val usedGeminiNanoMatch: Boolean = false
 )
 
 data class ParsedSearchQuery(
@@ -203,7 +205,8 @@ class SmartSearchEngine(
     private val database: SmartNoteDatabase,
     private val noteRepository: NoteRepository,
     private val semanticScoreProvider: (suspend (query: String, candidateIds: List<String>) -> Map<String, Float>)? = null,
-    private val aiQueryExpander: (suspend (query: String, availableTags: List<String>) -> List<String>)? = null
+    private val aiQueryExpander: (suspend (query: String, availableTags: List<String>) -> List<String>)? = null,
+    private val aiNoteMatcher: (suspend (query: String, candidates: List<SearchNoteDigest>) -> List<String>)? = null
 ) {
     private val synonyms: Map<String, List<String>> = buildBilingualSynonyms()
 
@@ -233,6 +236,7 @@ class SmartSearchEngine(
         filter: SearchFilterSpec = SearchFilterSpec(),
         enableSemanticRerank: Boolean = false,
         enableAiQueryExpansion: Boolean = false,
+        forceAiSearch: Boolean = false,
         availableTags: List<String> = emptyList(),
         nowMs: Long = System.currentTimeMillis()
     ): SmartSearchResponse = withContext(Dispatchers.IO) {
@@ -346,16 +350,16 @@ class SmartSearchEngine(
             }
         }
 
-        // 4. Optional Gemini Nano query understanding / expansion (OR-matched below direct lexical hits)
+        // 4. Optional Gemini Nano query understanding / expansion (runs on zero lexical hits, sparse hits, or Force)
         val aiExpandedBoosts = HashMap<String, Double>()
         val aiExpandedTerms = mutableListOf<String>()
         val trimmedRawQuery = rawQuery.trim()
         val expander = aiQueryExpander
-        if (enableAiQueryExpansion &&
+        val shouldRunExpander = enableAiQueryExpansion &&
             expander != null &&
-            trimmedRawQuery.length >= 4 &&
-            (ftsScores.size < 4 || tokens.size >= 2)
-        ) {
+            trimmedRawQuery.length >= 2 &&
+            (forceAiSearch || ftsScores.isEmpty() || (trimmedRawQuery.length >= 4 && (ftsScores.size < 4 || tokens.size >= 2)))
+        if (shouldRunExpander) {
             val tokenSetLower = tokens.mapTo(HashSet()) { it.lowercase(Locale.ROOT) }
             val suggested = runCatching { expander.invoke(trimmedRawQuery, availableTags) }.getOrDefault(emptyList())
             val seenExpanded = HashSet<String>()
@@ -394,7 +398,38 @@ class SmartSearchEngine(
             }
         }
 
-        val candidateIds = (ftsScores.keys + trigramHits + fuzzyBoosts.keys + aiExpandedBoosts.keys).toSet()
+        // 5. Gemini Nano direct semantic note matching (runs when search would have 0 results OR when forced)
+        val preMatchCandidates = (ftsScores.keys + trigramHits + fuzzyBoosts.keys + aiExpandedBoosts.keys)
+        val aiDirectMatchScores = HashMap<String, Double>()
+        var usedGeminiNanoMatch = false
+        val matcher = aiNoteMatcher
+        val shouldRunMatcher = enableAiQueryExpansion &&
+            matcher != null &&
+            allSummaries.isNotEmpty() &&
+            trimmedRawQuery.length >= 2 &&
+            (forceAiSearch || preMatchCandidates.isEmpty())
+        if (shouldRunMatcher) {
+            val orderedDigests = allSummaries
+                .sortedWith(compareByDescending<NoteSummary> { it.isPinned }.thenByDescending { it.updatedAtMs })
+                .take(36)
+                .map { summary ->
+                    SearchNoteDigest(
+                        noteId = summary.id,
+                        title = summary.title,
+                        tags = summary.tags.map { it.name },
+                        snippet = summary.previewText.ifBlank { summary.ocrSnippet.orEmpty() }
+                    )
+                }
+            val matchedIds = runCatching { matcher.invoke(trimmedRawQuery, orderedDigests) }.getOrDefault(emptyList())
+            matchedIds.forEachIndexed { idx, matchedId ->
+                if (matchedId in summaryMap && matchedId !in aiDirectMatchScores) {
+                    aiDirectMatchScores[matchedId] = (11.0 - idx * 1.2).coerceAtLeast(5.0)
+                }
+            }
+            usedGeminiNanoMatch = aiDirectMatchScores.isNotEmpty()
+        }
+
+        val candidateIds = (preMatchCandidates + aiDirectMatchScores.keys).toSet()
         val semanticBonuses = if (enableSemanticRerank && semanticScoreProvider != null && candidateIds.isNotEmpty()) {
             semanticScoreProvider.invoke(tokens.joinToString(" "), candidateIds.take(50))
         } else {
@@ -443,12 +478,19 @@ class SmartSearchEngine(
             ) 40.0 else 0.0
             val prefixTitleBonus = if (exactTitleBonus == 0.0 && tokens.any { lowerTitle.contains(it) }) 20.0 else 0.0
             val directLexicalBonus = if (noteId in ftsScores || noteId in trigramHits) 12.0 else 0.0
+            val directScore = aiDirectMatchScores[noteId]
             val aiScore = aiExpandedBoosts[noteId]
             val bm25Component = ftsScores[noteId]
                 ?: fuzzyBoosts[noteId]
+                ?: directScore
                 ?: aiScore
                 ?: if (noteId in trigramHits) 4.0 else 0.0
-            val aiReinforcement = if (ftsScores[noteId] != null && aiScore != null) aiScore * 0.25 else 0.0
+            val aiReinforcement = when {
+                directScore != null && (noteId in ftsScores || forceAiSearch) ->
+                    directScore * if (forceAiSearch) 0.75 else 0.35
+                ftsScores[noteId] != null && aiScore != null -> aiScore * 0.25
+                else -> 0.0
+            }
             val tagMatchRatio = if (summary.tags.isEmpty()) 0.0 else {
                 val hits = tokens.count { tok -> summary.tags.any { it.name.lowercase(Locale.ROOT).contains(tok) } }
                 hits.toDouble() / tokens.size.toDouble()
@@ -488,7 +530,8 @@ class SmartSearchEngine(
             didYouMeanSuggestion = didYouMeanParts?.joinToString(" "),
             queryTokens = tokens,
             durationMs = elapsedMs,
-            aiExpandedTerms = aiExpandedTerms
+            aiExpandedTerms = aiExpandedTerms,
+            usedGeminiNanoMatch = usedGeminiNanoMatch
         )
     }
 

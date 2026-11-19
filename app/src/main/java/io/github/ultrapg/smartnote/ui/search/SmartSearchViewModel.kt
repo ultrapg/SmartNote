@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.TagInfo
 import io.github.ultrapg.smartnote.search.SearchDateFilter
@@ -33,6 +34,7 @@ data class SmartSearchUiState(
     val results: List<SmartSearchResultItem> = emptyList(),
     val didYouMeanSuggestion: String? = null,
     val aiExpandedTerms: List<String> = emptyList(),
+    val usedGeminiNanoMatch: Boolean = false,
     val recentSearches: List<String> = emptyList(),
     val recentSearchesEnabled: Boolean = true,
     val availableTags: List<TagInfo> = emptyList(),
@@ -58,13 +60,14 @@ class SmartSearchViewModel(
         val results: List<SmartSearchResultItem> = emptyList(),
         val didYouMean: String? = null,
         val aiExpandedTerms: List<String> = emptyList(),
+        val usedGeminiNanoMatch: Boolean = false,
         val durationMs: Long = 0L,
         val isSearching: Boolean = false
     )
 
     private data class SearchAiFlags(
         val semanticRerank: Boolean,
-        val useNanoSearch: Boolean,
+        val searchPolicy: GeminiNanoFeaturePolicy,
         val nanoVariant: GeminiNanoVariant
     )
 
@@ -98,6 +101,7 @@ class SmartSearchViewModel(
             results = outcome.results,
             didYouMeanSuggestion = outcome.didYouMean,
             aiExpandedTerms = outcome.aiExpandedTerms,
+            usedGeminiNanoMatch = outcome.usedGeminiNanoMatch,
             recentSearches = if (settings.recentSearchesEnabled) recent else emptyList(),
             recentSearchesEnabled = settings.recentSearchesEnabled,
             availableTags = tags,
@@ -124,7 +128,7 @@ class SmartSearchViewModel(
                     .map {
                         SearchAiFlags(
                             semanticRerank = it.effectiveSemanticRerankEnabled,
-                            useNanoSearch = it.effectiveUseGeminiNanoForSearch,
+                            searchPolicy = it.effectiveGeminiNanoSearchPolicy,
                             nanoVariant = it.geminiNanoVariant
                         )
                     }
@@ -142,28 +146,41 @@ class SmartSearchViewModel(
                         results = stage1.results,
                         didYouMean = stage1.didYouMeanSuggestion,
                         aiExpandedTerms = emptyList(),
+                        usedGeminiNanoMatch = false,
                         durationMs = stage1.durationMs,
                         isSearching = false
                     )
 
                     val trimmed = query.trim()
-                    if (aiFlags.useNanoSearch &&
-                        trimmed.length >= 4 &&
-                        (stage1.results.size < 4 || trimmed.contains(' '))
-                    ) {
-                        delay(220L)
+                    val forceSearch = aiFlags.searchPolicy == GeminiNanoFeaturePolicy.FORCE
+                    val shouldRunStage2 = when (aiFlags.searchPolicy) {
+                        GeminiNanoFeaturePolicy.OFF -> false
+                        GeminiNanoFeaturePolicy.FORCE -> trimmed.length >= 2
+                        GeminiNanoFeaturePolicy.AUTO -> trimmed.length >= 2 && (
+                            stage1.results.isEmpty() ||
+                                (trimmed.length >= 4 && (stage1.results.size < 4 || trimmed.contains(' ')))
+                            )
+                    }
+                    if (shouldRunStage2) {
+                        delay(if (forceSearch) 160L else 220L)
                         val stage2 = searchEngine.search(
                             rawQuery = query,
                             filter = filter,
                             enableSemanticRerank = aiFlags.semanticRerank,
                             enableAiQueryExpansion = true,
+                            forceAiSearch = forceSearch,
                             availableTags = latestTagNames
                         )
-                        if (stage2.aiExpandedTerms.isNotEmpty() || stage2.results.size > stage1.results.size) {
+                        val changed = stage2.aiExpandedTerms.isNotEmpty() ||
+                            stage2.usedGeminiNanoMatch ||
+                            stage2.results.size != stage1.results.size ||
+                            stage2.results.map { it.note.id } != stage1.results.map { it.note.id }
+                        if (changed) {
                             searchResultState.value = SearchOutcome(
                                 results = stage2.results,
                                 didYouMean = stage2.didYouMeanSuggestion,
                                 aiExpandedTerms = stage2.aiExpandedTerms,
+                                usedGeminiNanoMatch = stage2.usedGeminiNanoMatch,
                                 durationMs = stage2.durationMs,
                                 isSearching = false
                             )

@@ -3,7 +3,7 @@ package io.github.ultrapg.smartnote.ocr
 import io.github.ultrapg.smartnote.ai.GeminiNanoAvailability
 import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
 import io.github.ultrapg.smartnote.domain.model.AppSettings
-import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import java.io.File
 
@@ -23,7 +23,8 @@ class SmartOcrCoordinator(
         val base = ocrEngine.recognizeFile(file)
         val assistant = geminiNanoAssistant ?: return base
 
-        val nanoAllowed = settings.effectiveUseGeminiNanoForOcr ||
+        val ocrPolicy = settings.effectiveGeminiNanoOcrPolicy
+        val nanoAllowed = ocrPolicy != GeminiNanoFeaturePolicy.OFF ||
             (forceAiAssist && settings.effectiveGeminiNanoEnabled && settings.effectiveOcrEnabled)
         if (!nanoAllowed) return base
 
@@ -35,7 +36,7 @@ class SmartOcrCoordinator(
         val cleanBase = base.text.trim()
         val noise = OcrTextPostProcessor.estimateTextNoiseScore(cleanBase)
         val shouldAssist = forceAiAssist ||
-            settings.geminiNanoMode == GeminiNanoMode.ALWAYS_PREFER ||
+            ocrPolicy == GeminiNanoFeaturePolicy.FORCE ||
             !base.succeeded ||
             cleanBase.length < 28 ||
             base.confidence < 0.82f ||

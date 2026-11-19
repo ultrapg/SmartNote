@@ -10,6 +10,7 @@ import io.github.ultrapg.smartnote.ai.MlKitGeminiNanoAssistant
 import io.github.ultrapg.smartnote.ai.OnDeviceGenAiAssistant
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.domain.model.AppSettings
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
 import io.github.ultrapg.smartnote.links.LinkMetadataFetcher
 import io.github.ultrapg.smartnote.tags.SmartTagSuggestion
@@ -94,15 +95,27 @@ class OcrAndLinkPrivacyTest {
         assertFalse(LinkMetadataFetcher.isPublicHttpTarget("http://10.0.0.1/internal"))
         assertFalse(LinkMetadataFetcher.isPublicHttpTarget("http://localhost/health"))
 
-        // Verify HTML title/meta extraction
+        // Verify upgraded HTML metadata/entity/image resolution & charset decoding
         val html = """
             <html><head>
-              <meta property="og:title" content="SmartNote &amp; Compose Guide" />
-              <meta name="description" content="Offline first notes." />
+              <meta charset="UTF-8" />
+              <meta property="og:title" content="SmartNote &mdash; &#8220;Guide&#8221; &amp; &uuml;" />
+              <meta name="twitter:description" content="Private notes &#x2022; Fast search." />
+              <meta property="og:site_name" content="SmartNote Docs" />
+              <meta property="og:image" content="/assets/preview.png" />
             </head></html>
         """.trimIndent()
-        assertEquals("SmartNote & Compose Guide", LinkMetadataFetcher.extractMetaContent(html, "og:title"))
-        assertEquals("Offline first notes.", LinkMetadataFetcher.extractMetaContent(html, "description"))
+        assertEquals("SmartNote — “Guide” & ü", LinkMetadataFetcher.extractMetaContent(html, "og:title"))
+        assertEquals("Private notes • Fast search.", LinkMetadataFetcher.extractMetaContent(html, "twitter:description"))
+        assertEquals("SmartNote Docs", LinkMetadataFetcher.extractMetaContent(html, "og:site_name"))
+        assertEquals(
+            "https://example.com/assets/preview.png",
+            LinkMetadataFetcher.resolvePreviewImageUrl(
+                "https://example.com/blog/post",
+                LinkMetadataFetcher.extractMetaContent(html, "og:image")
+            )
+        )
+        assertEquals("Caf\u00e9", LinkMetadataFetcher.decodeHtmlBytes("Caf\u00e9".toByteArray(Charsets.ISO_8859_1), Charsets.ISO_8859_1))
 
         scope.cancel()
         dsFile.delete()
@@ -261,6 +274,15 @@ class OcrAndLinkPrivacyTest {
             )
             assertTrue(manualForce.usedGeminiNano)
             assertEquals(2, assistCalls)
+
+            // Per-feature geminiNanoOcrPolicy = FORCE also triggers assist automatically
+            val policyForced = confidentCoord.recognizeFileWithOptionalAi(
+                file = sampleFile,
+                settings = AppSettings(geminiNanoOcrPolicy = GeminiNanoFeaturePolicy.FORCE),
+                forceAiAssist = false
+            )
+            assertTrue(policyForced.usedGeminiNano)
+            assertEquals(3, assistCalls)
         } finally {
             sampleFile.delete()
         }

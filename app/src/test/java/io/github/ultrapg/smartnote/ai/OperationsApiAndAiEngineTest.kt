@@ -14,6 +14,7 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
 import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.LinkFetchStatus
@@ -427,6 +428,14 @@ class OperationsApiAndAiEngineTest {
         )
         assertEquals("Q4 Hiring Plan Summary", nanoTitle)
 
+        // Force prioritizes Gemini Nano ahead of explicit # Heading while keeping # Heading as alternative
+        val forcedCandidates = nanoGenerator.generateTitleCandidates(
+            blocks = listOf(NoteBlock("7b", "n", 0, NoteBlockType.TEXT, "# Draft Header\nWe should align headcount with product roadmap targets next week.")),
+            forceGeminiNano = true
+        )
+        assertEquals("Q4 Hiring Plan Summary", forcedCandidates.first())
+        assertTrue("Draft Header" in forcedCandidates)
+
         val testBmp = android.graphics.Bitmap.createBitmap(24, 24, android.graphics.Bitmap.Config.ARGB_8888)
         try {
             val visualWithOcrTitle = nanoGenerator.generateSmartTitle(
@@ -563,6 +572,9 @@ class OperationsApiAndAiEngineTest {
         assertFalse(persisted.useGeminiNanoForTitles)
         assertFalse(persisted.useGeminiNanoForOcr)
         assertFalse(persisted.useGeminiNanoForSearch)
+        assertEquals(GeminiNanoFeaturePolicy.OFF, persisted.effectiveGeminiNanoTitlesPolicy)
+        assertEquals(GeminiNanoFeaturePolicy.OFF, persisted.effectiveGeminiNanoSearchPolicy)
+        assertEquals(GeminiNanoFeaturePolicy.OFF, persisted.effectiveGeminiNanoOcrPolicy)
         assertEquals(TitleStylePreference.DESCRIPTIVE, persisted.titleStyle)
         assertEquals(64, persisted.effectiveMaxTitleLength)
     }

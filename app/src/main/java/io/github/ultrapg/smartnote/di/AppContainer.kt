@@ -23,6 +23,7 @@ import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.operations.SmartNoteOperationsApi
 import io.github.ultrapg.smartnote.duplicates.SmartDuplicateDetector
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.integration.AppShortcutsManager
 import io.github.ultrapg.smartnote.integration.widgets.WidgetRefreshHelper
@@ -32,6 +33,7 @@ import io.github.ultrapg.smartnote.ocr.OcrEngine
 import io.github.ultrapg.smartnote.ocr.SmartOcrCoordinator
 import io.github.ultrapg.smartnote.search.SearchIndexer
 import io.github.ultrapg.smartnote.search.SmartSearchEngine
+import io.github.ultrapg.smartnote.security.AppLockSessionTracker
 import io.github.ultrapg.smartnote.tags.SmartTaggingCoordinator
 import io.github.ultrapg.smartnote.tags.SmartTagsEngine
 import io.github.ultrapg.smartnote.ui.editor.NoteAutosaveCoordinator
@@ -47,6 +49,8 @@ class AppContainer(
     private val context: Context
 ) {
     val applicationScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    val appLockSession: AppLockSessionTracker = AppLockSessionTracker()
 
     val settingsRepository: SettingsRepository by lazy {
         SettingsRepository(
@@ -92,7 +96,10 @@ class AppContainer(
     }
 
     val linkMetadataFetcher: LinkMetadataFetcher by lazy {
-        LinkMetadataFetcher(settingsRepository)
+        LinkMetadataFetcher(
+            settingsRepository = settingsRepository,
+            attachmentStorage = attachmentStorage
+        )
     }
 
     val aiEngine: SmartNoteAiEngine by lazy {
@@ -163,10 +170,22 @@ class AppContainer(
             },
             aiQueryExpander = { query, tags ->
                 val settings = settingsRepository.currentSnapshot
-                if (settings.effectiveUseGeminiNanoForSearch) {
+                if (settings.effectiveGeminiNanoSearchPolicy != GeminiNanoFeaturePolicy.OFF) {
                     geminiNanoAssistant.expandSearchQuery(
                         query = query,
                         availableTags = tags,
+                        preferFast = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST
+                    )
+                } else {
+                    emptyList()
+                }
+            },
+            aiNoteMatcher = { query, candidates ->
+                val settings = settingsRepository.currentSnapshot
+                if (settings.effectiveGeminiNanoSearchPolicy != GeminiNanoFeaturePolicy.OFF) {
+                    geminiNanoAssistant.matchNotesForSearchQuery(
+                        query = query,
+                        candidates = candidates,
                         preferFast = settings.geminiNanoVariant == GeminiNanoVariant.FAST_FIRST
                     )
                 } else {

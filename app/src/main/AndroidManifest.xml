@@ -4,6 +4,8 @@
 
     <!-- Strictly gated behind opt-in Link Preview preference (default OFF) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Optional native Android fingerprint / device credential prompt when App Lock is enabled -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <application
         android:name=".SmartNoteApplication"

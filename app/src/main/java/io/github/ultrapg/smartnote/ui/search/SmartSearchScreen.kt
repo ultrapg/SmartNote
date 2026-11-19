@@ -319,7 +319,7 @@ fun SmartSearchScreen(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        if (uiState.aiExpandedTerms.isNotEmpty()) {
+                        if (uiState.aiExpandedTerms.isNotEmpty() || uiState.usedGeminiNanoMatch) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -331,7 +331,11 @@ fun SmartSearchScreen(
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Text(
-                                    text = "Smart match: ${uiState.aiExpandedTerms.joinToString(", ")}",
+                                    text = if (uiState.aiExpandedTerms.isNotEmpty()) {
+                                        "Smart match: ${uiState.aiExpandedTerms.joinToString(", ")}"
+                                    } else {
+                                        "Matched by Gemini Nano"
+                                    },
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.primary,
                                     maxLines = 1,

@@ -190,5 +190,51 @@ class SmartSearchFts5Test {
         assertFalse(fallbackResponse.results.isEmpty())
         assertEquals(idExactGetaway, fallbackResponse.results.first().note.id)
         assertTrue(fallbackResponse.aiExpandedTerms.isEmpty())
+
+        // 5. Zero-result conceptual query (even short 3-char query) is rescued by Gemini Nano semantic note matcher
+        val idGym = noteRepository.createNote(
+            title = "Barbell Push Pull Split",
+            blocks = listOf(NoteBlock("gym1", "gym", 0, NoteBlockType.TEXT, "Squats 3x5, bench press, deadlift progression")),
+            scheduleBackgroundWork = false
+        )
+        searchIndexer.rebuildAll()
+
+        assertEquals(
+            listOf(2, 5, 1),
+            MlKitGeminiNanoAssistant.Parsers.parseMatchedNoteIndices("2, 5, 99, 1, 2", maxIndex = 6)
+        )
+        assertTrue(MlKitGeminiNanoAssistant.Parsers.parseMatchedNoteIndices("NONE", maxIndex = 6).isEmpty())
+
+        var matcherCalls = 0
+        val rescuingEngine = SmartSearchEngine(
+            database = database,
+            noteRepository = noteRepository,
+            aiQueryExpander = { _, _ -> emptyList() },
+            aiNoteMatcher = { query, candidates ->
+                matcherCalls++
+                if (query.equals("gym", ignoreCase = true) || query.contains("leg day")) {
+                    candidates.filter { it.noteId == idGym }.map { it.noteId }
+                } else {
+                    emptyList()
+                }
+            }
+        )
+        val zeroResultBaseline = rescuingEngine.search("leg day", enableAiQueryExpansion = false)
+        assertTrue(zeroResultBaseline.results.isEmpty())
+
+        val rescuedShort = rescuingEngine.search("gym", enableAiQueryExpansion = true)
+        assertEquals(1, matcherCalls)
+        assertTrue(rescuedShort.usedGeminiNanoMatch)
+        assertEquals(listOf(idGym), rescuedShort.results.map { it.note.id })
+
+        // 6. forceAiSearch runs BOTH expander and matcher even when lexical results already exist
+        val forcedRes = rescuingEngine.search(
+            rawQuery = "Barbell leg day",
+            enableAiQueryExpansion = true,
+            forceAiSearch = true
+        )
+        assertEquals(2, matcherCalls)
+        assertTrue(forcedRes.usedGeminiNanoMatch)
+        assertTrue(forcedRes.results.any { it.note.id == idGym })
     }
 }

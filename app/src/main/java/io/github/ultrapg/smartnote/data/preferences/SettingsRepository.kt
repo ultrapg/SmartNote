@@ -8,8 +8,10 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
+import io.github.ultrapg.smartnote.domain.model.AppLockTimeout
 import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
@@ -53,7 +55,14 @@ class SettingsRepository(
         val USE_GEMINI_NANO_FOR_TITLES = booleanPreferencesKey("use_gemini_nano_for_titles")
         val USE_GEMINI_NANO_FOR_OCR = booleanPreferencesKey("use_gemini_nano_for_ocr")
         val USE_GEMINI_NANO_FOR_SEARCH = booleanPreferencesKey("use_gemini_nano_for_search")
+        val GEMINI_NANO_TAGS_POLICY = stringPreferencesKey("gemini_nano_tags_policy")
+        val GEMINI_NANO_TITLES_POLICY = stringPreferencesKey("gemini_nano_titles_policy")
+        val GEMINI_NANO_SEARCH_POLICY = stringPreferencesKey("gemini_nano_search_policy")
+        val GEMINI_NANO_OCR_POLICY = stringPreferencesKey("gemini_nano_ocr_policy")
         val TITLE_STYLE = stringPreferencesKey("title_style")
+        val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
+        val APP_LOCK_TIMEOUT = stringPreferencesKey("app_lock_timeout")
+        val HIDE_RECENTS_WHEN_LOCKED = booleanPreferencesKey("hide_recents_when_locked")
     }
 
     @Volatile
@@ -62,6 +71,10 @@ class SettingsRepository(
 
     private fun loadInitialSnapshot(): AppSettings {
         val prefs = bootPrefs ?: return AppSettings()
+        val legacyMode = enumOrDefault(prefs.getString("gemini_nano_mode", null), GeminiNanoMode.AUTO_HYBRID)
+        val useTitles = prefs.getBoolean("use_gemini_nano_for_titles", true)
+        val useOcr = prefs.getBoolean("use_gemini_nano_for_ocr", true)
+        val useSearch = prefs.getBoolean("use_gemini_nano_for_search", true)
         return AppSettings(
             themePalette = enumOrDefault(prefs.getString("theme_palette", null), ThemePalette.DYNAMIC),
             darkModeConfig = enumOrDefault(prefs.getString("dark_mode_config", null), DarkModeConfig.SYSTEM),
@@ -73,11 +86,31 @@ class SettingsRepository(
             maxPredictedTags = prefs.getInt("max_predicted_tags", 3).coerceIn(1, 6),
             tagSensitivity = enumOrDefault(prefs.getString("tag_sensitivity", null), TagPredictionSensitivity.BALANCED),
             allowNewTopicTags = prefs.getBoolean("allow_new_topic_tags", true),
-            geminiNanoMode = enumOrDefault(prefs.getString("gemini_nano_mode", null), GeminiNanoMode.AUTO_HYBRID),
+            geminiNanoMode = legacyMode,
             geminiNanoVariant = enumOrDefault(prefs.getString("gemini_nano_variant", null), GeminiNanoVariant.FAST_FIRST),
-            useGeminiNanoForOcr = prefs.getBoolean("use_gemini_nano_for_ocr", true),
-            useGeminiNanoForSearch = prefs.getBoolean("use_gemini_nano_for_search", true),
-            titleStyle = enumOrDefault(prefs.getString("title_style", null), TitleStylePreference.CONCISE)
+            useGeminiNanoForTitles = useTitles,
+            useGeminiNanoForOcr = useOcr,
+            useGeminiNanoForSearch = useSearch,
+            geminiNanoTagsPolicy = enumOrDefault(
+                prefs.getString("gemini_nano_tags_policy", null),
+                legacyModeToPolicy(legacyMode)
+            ),
+            geminiNanoTitlesPolicy = enumOrDefault(
+                prefs.getString("gemini_nano_titles_policy", null),
+                if (useTitles && legacyMode != GeminiNanoMode.OFF) GeminiNanoFeaturePolicy.AUTO else GeminiNanoFeaturePolicy.OFF
+            ),
+            geminiNanoSearchPolicy = enumOrDefault(
+                prefs.getString("gemini_nano_search_policy", null),
+                if (useSearch && legacyMode != GeminiNanoMode.OFF) GeminiNanoFeaturePolicy.AUTO else GeminiNanoFeaturePolicy.OFF
+            ),
+            geminiNanoOcrPolicy = enumOrDefault(
+                prefs.getString("gemini_nano_ocr_policy", null),
+                if (useOcr) legacyModeToPolicy(legacyMode) else GeminiNanoFeaturePolicy.OFF
+            ),
+            titleStyle = enumOrDefault(prefs.getString("title_style", null), TitleStylePreference.CONCISE),
+            appLockEnabled = prefs.getBoolean("app_lock_enabled", false),
+            appLockTimeout = enumOrDefault(prefs.getString("app_lock_timeout", null), AppLockTimeout.IMMEDIATE),
+            hideRecentsWhenLocked = prefs.getBoolean("hide_recents_when_locked", true)
         )
     }
 
@@ -95,9 +128,17 @@ class SettingsRepository(
             ?.putBoolean("allow_new_topic_tags", snapshot.allowNewTopicTags)
             ?.putString("gemini_nano_mode", snapshot.geminiNanoMode.name)
             ?.putString("gemini_nano_variant", snapshot.geminiNanoVariant.name)
+            ?.putBoolean("use_gemini_nano_for_titles", snapshot.useGeminiNanoForTitles)
             ?.putBoolean("use_gemini_nano_for_ocr", snapshot.useGeminiNanoForOcr)
             ?.putBoolean("use_gemini_nano_for_search", snapshot.useGeminiNanoForSearch)
+            ?.putString("gemini_nano_tags_policy", snapshot.geminiNanoTagsPolicy.name)
+            ?.putString("gemini_nano_titles_policy", snapshot.geminiNanoTitlesPolicy.name)
+            ?.putString("gemini_nano_search_policy", snapshot.geminiNanoSearchPolicy.name)
+            ?.putString("gemini_nano_ocr_policy", snapshot.geminiNanoOcrPolicy.name)
             ?.putString("title_style", snapshot.titleStyle.name)
+            ?.putBoolean("app_lock_enabled", snapshot.appLockEnabled)
+            ?.putString("app_lock_timeout", snapshot.appLockTimeout.name)
+            ?.putBoolean("hide_recents_when_locked", snapshot.hideRecentsWhenLocked)
             ?.apply()
     }
 
@@ -144,10 +185,52 @@ class SettingsRepository(
                 useGeminiNanoForTitles = prefs[Keys.USE_GEMINI_NANO_FOR_TITLES] ?: true,
                 useGeminiNanoForOcr = prefs[Keys.USE_GEMINI_NANO_FOR_OCR] ?: true,
                 useGeminiNanoForSearch = prefs[Keys.USE_GEMINI_NANO_FOR_SEARCH] ?: true,
+                geminiNanoTagsPolicy = enumOrDefault(
+                    prefs[Keys.GEMINI_NANO_TAGS_POLICY],
+                    legacyModeToPolicy(
+                        enumOrDefault(prefs[Keys.GEMINI_NANO_MODE], GeminiNanoMode.AUTO_HYBRID)
+                    )
+                ),
+                geminiNanoTitlesPolicy = enumOrDefault(
+                    prefs[Keys.GEMINI_NANO_TITLES_POLICY],
+                    if ((prefs[Keys.USE_GEMINI_NANO_FOR_TITLES] ?: true) &&
+                        enumOrDefault(prefs[Keys.GEMINI_NANO_MODE], GeminiNanoMode.AUTO_HYBRID) != GeminiNanoMode.OFF
+                    ) {
+                        GeminiNanoFeaturePolicy.AUTO
+                    } else {
+                        GeminiNanoFeaturePolicy.OFF
+                    }
+                ),
+                geminiNanoSearchPolicy = enumOrDefault(
+                    prefs[Keys.GEMINI_NANO_SEARCH_POLICY],
+                    if ((prefs[Keys.USE_GEMINI_NANO_FOR_SEARCH] ?: true) &&
+                        enumOrDefault(prefs[Keys.GEMINI_NANO_MODE], GeminiNanoMode.AUTO_HYBRID) != GeminiNanoMode.OFF
+                    ) {
+                        GeminiNanoFeaturePolicy.AUTO
+                    } else {
+                        GeminiNanoFeaturePolicy.OFF
+                    }
+                ),
+                geminiNanoOcrPolicy = enumOrDefault(
+                    prefs[Keys.GEMINI_NANO_OCR_POLICY],
+                    if (prefs[Keys.USE_GEMINI_NANO_FOR_OCR] ?: true) {
+                        legacyModeToPolicy(
+                            enumOrDefault(prefs[Keys.GEMINI_NANO_MODE], GeminiNanoMode.AUTO_HYBRID)
+                        )
+                    } else {
+                        GeminiNanoFeaturePolicy.OFF
+                    }
+                ),
                 titleStyle = enumOrDefault(
                     prefs[Keys.TITLE_STYLE],
                     TitleStylePreference.CONCISE
-                )
+                ),
+                appLockEnabled = prefs[Keys.APP_LOCK_ENABLED] ?: false,
+                appLockTimeout = enumOrDefault(
+                    prefs[Keys.APP_LOCK_TIMEOUT],
+                    AppLockTimeout.IMMEDIATE
+                ),
+                hideRecentsWhenLocked = prefs[Keys.HIDE_RECENTS_WHEN_LOCKED] ?: true
             ).also { mapped ->
                 currentSnapshot = mapped
                 persistBootCache(mapped)
@@ -282,9 +365,17 @@ class SettingsRepository(
     }
 
     suspend fun setGeminiNanoMode(mode: GeminiNanoMode) {
-        currentSnapshot = currentSnapshot.copy(geminiNanoMode = mode)
+        val mapped = legacyModeToPolicy(mode)
+        currentSnapshot = currentSnapshot.copy(
+            geminiNanoMode = mode,
+            geminiNanoTagsPolicy = mapped,
+            geminiNanoOcrPolicy = if (currentSnapshot.useGeminiNanoForOcr) mapped else GeminiNanoFeaturePolicy.OFF
+        )
         persistBootCache(currentSnapshot)
-        dataStore.edit { it[Keys.GEMINI_NANO_MODE] = mode.name }
+        dataStore.edit {
+            it[Keys.GEMINI_NANO_MODE] = mode.name
+            it[Keys.GEMINI_NANO_TAGS_POLICY] = mapped.name
+        }
     }
 
     suspend fun setGeminiNanoVariant(variant: GeminiNanoVariant) {
@@ -294,26 +385,149 @@ class SettingsRepository(
     }
 
     suspend fun setUseGeminiNanoForTitles(enabled: Boolean) {
-        currentSnapshot = currentSnapshot.copy(useGeminiNanoForTitles = enabled)
-        dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_TITLES] = enabled }
+        setGeminiNanoTitlesPolicy(if (enabled) GeminiNanoFeaturePolicy.AUTO else GeminiNanoFeaturePolicy.OFF)
     }
 
     suspend fun setUseGeminiNanoForOcr(enabled: Boolean) {
-        currentSnapshot = currentSnapshot.copy(useGeminiNanoForOcr = enabled)
-        persistBootCache(currentSnapshot)
-        dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_OCR] = enabled }
+        setGeminiNanoOcrPolicy(if (enabled) GeminiNanoFeaturePolicy.AUTO else GeminiNanoFeaturePolicy.OFF)
     }
 
     suspend fun setUseGeminiNanoForSearch(enabled: Boolean) {
-        currentSnapshot = currentSnapshot.copy(useGeminiNanoForSearch = enabled)
+        setGeminiNanoSearchPolicy(if (enabled) GeminiNanoFeaturePolicy.AUTO else GeminiNanoFeaturePolicy.OFF)
+    }
+
+    suspend fun setGeminiNanoTagsPolicy(policy: GeminiNanoFeaturePolicy) {
+        updatePolicySnapshotAndStore(
+            policy = policy,
+            updateSnapshot = { snap, nextMode -> snap.copy(geminiNanoMode = nextMode, geminiNanoTagsPolicy = policy) },
+            primaryKey = Keys.GEMINI_NANO_TAGS_POLICY,
+            legacyToggleKey = null
+        )
+    }
+
+    suspend fun setGeminiNanoTitlesPolicy(policy: GeminiNanoFeaturePolicy) {
+        updatePolicySnapshotAndStore(
+            policy = policy,
+            updateSnapshot = { snap, nextMode ->
+                snap.copy(
+                    geminiNanoMode = nextMode,
+                    geminiNanoTitlesPolicy = policy,
+                    useGeminiNanoForTitles = policy != GeminiNanoFeaturePolicy.OFF
+                )
+            },
+            primaryKey = Keys.GEMINI_NANO_TITLES_POLICY,
+            legacyToggleKey = Keys.USE_GEMINI_NANO_FOR_TITLES
+        )
+    }
+
+    suspend fun setGeminiNanoSearchPolicy(policy: GeminiNanoFeaturePolicy) {
+        updatePolicySnapshotAndStore(
+            policy = policy,
+            updateSnapshot = { snap, nextMode ->
+                snap.copy(
+                    geminiNanoMode = nextMode,
+                    geminiNanoSearchPolicy = policy,
+                    useGeminiNanoForSearch = policy != GeminiNanoFeaturePolicy.OFF
+                )
+            },
+            primaryKey = Keys.GEMINI_NANO_SEARCH_POLICY,
+            legacyToggleKey = Keys.USE_GEMINI_NANO_FOR_SEARCH
+        )
+    }
+
+    suspend fun setGeminiNanoOcrPolicy(policy: GeminiNanoFeaturePolicy) {
+        updatePolicySnapshotAndStore(
+            policy = policy,
+            updateSnapshot = { snap, nextMode ->
+                snap.copy(
+                    geminiNanoMode = nextMode,
+                    geminiNanoOcrPolicy = policy,
+                    useGeminiNanoForOcr = policy != GeminiNanoFeaturePolicy.OFF
+                )
+            },
+            primaryKey = Keys.GEMINI_NANO_OCR_POLICY,
+            legacyToggleKey = Keys.USE_GEMINI_NANO_FOR_OCR
+        )
+    }
+
+    private suspend fun updatePolicySnapshotAndStore(
+        policy: GeminiNanoFeaturePolicy,
+        updateSnapshot: (AppSettings, GeminiNanoMode) -> AppSettings,
+        primaryKey: Preferences.Key<String>,
+        legacyToggleKey: Preferences.Key<Boolean>?
+    ) {
+        val wasAllOff = currentSnapshot.geminiNanoMode == GeminiNanoMode.OFF
+        val baseSnapshot = if (wasAllOff && policy != GeminiNanoFeaturePolicy.OFF) {
+            currentSnapshot.copy(
+                geminiNanoTagsPolicy = GeminiNanoFeaturePolicy.OFF,
+                geminiNanoTitlesPolicy = GeminiNanoFeaturePolicy.OFF,
+                geminiNanoSearchPolicy = GeminiNanoFeaturePolicy.OFF,
+                geminiNanoOcrPolicy = GeminiNanoFeaturePolicy.OFF,
+                useGeminiNanoForTitles = false,
+                useGeminiNanoForOcr = false,
+                useGeminiNanoForSearch = false
+            )
+        } else {
+            currentSnapshot
+        }
+        val nextMode = if (policy != GeminiNanoFeaturePolicy.OFF && wasAllOff) {
+            GeminiNanoMode.AUTO_HYBRID
+        } else {
+            currentSnapshot.geminiNanoMode
+        }
+        currentSnapshot = updateSnapshot(baseSnapshot, nextMode)
         persistBootCache(currentSnapshot)
-        dataStore.edit { it[Keys.USE_GEMINI_NANO_FOR_SEARCH] = enabled }
+        dataStore.edit { prefs ->
+            if (wasAllOff && policy != GeminiNanoFeaturePolicy.OFF) {
+                listOf(
+                    Keys.GEMINI_NANO_TAGS_POLICY,
+                    Keys.GEMINI_NANO_TITLES_POLICY,
+                    Keys.GEMINI_NANO_SEARCH_POLICY,
+                    Keys.GEMINI_NANO_OCR_POLICY
+                ).forEach { key ->
+                    if (key != primaryKey && prefs[key] == null) {
+                        prefs[key] = GeminiNanoFeaturePolicy.OFF.name
+                    }
+                }
+            }
+            prefs[primaryKey] = policy.name
+            if (legacyToggleKey != null) {
+                prefs[legacyToggleKey] = policy != GeminiNanoFeaturePolicy.OFF
+            }
+            if (nextMode != enumOrDefault(prefs[Keys.GEMINI_NANO_MODE], GeminiNanoMode.AUTO_HYBRID)) {
+                prefs[Keys.GEMINI_NANO_MODE] = nextMode.name
+            }
+        }
+    }
+
+    private fun legacyModeToPolicy(mode: GeminiNanoMode): GeminiNanoFeaturePolicy = when (mode) {
+        GeminiNanoMode.OFF -> GeminiNanoFeaturePolicy.OFF
+        GeminiNanoMode.AUTO_HYBRID -> GeminiNanoFeaturePolicy.AUTO
+        GeminiNanoMode.ALWAYS_PREFER -> GeminiNanoFeaturePolicy.FORCE
     }
 
     suspend fun setTitleStyle(style: TitleStylePreference) {
         currentSnapshot = currentSnapshot.copy(titleStyle = style)
         persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.TITLE_STYLE] = style.name }
+    }
+
+    suspend fun setAppLockEnabled(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(appLockEnabled = enabled)
+        persistBootCache(currentSnapshot)
+        dataStore.edit { it[Keys.APP_LOCK_ENABLED] = enabled }
+    }
+
+    suspend fun setAppLockTimeout(timeout: AppLockTimeout) {
+        currentSnapshot = currentSnapshot.copy(appLockTimeout = timeout)
+        persistBootCache(currentSnapshot)
+        dataStore.edit { it[Keys.APP_LOCK_TIMEOUT] = timeout.name }
+    }
+
+    suspend fun setHideRecentsWhenLocked(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(hideRecentsWhenLocked = enabled)
+        persistBootCache(currentSnapshot)
+        dataStore.edit { it[Keys.HIDE_RECENTS_WHEN_LOCKED] = enabled }
     }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(raw: String?, fallback: T): T {

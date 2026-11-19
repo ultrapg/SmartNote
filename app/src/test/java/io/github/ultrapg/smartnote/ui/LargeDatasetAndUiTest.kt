@@ -209,11 +209,12 @@ class LargeDatasetAndUiTest {
         composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
         composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
 
-        // New AI tag settings & auto-detected model status render cleanly
+        // New AI tag settings & renamed Fetch Link Previews setting render cleanly
         composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Allow new topic tags").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Fetch Link Previews").performScrollTo().assertIsDisplayed()
         runBlocking {
             assertTrue(app.container.settingsRepository.settingsFlow.first().allowNewTopicTags)
         }
@@ -239,8 +240,12 @@ class LargeDatasetAndUiTest {
                 !app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
             }
         }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsNotEnabled()
+        composeRule.waitUntil(3_000L) {
+            runCatching {
+                composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsNotEnabled()
+                true
+            }.getOrDefault(false)
+        }
         composeRule.onNodeWithText("Text Recognition (OCR)").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("Duplicate Detection").performScrollTo().assertIsNotEnabled()
         composeRule.onNodeWithText("Semantic Search").performScrollTo().assertIsNotEnabled()
@@ -261,15 +266,20 @@ class LargeDatasetAndUiTest {
                 app.container.settingsRepository.settingsFlow.first().aiFeaturesEnabled
             }
         }
-        composeRule.waitForIdle()
-        composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
+        composeRule.waitUntil(3_000L) {
+            runCatching {
+                composeRule.onNodeWithText("SmartTags").performScrollTo().assertIsEnabled()
+                true
+            }.getOrDefault(false)
+        }
         composeRule.onNodeWithText("AI Hardware & Diagnostics").performScrollTo().assertIsEnabled()
 
-        // New AI tag settings & auto-detected model status render cleanly
+        // New AI tag settings & renamed Fetch Link Previews setting render cleanly
         composeRule.onNodeWithText("Max tags to predict").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Tag strictness").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Allow new topic tags").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("Gemini Nano").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Fetch Link Previews").performScrollTo().assertIsDisplayed()
         runBlocking {
             assertTrue(app.container.settingsRepository.settingsFlow.first().allowNewTopicTags)
         }
@@ -294,6 +304,19 @@ class LargeDatasetAndUiTest {
             assertTrue(restoredState.effectiveOcrEnabled)
             assertTrue(restoredState.effectiveSemanticRerankEnabled)
         }
+
+        // Navigate back to Settings root and verify Security & App Lock screen
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Security & App Lock").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Security & App Lock").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Android Biometric & Device PIN").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("App Lock").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Auto-lock timing").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Hide content in Recents").performScrollTo().assertIsDisplayed()
     }
 
     @Test

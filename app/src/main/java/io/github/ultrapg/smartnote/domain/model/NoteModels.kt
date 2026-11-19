@@ -106,6 +106,19 @@ enum class GeminiNanoVariant {
     FULL_QUALITY
 }
 
+enum class GeminiNanoFeaturePolicy {
+    OFF,
+    AUTO,
+    FORCE
+}
+
+enum class AppLockTimeout(val timeoutMs: Long, val label: String) {
+    IMMEDIATE(0L, "Immediately"),
+    SECONDS_30(30_000L, "After 30 sec"),
+    MINUTE_1(60_000L, "After 1 min"),
+    MINUTES_5(300_000L, "After 5 min")
+}
+
 enum class TitleStylePreference {
     CONCISE,
     DESCRIPTIVE
@@ -141,7 +154,14 @@ data class AppSettings(
     val useGeminiNanoForTitles: Boolean = true,
     val useGeminiNanoForOcr: Boolean = true,
     val useGeminiNanoForSearch: Boolean = true,
-    val titleStyle: TitleStylePreference = TitleStylePreference.CONCISE
+    val geminiNanoTagsPolicy: GeminiNanoFeaturePolicy = GeminiNanoFeaturePolicy.AUTO,
+    val geminiNanoTitlesPolicy: GeminiNanoFeaturePolicy = GeminiNanoFeaturePolicy.AUTO,
+    val geminiNanoSearchPolicy: GeminiNanoFeaturePolicy = GeminiNanoFeaturePolicy.AUTO,
+    val geminiNanoOcrPolicy: GeminiNanoFeaturePolicy = GeminiNanoFeaturePolicy.AUTO,
+    val titleStyle: TitleStylePreference = TitleStylePreference.CONCISE,
+    val appLockEnabled: Boolean = false,
+    val appLockTimeout: AppLockTimeout = AppLockTimeout.IMMEDIATE,
+    val hideRecentsWhenLocked: Boolean = true
 ) {
     val effectiveSmartTagsEnabled: Boolean get() = aiFeaturesEnabled && smartTagsEnabled
     val effectiveAutoTitleEnabled: Boolean get() = aiFeaturesEnabled && autoTitleEnabled
@@ -152,10 +172,46 @@ data class AppSettings(
     val effectiveUseImageLabeling: Boolean get() = aiFeaturesEnabled && useImageLabelingForAi
     val effectiveUseSystemEntities: Boolean get() = aiFeaturesEnabled && useSystemEntitiesForAi
     val effectiveUseSemanticEmbeddingsForTags: Boolean get() = aiFeaturesEnabled && useSemanticEmbeddingsForTags
-    val effectiveGeminiNanoEnabled: Boolean get() = aiFeaturesEnabled && geminiNanoMode != GeminiNanoMode.OFF
-    val effectiveUseGeminiNanoForTitles: Boolean get() = effectiveGeminiNanoEnabled && useGeminiNanoForTitles
-    val effectiveUseGeminiNanoForOcr: Boolean get() = effectiveOcrEnabled && effectiveGeminiNanoEnabled && useGeminiNanoForOcr
-    val effectiveUseGeminiNanoForSearch: Boolean get() = effectiveGeminiNanoEnabled && useGeminiNanoForSearch
+    val effectiveGeminiNanoTagsPolicy: GeminiNanoFeaturePolicy
+        get() = when {
+            !aiFeaturesEnabled || geminiNanoMode == GeminiNanoMode.OFF -> GeminiNanoFeaturePolicy.OFF
+            geminiNanoTagsPolicy != GeminiNanoFeaturePolicy.AUTO -> geminiNanoTagsPolicy
+            geminiNanoMode == GeminiNanoMode.ALWAYS_PREFER -> GeminiNanoFeaturePolicy.FORCE
+            else -> GeminiNanoFeaturePolicy.AUTO
+        }
+    val effectiveGeminiNanoTitlesPolicy: GeminiNanoFeaturePolicy
+        get() = when {
+            !aiFeaturesEnabled || geminiNanoMode == GeminiNanoMode.OFF || !useGeminiNanoForTitles ->
+                GeminiNanoFeaturePolicy.OFF
+            else -> geminiNanoTitlesPolicy
+        }
+    val effectiveGeminiNanoSearchPolicy: GeminiNanoFeaturePolicy
+        get() = when {
+            !aiFeaturesEnabled || geminiNanoMode == GeminiNanoMode.OFF || !useGeminiNanoForSearch ->
+                GeminiNanoFeaturePolicy.OFF
+            else -> geminiNanoSearchPolicy
+        }
+    val effectiveGeminiNanoOcrPolicy: GeminiNanoFeaturePolicy
+        get() = when {
+            !effectiveOcrEnabled || geminiNanoMode == GeminiNanoMode.OFF || !useGeminiNanoForOcr ->
+                GeminiNanoFeaturePolicy.OFF
+            geminiNanoOcrPolicy != GeminiNanoFeaturePolicy.AUTO -> geminiNanoOcrPolicy
+            geminiNanoMode == GeminiNanoMode.ALWAYS_PREFER -> GeminiNanoFeaturePolicy.FORCE
+            else -> GeminiNanoFeaturePolicy.AUTO
+        }
+    val effectiveGeminiNanoEnabled: Boolean
+        get() = aiFeaturesEnabled && (
+            effectiveGeminiNanoTagsPolicy != GeminiNanoFeaturePolicy.OFF ||
+                effectiveGeminiNanoTitlesPolicy != GeminiNanoFeaturePolicy.OFF ||
+                effectiveGeminiNanoSearchPolicy != GeminiNanoFeaturePolicy.OFF ||
+                effectiveGeminiNanoOcrPolicy != GeminiNanoFeaturePolicy.OFF
+            )
+    val effectiveUseGeminiNanoForTitles: Boolean
+        get() = effectiveGeminiNanoTitlesPolicy != GeminiNanoFeaturePolicy.OFF
+    val effectiveUseGeminiNanoForOcr: Boolean
+        get() = effectiveGeminiNanoOcrPolicy != GeminiNanoFeaturePolicy.OFF
+    val effectiveUseGeminiNanoForSearch: Boolean
+        get() = effectiveGeminiNanoSearchPolicy != GeminiNanoFeaturePolicy.OFF
     val effectiveMaxTitleLength: Int get() = if (titleStyle == TitleStylePreference.DESCRIPTIVE) 64 else 44
 }
 

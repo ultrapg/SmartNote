@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -39,7 +40,9 @@ import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Extension
+import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Restore
 import androidx.compose.material.icons.rounded.Share
@@ -63,12 +66,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,9 +95,10 @@ import io.github.ultrapg.smartnote.backup.RestoreMode
 import io.github.ultrapg.smartnote.data.preferences.SettingsRepository
 import io.github.ultrapg.smartnote.domain.model.AiBackendPreference
 import io.github.ultrapg.smartnote.domain.model.AiHardwareBackend
+import io.github.ultrapg.smartnote.domain.model.AppLockTimeout
 import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
-import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
@@ -101,6 +109,7 @@ import io.github.ultrapg.smartnote.integration.QuickNoteTileService
 import io.github.ultrapg.smartnote.integration.widgets.NotesOverviewWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.PinnedNoteWidgetReceiver
 import io.github.ultrapg.smartnote.integration.widgets.QuickNoteWidgetReceiver
+import io.github.ultrapg.smartnote.security.AppLockAuthenticator
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
 import kotlinx.coroutines.launch
@@ -113,6 +122,7 @@ import java.util.Locale
 fun SettingsScreen(
     onOpenAppearance: () -> Unit,
     onOpenSmartFeatures: () -> Unit,
+    onOpenSecurity: () -> Unit = {},
     onOpenIntegrations: () -> Unit,
     onOpenData: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -158,6 +168,14 @@ fun SettingsScreen(
                     title = "AI & Smart Features",
                     subtitle = "Auto-titles, tags, text recognition, duplicate checks & search ranking",
                     onClick = onOpenSmartFeatures
+                )
+            }
+            item {
+                SettingsCategoryCard(
+                    icon = Icons.Rounded.Lock,
+                    title = "Security & App Lock",
+                    subtitle = "Lock SmartNote with fingerprint or device PIN, timeout & recents privacy",
+                    onClick = onOpenSecurity
                 )
             }
             item {
@@ -530,41 +548,22 @@ fun SmartFeaturesSettingsScreen(
                         }
                     }
                     else -> {
-                        val nanoModeDesc = when (settings.geminiNanoMode) {
-                            GeminiNanoMode.AUTO_HYBRID ->
-                                "Smart Hybrid: uses fast local rules first and asks Gemini Nano only when unsure"
-                            GeminiNanoMode.ALWAYS_PREFER ->
-                                "Prefer Nano: runs Gemini Nano together with local rules on notes"
-                            GeminiNanoMode.OFF ->
-                                "Off: disables Gemini Nano inference"
-                        }
+                        val tagsPolicy = settings.effectiveGeminiNanoTagsPolicy
+                        val titlesPolicy = settings.effectiveGeminiNanoTitlesPolicy
+                        val searchPolicy = settings.effectiveGeminiNanoSearchPolicy
+                        val ocrPolicy = settings.effectiveGeminiNanoOcrPolicy
+                        val anyNanoFeatureActive = tagsPolicy != GeminiNanoFeaturePolicy.OFF ||
+                            titlesPolicy != GeminiNanoFeaturePolicy.OFF ||
+                            searchPolicy != GeminiNanoFeaturePolicy.OFF ||
+                            ocrPolicy != GeminiNanoFeaturePolicy.OFF
+                        val variantEnabled = aiEnabled && anyNanoFeatureActive
+
                         Text(
-                            text = nanoModeDesc,
+                            text = "Choose Off, Auto, or Force for each on-device feature individually.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
                         )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            GeminiNanoMode.entries.forEach { mode ->
-                                val label = when (mode) {
-                                    GeminiNanoMode.AUTO_HYBRID -> "Smart Hybrid"
-                                    GeminiNanoMode.ALWAYS_PREFER -> "Prefer Nano"
-                                    GeminiNanoMode.OFF -> "Off"
-                                }
-                                FilterChip(
-                                    selected = settings.geminiNanoMode == mode,
-                                    enabled = aiEnabled,
-                                    onClick = { scope.launch { settingsRepository.setGeminiNanoMode(mode) } },
-                                    label = { Text(label) },
-                                    border = null,
-                                    colors = smartNoteTonalFilterChipColors()
-                                )
-                            }
-                        }
 
-                        val variantEnabled = aiEnabled && settings.geminiNanoMode != GeminiNanoMode.OFF
                         Text(
                             text = "Model variant",
                             style = MaterialTheme.typography.labelMedium,
@@ -602,32 +601,63 @@ fun SmartFeaturesSettingsScreen(
                             )
                         }
 
-                        NanoCardToggleRow(
-                            title = "Use Gemini Nano for titles",
-                            subtitle = "Synthesize titles from note text and attached images with Gemini Nano",
-                            checked = settings.useGeminiNanoForTitles,
-                            enabled = variantEnabled,
-                            onCheckedChange = {
-                                scope.launch { settingsRepository.setUseGeminiNanoForTitles(it) }
-                            }
+                        NanoFeaturePolicyRow(
+                            title = "Tag generation",
+                            subtitle = when (tagsPolicy) {
+                                GeminiNanoFeaturePolicy.OFF ->
+                                    "Off: use local rules, entities, image labels, and embeddings only"
+                                GeminiNanoFeaturePolicy.AUTO ->
+                                    "Auto: smart hybrid — asks Gemini Nano when local tagging is unsure"
+                                GeminiNanoFeaturePolicy.FORCE ->
+                                    "Force: always run Gemini Nano for tag generation"
+                            },
+                            selected = tagsPolicy,
+                            enabled = aiEnabled,
+                            onSelect = { scope.launch { settingsRepository.setGeminiNanoTagsPolicy(it) } }
                         )
-                        NanoCardToggleRow(
-                            title = "Use Gemini Nano for OCR",
-                            subtitle = "Read hard-to-scan images and refine ML Kit text recognition with Gemini Nano",
-                            checked = settings.useGeminiNanoForOcr && settings.ocrEnabled,
-                            enabled = variantEnabled && settings.ocrEnabled,
-                            onCheckedChange = {
-                                scope.launch { settingsRepository.setUseGeminiNanoForOcr(it) }
-                            }
+                        NanoFeaturePolicyRow(
+                            title = "Title generation",
+                            subtitle = when (titlesPolicy) {
+                                GeminiNanoFeaturePolicy.OFF ->
+                                    "Off: use local headings, entities, and heuristics only"
+                                GeminiNanoFeaturePolicy.AUTO ->
+                                    "Auto: synthesize titles from note text and attached images"
+                                GeminiNanoFeaturePolicy.FORCE ->
+                                    "Force: prioritize Gemini Nano visual/text titles first"
+                            },
+                            selected = titlesPolicy,
+                            enabled = aiEnabled,
+                            onSelect = { scope.launch { settingsRepository.setGeminiNanoTitlesPolicy(it) } }
                         )
-                        NanoCardToggleRow(
-                            title = "Use Gemini Nano for Search",
-                            subtitle = "Understand natural queries and synonyms with Gemini Nano, falling back to local search automatically",
-                            checked = settings.useGeminiNanoForSearch,
-                            enabled = variantEnabled,
-                            onCheckedChange = {
-                                scope.launch { settingsRepository.setUseGeminiNanoForSearch(it) }
-                            }
+                        NanoFeaturePolicyRow(
+                            title = "SmartSearch",
+                            subtitle = when (searchPolicy) {
+                                GeminiNanoFeaturePolicy.OFF ->
+                                    "Off: use local FTS5, bilingual synonyms, and embeddings only"
+                                GeminiNanoFeaturePolicy.AUTO ->
+                                    "Auto: expand complex queries and rescue zero-result searches"
+                                GeminiNanoFeaturePolicy.FORCE ->
+                                    "Force: always run Gemini Nano query understanding & semantic match"
+                            },
+                            selected = searchPolicy,
+                            enabled = aiEnabled,
+                            onSelect = { scope.launch { settingsRepository.setGeminiNanoSearchPolicy(it) } }
+                        )
+                        NanoFeaturePolicyRow(
+                            title = "Text recognition (OCR)",
+                            subtitle = when {
+                                !settings.ocrEnabled ->
+                                    "Disabled because Text Recognition (OCR) is turned off below"
+                                ocrPolicy == GeminiNanoFeaturePolicy.OFF ->
+                                    "Off: use bundled ML Kit OCR only"
+                                ocrPolicy == GeminiNanoFeaturePolicy.AUTO ->
+                                    "Auto: assist ML Kit on hard-to-scan, empty, or noisy images"
+                                else ->
+                                    "Force: always enhance OCR scans with Gemini Nano"
+                            },
+                            selected = ocrPolicy,
+                            enabled = aiEnabled && settings.ocrEnabled,
+                            onSelect = { scope.launch { settingsRepository.setGeminiNanoOcrPolicy(it) } }
                         )
                     }
                 }
@@ -709,8 +739,8 @@ fun SmartFeaturesSettingsScreen(
             onCheckedChange = { scope.launch { settingsRepository.setRecentSearchesEnabled(it) } }
         )
         SettingsSwitchRow(
-            title = "Fetch Link Previews (Network Opt-In)",
-            subtitle = "Optional: fetch webpage titles only for links you save; note text stays private. Off by default.",
+            title = "Fetch Link Previews",
+            subtitle = "Load webpage titles, descriptions, and preview thumbnails for saved links (disabled by default)",
             checked = settings.fetchLinkPreviews,
             onCheckedChange = { scope.launch { settingsRepository.setFetchLinkPreviews(it) } }
         )
@@ -959,6 +989,130 @@ private fun formatEntityDiag(probed: Boolean, avail: SystemEntityAvailability): 
     !probed -> "Checking..."
     avail == SystemEntityAvailability.AVAILABLE -> "Ready (Android TextClassifier)"
     else -> "Not available on this device"
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SecuritySettingsScreen(
+    settings: AppSettings,
+    settingsRepository: SettingsRepository,
+    onRequestAppLockChange: (desiredEnabled: Boolean, onDone: (Boolean, String?) -> Unit) -> Unit,
+    onLockAppNow: () -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var capabilities by remember { mutableStateOf(AppLockAuthenticator.inspectCapabilities(context)) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                capabilities = AppLockAuthenticator.inspectCapabilities(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    SettingsSubScaffold(title = "Security & App Lock", onBack = onBack) {
+        SystemIntegrationCard(
+            icon = Icons.Rounded.Fingerprint,
+            title = "Android Biometric & Device PIN",
+            badge = if (capabilities.isDeviceSecure) "Ready" else "Setup needed",
+            description = capabilities.statusSummary,
+            actions = if (!capabilities.isDeviceSecure) {
+                {
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(AndroidSettings.ACTION_SECURITY_SETTINGS).apply {
+                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                )
+                            }
+                        }
+                    ) {
+                        Text("Open Android Security Settings")
+                    }
+                }
+            } else {
+                null
+            }
+        )
+
+        statusMessage?.let { msg ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        SettingsSwitchRow(
+            title = "App Lock",
+            subtitle = "Require your fingerprint, face, or device PIN when opening SmartNote",
+            checked = settings.appLockEnabled,
+            enabled = capabilities.isDeviceSecure || settings.appLockEnabled,
+            highlighted = true,
+            onCheckedChange = { targetEnabled ->
+                statusMessage = null
+                onRequestAppLockChange(targetEnabled) { _, err ->
+                    if (!err.isNullOrBlank()) {
+                        statusMessage = err
+                    }
+                }
+            }
+        )
+
+        SettingsOptionGroupCard(
+            title = "Auto-lock timing",
+            subtitle = "Choose how soon SmartNote locks after you leave the app",
+            enabled = settings.appLockEnabled
+        ) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                AppLockTimeout.entries.forEach { timeout ->
+                    FilterChip(
+                        selected = settings.appLockTimeout == timeout,
+                        enabled = settings.appLockEnabled,
+                        onClick = { scope.launch { settingsRepository.setAppLockTimeout(timeout) } },
+                        label = { Text(timeout.label) },
+                        border = null,
+                        colors = smartNoteTonalFilterChipColors()
+                    )
+                }
+            }
+        }
+
+        SettingsSwitchRow(
+            title = "Hide content in Recents",
+            subtitle = "Hide note previews in Android's app switcher and block screenshots while App Lock is on",
+            checked = settings.hideRecentsWhenLocked,
+            enabled = settings.appLockEnabled,
+            onCheckedChange = { scope.launch { settingsRepository.setHideRecentsWhenLocked(it) } }
+        )
+
+        if (settings.appLockEnabled) {
+            OutlinedButton(
+                onClick = onLockAppNow,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Lock SmartNote now")
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1603,41 +1757,52 @@ private fun SettingsSwitchRow(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun NanoCardToggleRow(
+private fun NanoFeaturePolicyRow(
     title: String,
     subtitle: String,
-    checked: Boolean,
+    selected: GeminiNanoFeaturePolicy,
     enabled: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onSelect: (GeminiNanoFeaturePolicy) -> Unit
 ) {
     val contentAlpha = if (enabled) 1f else 0.38f
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled) { onCheckedChange(!checked) }
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
-            )
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = contentAlpha)
         )
+        Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha)
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            GeminiNanoFeaturePolicy.entries.forEach { policy ->
+                val label = when (policy) {
+                    GeminiNanoFeaturePolicy.OFF -> "Off"
+                    GeminiNanoFeaturePolicy.AUTO -> "Auto"
+                    GeminiNanoFeaturePolicy.FORCE -> "Force"
+                }
+                FilterChip(
+                    selected = selected == policy,
+                    enabled = enabled,
+                    onClick = { onSelect(policy) },
+                    label = { Text(label) },
+                    border = null,
+                    colors = smartNoteTonalFilterChipColors()
+                )
+            }
+        }
     }
 }
 

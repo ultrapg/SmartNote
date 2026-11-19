@@ -18,6 +18,7 @@ import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.data.repository.NoteRepository
 import io.github.ultrapg.smartnote.data.repository.TagRepository
 import io.github.ultrapg.smartnote.domain.model.AppSettings
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
@@ -555,5 +556,28 @@ class SmartTagsAndDuplicatesTest {
         assertEquals(1, nanoCalls)
         assertFalse(nanoOffOutcome.usedGeminiNano)
         assertTrue(nanoOffOutcome.suggestions.isEmpty())
+
+        // 4. Per-feature FORCE calls Gemini Nano even when local engine is already certain
+        val forcedOutcome = coordinator.generateTagsForNote(
+            noteId = "c4",
+            title = "Supermarket Run",
+            blocks = listOf(NoteBlock("cb4", "c4", 0, NoteBlockType.CHECKLIST, "Buy groceries, milk, eggs, bread, butter, cheese")),
+            ocrTexts = emptyList(),
+            links = emptyList(),
+            attachments = emptyList(),
+            existingNoteTags = emptySet(),
+            dismissedTagNames = emptySet(),
+            existingUserVocabulary = listOf("Shopping"),
+            allSummaries = emptyList(),
+            settings = AppSettings(
+                geminiNanoTagsPolicy = GeminiNanoFeaturePolicy.FORCE,
+                geminiNanoVariant = GeminiNanoVariant.FAST_FIRST,
+                maxPredictedTags = 3
+            ),
+            isExplicitManualTrigger = true
+        )
+        assertEquals(2, nanoCalls)
+        assertTrue(forcedOutcome.usedGeminiNano)
+        assertTrue("Personal" in forcedOutcome.suggestions.map { it.name })
     }
 }

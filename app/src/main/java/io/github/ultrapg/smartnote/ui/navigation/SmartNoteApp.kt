@@ -97,6 +97,7 @@ import io.github.ultrapg.smartnote.ui.settings.AiProcessingSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.AppearanceSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.DataSettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.IntegrationsSettingsScreen
+import io.github.ultrapg.smartnote.ui.settings.SecuritySettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.SettingsScreen
 import io.github.ultrapg.smartnote.ui.settings.SmartFeaturesSettingsScreen
 import io.github.ultrapg.smartnote.ui.tags.TagsScreen
@@ -111,7 +112,11 @@ fun SmartNoteApp(
     container: AppContainer,
     deepLink: LaunchDeepLink,
     onDeepLinkConsumed: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onRequestAppLockChange: (desiredEnabled: Boolean, onDone: (Boolean, String?) -> Unit) -> Unit = { _, onDone ->
+        onDone(false, null)
+    },
+    onLockAppNow: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -487,9 +492,22 @@ fun SmartNoteApp(
                     SettingsScreen(
                         onOpenAppearance = { navController.navigate(AppearanceSettingsRoute) },
                         onOpenSmartFeatures = { navController.navigate(SmartFeaturesSettingsRoute) },
+                        onOpenSecurity = { navController.navigate(SecuritySettingsRoute) },
                         onOpenIntegrations = { navController.navigate(IntegrationsSettingsRoute) },
                         onOpenData = { navController.navigate(DataSettingsRoute) },
                         onOpenAbout = { navController.navigate(AboutSettingsRoute) },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable<SecuritySettingsRoute> {
+                    SecuritySettingsScreen(
+                        settings = settings,
+                        settingsRepository = container.settingsRepository,
+                        onRequestAppLockChange = onRequestAppLockChange,
+                        onLockAppNow = {
+                            onLockAppNow()
+                        },
                         onBack = { navController.popBackStack() }
                     )
                 }

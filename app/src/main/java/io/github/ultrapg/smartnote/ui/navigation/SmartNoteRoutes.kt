@@ -44,6 +44,9 @@ data object AppearanceSettingsRoute
 data object SmartFeaturesSettingsRoute
 
 @Serializable
+data object SecuritySettingsRoute
+
+@Serializable
 data object AiSettingsRoute
 
 @Serializable

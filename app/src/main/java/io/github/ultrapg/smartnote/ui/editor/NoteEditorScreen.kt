@@ -888,6 +888,7 @@ fun NoteEditorScreen(
                             LinkBlockCard(
                                 url = block.linkUrl.orEmpty(),
                                 preview = matchingLink,
+                                filesDir = context.filesDir,
                                 onOpenUrl = { rawUrl ->
                                     runCatching {
                                         context.startActivity(
@@ -921,6 +922,7 @@ fun NoteEditorScreen(
                     LinkBlockCard(
                         url = link.rawUrl,
                         preview = link,
+                        filesDir = context.filesDir,
                         onOpenUrl = { rawUrl ->
                             runCatching {
                                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(rawUrl)))
@@ -1293,8 +1295,12 @@ private fun ImageBlockCard(
 private fun LinkBlockCard(
     url: String,
     preview: LinkPreviewInfo?,
+    filesDir: File,
     onOpenUrl: (String) -> Unit
 ) {
+    val thumbFile = preview?.previewImagePath?.let { rel ->
+        File(filesDir, rel).takeIf { it.exists() }
+    }
     Surface(
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1306,38 +1312,65 @@ private fun LinkBlockCard(
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(
-                imageVector = Icons.Rounded.Link,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = preview?.pageTitle?.takeIf { it.isNotBlank() } ?: preview?.domain ?: url,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            if (thumbFile != null) {
+                AsyncImage(
+                    model = rememberBoundedImageRequest(
+                        file = thumbFile,
+                        maxDimensionPx = 256
+                    ),
+                    contentDescription = preview?.pageTitle ?: preview?.domain ?: "Link thumbnail",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                 )
-                if (!preview?.description.isNullOrBlank()) {
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.Link,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (!preview?.domain.isNullOrBlank()) {
                     Text(
-                        text = preview?.description.orEmpty(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else {
-                    Text(
-                        text = url,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = preview?.domain.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                Text(
+                    text = preview?.pageTitle?.takeIf { it.isNotBlank() } ?: preview?.domain ?: url,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val secondaryText = preview?.description?.takeIf { it.isNotBlank() } ?: url
+                Text(
+                    text = secondaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             Icon(
                 imageVector = Icons.AutoMirrored.Rounded.OpenInNew,

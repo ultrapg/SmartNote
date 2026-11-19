@@ -13,7 +13,7 @@ import io.github.ultrapg.smartnote.ai.SystemEntityAnalyzer
 import io.github.ultrapg.smartnote.data.repository.AttachmentStorage
 import io.github.ultrapg.smartnote.domain.model.AppSettings
 import io.github.ultrapg.smartnote.domain.model.AttachmentInfo
-import io.github.ultrapg.smartnote.domain.model.GeminiNanoMode
+import io.github.ultrapg.smartnote.domain.model.GeminiNanoFeaturePolicy
 import io.github.ultrapg.smartnote.domain.model.GeminiNanoVariant
 import io.github.ultrapg.smartnote.domain.model.NoteBlock
 import io.github.ultrapg.smartnote.domain.model.NoteSummary
@@ -161,9 +161,11 @@ class SmartTaggingCoordinator(
         )
         val localFiltered = localRaw.filter { it.name.lowercase(Locale.ROOT) !in excludedLower }
 
-        // 6. Hybrid Gemini Nano (Fast or Full) when supported & needed
+        // 6. Hybrid Gemini Nano (Fast or Full) when supported & needed (Off / Auto / Force)
+        val tagPolicy = settings.effectiveGeminiNanoTagsPolicy
+        val forceNanoTags = tagPolicy == GeminiNanoFeaturePolicy.FORCE
         val assistant = geminiNanoAssistant
-        val nanoCaps = if (settings.effectiveGeminiNanoEnabled && assistant != null) {
+        val nanoCaps = if (tagPolicy != GeminiNanoFeaturePolicy.OFF && assistant != null) {
             assistant.probeCapabilities(forceRefresh = false)
         } else {
             GeminiNanoCapabilities()
@@ -179,7 +181,7 @@ class SmartTaggingCoordinator(
         }
 
         if (!nanoReady &&
-            settings.effectiveGeminiNanoEnabled &&
+            tagPolicy != GeminiNanoFeaturePolicy.OFF &&
             isExplicitManualTrigger &&
             nanoCaps.bestAvailability == GeminiNanoAvailability.DOWNLOADABLE
         ) {
@@ -192,15 +194,15 @@ class SmartTaggingCoordinator(
             noteContentLength = noteContentLen,
             hasImages = hasImages
         )
-        val shouldInvokeNano = nanoReady && assistant != null && when (settings.geminiNanoMode) {
-            GeminiNanoMode.OFF -> false
-            GeminiNanoMode.ALWAYS_PREFER -> true
-            GeminiNanoMode.AUTO_HYBRID -> isLocalUnsure
+        val shouldInvokeNano = nanoReady && assistant != null && when (tagPolicy) {
+            GeminiNanoFeaturePolicy.OFF -> false
+            GeminiNanoFeaturePolicy.FORCE -> true
+            GeminiNanoFeaturePolicy.AUTO -> isLocalUnsure
         }
 
         val nanoSuggestions = if (shouldInvokeNano) {
             val userProseChars = blocks.sumOf { it.textContent.trim().length }
-            val primaryBitmap = if (hasImages && userProseChars < 160 && storage != null) {
+            val primaryBitmap = if (hasImages && (forceNanoTags || userProseChars < 160) && storage != null) {
                 SafeOcrBitmapLoader.decodeUprightDownsampledBitmap(
                     storage.resolvePrivateFile(attachments.first().relativeFilePath),
                     maxDimPx = 512
@@ -230,7 +232,7 @@ class SmartTaggingCoordinator(
             emptyList()
         }
 
-        // 7. Merge local + Gemini Nano cleanly (boost dual-agreed tags)
+        // 7. Merge local + Gemini Nano cleanly (boost dual-agreed tags; prioritize Nano when Forced)
         val mergedByLower = LinkedHashMap<String, SmartTagSuggestion>()
         for (local in localFiltered) {
             mergedByLower[local.name.lowercase(Locale.ROOT)] = local
@@ -245,7 +247,11 @@ class SmartTaggingCoordinator(
                     reason = "Verified by ${nano.reason}"
                 )
             } else {
-                mergedByLower[key] = nano
+                mergedByLower[key] = if (forceNanoTags) {
+                    nano.copy(confidence = (nano.confidence + 0.06f).coerceAtMost(0.97f))
+                } else {
+                    nano
+                }
             }
         }
 
