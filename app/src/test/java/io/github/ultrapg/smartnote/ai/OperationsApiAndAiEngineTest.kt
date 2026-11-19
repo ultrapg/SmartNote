@@ -254,4 +254,73 @@ class OperationsApiAndAiEngineTest {
         assertTrue(applied)
         assertEquals("FTS5 Search Benchmarks", noteRepository.getNoteDetail(untitledDefault.id)!!.title)
     }
+
+    @Test
+    fun energyEfficientModePrioritizesLowPowerNpuAndSkipsGpuOnBatterySaver() = runTest {
+        val attempts = mutableListOf<AiHardwareBackend>()
+        val powerSaveWithNpuBridge = object : LiteRtRuntimeBridge {
+            override fun probeCapabilities() = AiHardwareCapabilities(
+                socDescription = "QTI SM8750",
+                npuDeviceSupported = true,
+                npuRuntimeReady = true,
+                availableAccelerators = setOf(AiHardwareBackend.NPU, AiHardwareBackend.GPU, AiHardwareBackend.CPU),
+                isPowerSaveMode = true,
+                thermalStatus = 0
+            )
+            override fun initialize(targetBackend: AiHardwareBackend): Result<AiHardwareBackend> {
+                attempts += targetBackend
+                return Result.success(targetBackend)
+            }
+            override fun runProjection(input128: FloatArray) = Result.success(FloatArray(64) { 0.25f })
+            override fun close() {}
+        }
+
+        val npuEngine = SmartNoteAiEngine(database, settingsRepo, powerSaveWithNpuBridge, scope, idleUnloadMs = 0L)
+        settingsRepo.setEnergyEfficientAi(true)
+
+        // 1. Even with PREFER_GPU, Battery Saver + Energy-Efficient Processing prioritizes NPU and skips GPU
+        settingsRepo.setAiBackendPreference(AiBackendPreference.PREFER_GPU)
+        npuEngine.embedText("NPU energy saving check")
+        assertEquals(AiHardwareBackend.NPU, npuEngine.diagnosticsFlow.value.activeNeuralBackend)
+        assertTrue(npuEngine.diagnosticsFlow.value.energySavingActive)
+        assertTrue(AiHardwareBackend.GPU !in attempts)
+
+        // 2. AUTO also keeps low-power NPU active under Battery Saver
+        attempts.clear()
+        settingsRepo.setAiBackendPreference(AiBackendPreference.AUTO)
+        npuEngine.embedText("AUTO energy saving check")
+        assertEquals(AiHardwareBackend.NPU, npuEngine.diagnosticsFlow.value.activeNeuralBackend)
+        assertTrue(AiHardwareBackend.GPU !in attempts)
+
+        // 3. Explicit CPU_ONLY still honors strict CPU preference
+        attempts.clear()
+        settingsRepo.setAiBackendPreference(AiBackendPreference.CPU_ONLY)
+        npuEngine.embedText("CPU only override")
+        assertEquals(listOf(AiHardwareBackend.CPU), attempts)
+
+        // 4. Without NPU support under Battery Saver, high-wattage GPU is skipped and CPU is used
+        val noNpuAttempts = mutableListOf<AiHardwareBackend>()
+        val noNpuPowerSaveBridge = object : LiteRtRuntimeBridge {
+            override fun probeCapabilities() = AiHardwareCapabilities(
+                socDescription = "GPU+CPU SoC",
+                npuDeviceSupported = false,
+                npuRuntimeReady = false,
+                availableAccelerators = setOf(AiHardwareBackend.GPU, AiHardwareBackend.CPU),
+                isPowerSaveMode = true,
+                thermalStatus = 0
+            )
+            override fun initialize(targetBackend: AiHardwareBackend): Result<AiHardwareBackend> {
+                noNpuAttempts += targetBackend
+                return Result.success(targetBackend)
+            }
+            override fun runProjection(input128: FloatArray) = Result.success(FloatArray(64) { 0.25f })
+            override fun close() {}
+        }
+
+        val gpuFallbackEngine = SmartNoteAiEngine(database, settingsRepo, noNpuPowerSaveBridge, scope, idleUnloadMs = 0L)
+        settingsRepo.setAiBackendPreference(AiBackendPreference.PREFER_GPU)
+        gpuFallbackEngine.embedText("No NPU fallback check")
+        assertEquals(listOf(AiHardwareBackend.CPU), noNpuAttempts)
+        assertEquals(AiHardwareBackend.CPU, gpuFallbackEngine.diagnosticsFlow.value.activeNeuralBackend)
+    }
 }

@@ -254,7 +254,14 @@ class SmartNoteAiEngine(
                 fallbackNotes += "NPU runtime unavailable on ${caps.socDescription}; falling back"
             }
             if (energyThrottled && settings.aiBackendPreference != AiBackendPreference.CPU_ONLY) {
-                fallbackNotes += "Energy-efficient throttling active (power-save or thermal); using CPU"
+                val canUseNpu = caps.npuDeviceSupported &&
+                    caps.npuRuntimeReady &&
+                    AiHardwareBackend.NPU in caps.availableAccelerators
+                fallbackNotes += if (canUseNpu) {
+                    "Energy-efficient mode active: prioritizing low-power NPU and skipping GPU"
+                } else {
+                    "Energy-efficient mode active: skipping GPU and using CPU"
+                }
             }
 
             var outputVector: FloatArray? = null
@@ -302,7 +309,7 @@ class SmartNoteAiEngine(
                 energySavingActive = energyThrottled
             )
 
-            scheduleIdleUnload()
+            scheduleIdleUnload(energyEfficient = settings.energyEfficientAi)
             outputVector
         }
     }
@@ -331,12 +338,13 @@ class SmartNoteAiEngine(
     suspend fun scoreSemanticSimilarity(query: String, candidateNoteIds: List<String>): Map<String, Float> {
         if (query.isBlank() || candidateNoteIds.isEmpty()) return emptyMap()
         val s = settingsRepository.settingsFlow.first()
-        if (!s.aiFeaturesEnabled) {
-            unloadModel()
+        if (!s.effectiveSemanticRerankEnabled) {
+            if (!s.aiFeaturesEnabled) unloadModel()
             return emptyMap()
         }
-        val queryVec = embedText(query)
         val embeddings = database.searchAndMaintenanceDao().getEmbeddings(candidateNoteIds)
+        if (embeddings.isEmpty()) return emptyMap()
+        val queryVec = embedText(query)
         return embeddings.associate { entity ->
             val noteVec = TextFeatureVectorizer.fromByteArray(entity.vectorBlob)
             entity.noteId to TextFeatureVectorizer.cosineSimilarity(queryVec, noteVec).coerceAtLeast(0f)
@@ -351,11 +359,12 @@ class SmartNoteAiEngine(
         }
     }
 
-    private fun scheduleIdleUnload() {
+    private fun scheduleIdleUnload(energyEfficient: Boolean = false) {
         idleUnloadJob?.cancel()
         if (idleUnloadMs <= 0L) return
+        val timeoutMs = if (energyEfficient) minOf(idleUnloadMs, 15_000L) else idleUnloadMs
         idleUnloadJob = applicationScope.launch(aiDispatcher) {
-            delay(idleUnloadMs)
+            delay(timeoutMs)
             runtimeBridge.close()
             _diagnostics.value = _diagnostics.value.copy(isModelLoaded = false)
         }
@@ -366,15 +375,23 @@ class SmartNoteAiEngine(
         caps: AiHardwareCapabilities,
         energyThrottled: Boolean
     ): List<AiHardwareBackend> {
-        if (preference == AiBackendPreference.CPU_ONLY || energyThrottled) {
+        if (preference == AiBackendPreference.CPU_ONLY) {
             return listOf(AiHardwareBackend.CPU)
         }
-        val order = LinkedHashSet<AiHardwareBackend>()
         val canTryNpu = caps.npuDeviceSupported &&
             caps.npuRuntimeReady &&
             AiHardwareBackend.NPU in caps.availableAccelerators
         val canTryGpu = AiHardwareBackend.GPU in caps.availableAccelerators
 
+        if (energyThrottled) {
+            return if (canTryNpu) {
+                listOf(AiHardwareBackend.NPU, AiHardwareBackend.CPU)
+            } else {
+                listOf(AiHardwareBackend.CPU)
+            }
+        }
+
+        val order = LinkedHashSet<AiHardwareBackend>()
         when (preference) {
             AiBackendPreference.AUTO -> {
                 if (canTryNpu) order += AiHardwareBackend.NPU

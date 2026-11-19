@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
@@ -395,6 +396,10 @@ class LargeDatasetAndUiTest {
         }
         composeRule.waitForIdle()
 
+        assertTrue(
+            "Pill toggle should use X icon only without 'Close' text label",
+            composeRule.onAllNodesWithText("Close").fetchSemanticsNodes().isEmpty()
+        )
         val closeBounds = composeRule.onNodeWithContentDescription("Close create menu").getBoundsInRoot()
         listOf("Reminder", "Image", "Checklist", "Note").forEach { optionLabel ->
             composeRule.onNodeWithText(optionLabel).assertIsDisplayed()
@@ -438,6 +443,44 @@ class LargeDatasetAndUiTest {
             "Cancelling untouched checklist/reminder creation must not leave ghost notes",
             runBlocking { app.container.noteRepository.getAllSummariesSnapshot().isEmpty() }
         )
+    }
+
+    @Test
+    fun systemIntegrationsAndEnergySettingsRenderCleanly() {
+        composeRule.onNodeWithContentDescription("Menu").performClick()
+        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("System Integrations").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // System Integrations shows 4 distinct integration cards
+        composeRule.onNodeWithText("System Integrations").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Quick Settings Tile").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Quick Settings Tile").assertIsDisplayed()
+        composeRule.onNodeWithText("Home Screen Widgets").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Launcher App Shortcuts").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Android Sharesheet").performScrollTo().assertIsDisplayed()
+
+        // Navigate back to Settings -> AI & Smart Features -> AI Hardware & Diagnostics
+        composeRule.onNodeWithContentDescription("Back").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("AI & Smart Features").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("AI & Smart Features").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("AI Hardware & Diagnostics").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("AI Hardware & Diagnostics")
+            .performScrollTo()
+            .performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Hardware Acceleration Preference").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Prioritize low-power NPU", substring = true)
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 
     private fun openNewTextNoteFromPill() {

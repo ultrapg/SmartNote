@@ -4,6 +4,27 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-11-19
+
+### Changed
+- **Cleaner Morphing `+` Pill Menu Toggle (`NotesOverviewScreen.kt`)**:
+  - Removed the redundant `"Close"` text label inside the bottom bar of `ExpressiveMorphingCreateFab` and enlarged the `+` / `×` icon (`26.dp` at rest → `30.dp` when expanded), centered in a `56.dp` trailing box.
+- **NPU-First `Energy-Efficient Processing` (`SmartNoteAiEngine.kt`, `SettingsScreens.kt`)**:
+  - Updated `SmartNoteAiEngine.buildAttemptOrder` and `scheduleIdleUnload` so `energyThrottled` mode (Battery Saver / thermal load) prioritizes low-power **NPU** execution first (when supported and ready, unless `CPU_ONLY` is selected), skips high-wattage **GPU** wakeup, falls back to CPU only when NPU is unavailable, and shortens idle model retention to `15_000 ms`.
+  - Grouped `Hardware Acceleration Preference` radio items inside a clean tonal card in `AiProcessingSettingsScreen`, updated `Energy-Efficient Processing` descriptions, and added an `"Energy-Saving Mode"` row to `Honest Hardware Diagnostics`.
+- **Hybrid Semantic Search Enabled by Default (`NoteModels.kt`, `SettingsRepository.kt`, `SmartNoteAiEngine.kt`)**:
+  - Enabled `semanticRerankEnabled = true` by default (using key `semantic_rerank_enabled_v2` + boot-cache persistence) while keeping the master switch override and avoiding unnecessary model wakeups when candidate notes lack stored embeddings.
+
+### Fixed
+- **Redesigned `System Integrations` Screen & Global `DiagRow` Layout (`SettingsScreens.kt`)**:
+  - Replaced `DiagRow` unweighted `SpaceBetween` rows—which caused labels and multi-line values to touch (`"App ShortcutsNew Note..."`)—with weighted columns (`0.44f` label / `0.56f` end-aligned value, `12.dp` spacing) and navigation-bar bottom clearance across settings screens.
+  - Redesigned `IntegrationsSettingsScreen` into 4 dedicated `SystemIntegrationCard` cards (**Quick Settings Tile**, **Home Screen Widgets**, **Launcher App Shortcuts**, **Android Sharesheet**) with tonal status badges and native **"Add to Quick Settings"** (Android 13+) and **"Pin ..."** widget actions where supported.
+
+### Verification
+- `testDebugUnitTest`: **10 suites, 29 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **10 suites, 29 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `57,048,742` bytes (`54.41 MiB`), `SHA-256: 3e2976c90cec4be0e2c343f17fb5e0c9c9a4dd521d5351f63b7a17c1934a9cbc`, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.7] - 2026-11-18
 
 ### Added

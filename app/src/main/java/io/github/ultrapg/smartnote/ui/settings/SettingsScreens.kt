@@ -1,6 +1,10 @@
 package io.github.ultrapg.smartnote.ui.settings
 
+import android.app.StatusBarManager
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
+import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -14,9 +18,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -24,8 +31,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.AppShortcut
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Backup
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DeleteOutline
@@ -33,7 +42,9 @@ import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Restore
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -65,8 +76,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.github.ultrapg.smartnote.BuildConfig
+import io.github.ultrapg.smartnote.R
 import io.github.ultrapg.smartnote.ai.AiDiagnosticsState
 import io.github.ultrapg.smartnote.backup.BackupManager
 import io.github.ultrapg.smartnote.backup.RestoreMode
@@ -77,6 +90,10 @@ import io.github.ultrapg.smartnote.domain.model.DarkModeConfig
 import io.github.ultrapg.smartnote.domain.model.NotesLayoutMode
 import io.github.ultrapg.smartnote.domain.model.StorageStats
 import io.github.ultrapg.smartnote.domain.model.ThemePalette
+import io.github.ultrapg.smartnote.integration.QuickNoteTileService
+import io.github.ultrapg.smartnote.integration.widgets.NotesOverviewWidgetReceiver
+import io.github.ultrapg.smartnote.integration.widgets.PinnedNoteWidgetReceiver
+import io.github.ultrapg.smartnote.integration.widgets.QuickNoteWidgetReceiver
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteCardBorder
 import io.github.ultrapg.smartnote.ui.designsystem.components.smartNoteTonalFilterChipColors
 import kotlinx.coroutines.launch
@@ -108,6 +125,7 @@ fun SettingsScreen(
             )
         }
     ) { innerPadding ->
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -116,7 +134,7 @@ fun SettingsScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 12.dp,
-                bottom = innerPadding.calculateBottomPadding() + 28.dp
+                bottom = maxOf(innerPadding.calculateBottomPadding(), navBottom) + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -359,57 +377,67 @@ fun AiProcessingSettingsScreen(
             )
         }
         SectionLabel("Hardware Acceleration Preference")
-        AiBackendPreference.entries.forEach { pref ->
-            val title = when (pref) {
-                AiBackendPreference.AUTO -> "Automatic (Recommended)"
-                AiBackendPreference.PREFER_NPU -> "Prefer NPU"
-                AiBackendPreference.PREFER_GPU -> "Prefer GPU"
-                AiBackendPreference.CPU_ONLY -> "CPU Only"
-            }
-            val desc = when (pref) {
-                AiBackendPreference.AUTO -> "Uses native ML Kit for OCR, SQLite CPU for FTS5, and verified NPU/GPU/CPU for LiteRT"
-                AiBackendPreference.PREFER_NPU -> "Attempts LiteRT NPU dispatch when hardware runtime is present; falls back cleanly"
-                AiBackendPreference.PREFER_GPU -> "Prefers LiteRT OpenCL/GLES GPU execution with CPU fallback"
-                AiBackendPreference.CPU_ONLY -> "Forces CPU execution strictly; disables NPU and GPU delegates"
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        scope.launch {
-                            settingsRepository.setAiBackendPreference(pref)
-                            onRefreshDiagnostics()
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = smartNoteCardBorder(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
+                AiBackendPreference.entries.forEach { pref ->
+                    val title = when (pref) {
+                        AiBackendPreference.AUTO -> "Automatic (Recommended)"
+                        AiBackendPreference.PREFER_NPU -> "Prefer NPU"
+                        AiBackendPreference.PREFER_GPU -> "Prefer GPU"
+                        AiBackendPreference.CPU_ONLY -> "CPU Only"
+                    }
+                    val desc = when (pref) {
+                        AiBackendPreference.AUTO -> "Prioritizes low-power NPU first, then GPU, then CPU for LiteRT; bundled ML Kit for OCR"
+                        AiBackendPreference.PREFER_NPU -> "Prioritizes energy-efficient NPU hardware dispatch when ready; falls back cleanly"
+                        AiBackendPreference.PREFER_GPU -> "Prefers OpenCL/GLES GPU execution (skipped when Energy-Efficient throttling is active)"
+                        AiBackendPreference.CPU_ONLY -> "Forces CPU execution strictly; disables both NPU and GPU delegates"
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable {
+                                scope.launch {
+                                    settingsRepository.setAiBackendPreference(pref)
+                                    onRefreshDiagnostics()
+                                }
+                            }
+                            .padding(vertical = 8.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = settings.aiBackendPreference == pref,
+                            onClick = {
+                                scope.launch {
+                                    settingsRepository.setAiBackendPreference(pref)
+                                    onRefreshDiagnostics()
+                                }
+                            }
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(title, style = MaterialTheme.typography.titleSmall)
+                            Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadioButton(
-                    selected = settings.aiBackendPreference == pref,
-                    onClick = {
-                        scope.launch {
-                            settingsRepository.setAiBackendPreference(pref)
-                            onRefreshDiagnostics()
-                        }
-                    }
-                )
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleSmall)
-                    Text(desc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
         SettingsSwitchRow(
             title = "Energy-Efficient Processing",
-            subtitle = "Step down to CPU when Battery Saver or elevated thermal throttling is active",
+            subtitle = "Prioritize low-power NPU and skip power-hungry GPU dispatch during Battery Saver or elevated thermal load, plus unload idle models faster",
             checked = settings.energyEfficientAi,
             onCheckedChange = { scope.launch { settingsRepository.setEnergyEfficientAi(it) } }
         )
 
         SettingsSwitchRow(
             title = "Hybrid Semantic Re-Ranking (LiteRT)",
-            subtitle = "Optional: blend local compact text-embedding similarity into FTS5 SmartSearch results",
+            subtitle = "Blend local compact text-embedding similarity into FTS5 SmartSearch results (enabled by default)",
             checked = settings.semanticRerankEnabled,
             enabled = settings.aiFeaturesEnabled,
             onCheckedChange = { scope.launch { settingsRepository.setSemanticRerankEnabled(it) } }
@@ -424,7 +452,7 @@ fun AiProcessingSettingsScreen(
         ) {
             Column(
                 modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 DiagRow("SoC / Platform", diagnostics.socDescription)
                 DiagRow("OCR Engine", diagnostics.ocrBackend.name)
@@ -437,6 +465,14 @@ fun AiProcessingSettingsScreen(
                 DiagRow(
                     "NPU Support / Ready",
                     "${diagnostics.npuDeviceSupported} / ${diagnostics.npuRuntimeReady}"
+                )
+                DiagRow(
+                    "Energy-Saving Mode",
+                    when {
+                        !settings.energyEfficientAi -> "Off"
+                        diagnostics.energySavingActive -> "Active (NPU prioritized, GPU skipped)"
+                        else -> "Standby (NPU first; skips GPU on Battery Saver)"
+                    }
                 )
                 DiagRow("Model Loaded", if (diagnostics.isModelLoaded) "Yes (${diagnostics.lastInferenceMs} ms)" else "Unloaded (lazy)")
                 diagnostics.fallbackReason?.let { reason ->
@@ -543,28 +579,146 @@ fun ReminderSettingsScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun IntegrationsSettingsScreen(
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val appWidgetManager = remember(context) {
+        runCatching { AppWidgetManager.getInstance(context) }.getOrNull()
+    }
+    val canPinWidgets = remember(appWidgetManager) {
+        runCatching { appWidgetManager?.isRequestPinAppWidgetSupported == true }.getOrDefault(false)
+    }
+    var actionFeedback by remember { mutableStateOf<String?>(null) }
+
     SettingsSubScaffold(title = "System Integrations", onBack = onBack) {
         SectionLabel("System Shell Features")
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            border = smartNoteCardBorder(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+        actionFeedback?.let { msg ->
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                DiagRow("Quick Settings Tile", "Registered (Quick Note)")
-                DiagRow("App Shortcuts", "New Note, New Checklist, SmartSearch + Pinned")
-                DiagRow("Home Screen Widgets", "3 Glance M3 Widgets (Quick, Pinned, Overview)")
-                DiagRow("Android Sharesheet", "Text, URLs, Screenshots & Multi-Image")
+                Text(
+                    text = msg,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
             }
         }
+
+        SystemIntegrationCard(
+            icon = Icons.Rounded.Bolt,
+            title = "Quick Settings Tile",
+            badge = "Active",
+            description = "Add the Quick Note tile to your Android notification shade for 1-tap note creation from any screen.",
+            actions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                {
+                    OutlinedButton(
+                        onClick = {
+                            runCatching {
+                                val sbm = context.getSystemService(StatusBarManager::class.java)
+                                sbm?.requestAddTileService(
+                                    ComponentName(context, QuickNoteTileService::class.java),
+                                    context.getString(R.string.qs_tile_label),
+                                    AndroidIcon.createWithResource(context, R.drawable.ic_qs_new_note),
+                                    context.mainExecutor
+                                ) { status ->
+                                    actionFeedback = when (status) {
+                                        StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED ->
+                                            "Quick Note tile added to Quick Settings"
+                                        StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED ->
+                                            "Quick Note tile is already in Quick Settings"
+                                        else -> null
+                                    }
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Add to Quick Settings")
+                    }
+                }
+            } else {
+                null
+            }
+        )
+
+        SystemIntegrationCard(
+            icon = Icons.Rounded.Widgets,
+            title = "Home Screen Widgets",
+            badge = "3 Widgets",
+            description = "Three Material 3 Glance widgets: Quick Capture, Pinned Note, and Notes Overview.",
+            actions = if (canPinWidgets) {
+                {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                val pinned = runCatching {
+                                    appWidgetManager?.requestPinAppWidget(
+                                        ComponentName(context, QuickNoteWidgetReceiver::class.java),
+                                        null,
+                                        null
+                                    ) == true
+                                }.getOrDefault(false)
+                                if (!pinned) {
+                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
+                                }
+                            }
+                        ) { Text("Pin Quick Capture") }
+                        OutlinedButton(
+                            onClick = {
+                                val pinned = runCatching {
+                                    appWidgetManager?.requestPinAppWidget(
+                                        ComponentName(context, NotesOverviewWidgetReceiver::class.java),
+                                        null,
+                                        null
+                                    ) == true
+                                }.getOrDefault(false)
+                                if (!pinned) {
+                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
+                                }
+                            }
+                        ) { Text("Pin Overview") }
+                        OutlinedButton(
+                            onClick = {
+                                val pinned = runCatching {
+                                    appWidgetManager?.requestPinAppWidget(
+                                        ComponentName(context, PinnedNoteWidgetReceiver::class.java),
+                                        null,
+                                        null
+                                    ) == true
+                                }.getOrDefault(false)
+                                if (!pinned) {
+                                    actionFeedback = "Open your launcher's widget picker to place SmartNote widgets"
+                                }
+                            }
+                        ) { Text("Pin Pinned Note") }
+                    }
+                }
+            } else {
+                null
+            }
+        )
+
+        SystemIntegrationCard(
+            icon = Icons.Rounded.AppShortcut,
+            title = "Launcher App Shortcuts",
+            badge = "Active",
+            description = "Long-press the SmartNote app icon on your home screen for New Note, New Checklist, SmartSearch, and dynamic shortcuts to your pinned notes."
+        )
+
+        SystemIntegrationCard(
+            icon = Icons.Rounded.Share,
+            title = "Android Sharesheet",
+            badge = "Active",
+            description = "Share text, URLs, screenshots, or multiple images from any app straight into SmartNote for private storage, offline OCR, and SmartTags."
+        )
     }
 }
 
@@ -625,6 +779,7 @@ fun DataSettingsScreen(
             )
         }
     ) { innerPadding ->
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -633,7 +788,7 @@ fun DataSettingsScreen(
                 start = 16.dp,
                 end = 16.dp,
                 top = 12.dp,
-                bottom = innerPadding.calculateBottomPadding() + 28.dp
+                bottom = maxOf(innerPadding.calculateBottomPadding(), navBottom) + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -834,6 +989,7 @@ private fun SettingsSubScaffold(
             )
         }
     ) { innerPadding ->
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -842,7 +998,7 @@ private fun SettingsSubScaffold(
                 start = 16.dp,
                 end = 16.dp,
                 top = 12.dp,
-                bottom = innerPadding.calculateBottomPadding() + 28.dp
+                bottom = maxOf(innerPadding.calculateBottomPadding(), navBottom) + 28.dp
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -944,13 +1100,77 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
+private fun SystemIntegrationCard(
+    icon: ImageVector,
+    title: String,
+    badge: String,
+    description: String,
+    actions: (@Composable () -> Unit)? = null
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = smartNoteCardBorder(),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer
+                ) {
+                    Text(
+                        text = badge,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            actions?.invoke()
+        }
+    }
+}
+
+@Composable
 private fun DiagRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top
     ) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(0.44f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.56f)
+        )
     }
 }
 

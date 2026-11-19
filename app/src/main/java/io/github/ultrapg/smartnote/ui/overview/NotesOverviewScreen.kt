@@ -643,6 +643,11 @@ private fun ExpressiveMorphingCreateFab(
         animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
         label = "create_pill_icon_rotation"
     )
+    val iconSize by animateDpAsState(
+        targetValue = if (expanded) 30.dp else 26.dp,
+        animationSpec = if (reducedMotion) tween(durationMillis = 80) else SmartNoteMotion.softSizeSpring(),
+        label = "create_pill_icon_size"
+    )
 
     Surface(
         modifier = modifier.width(containerWidth),
@@ -711,27 +716,20 @@ private fun ExpressiveMorphingCreateFab(
                         contentDescription = if (expanded) "Close create menu" else "New note"
                     }
             ) {
-                if (expanded) {
-                    Text(
-                        text = "Close",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.78f),
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(start = 20.dp)
-                    )
-                }
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = null,
+                Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 16.dp)
-                        .size(24.dp)
-                        .graphicsLayer { rotationZ = iconRotation }
-                )
+                        .size(56.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .size(iconSize)
+                            .graphicsLayer { rotationZ = iconRotation }
+                    )
+                }
             }
         }
     }

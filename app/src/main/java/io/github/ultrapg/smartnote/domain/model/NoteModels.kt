@@ -112,7 +112,7 @@ data class AppSettings(
     val duplicateDetectionEnabled: Boolean = true,
     val fetchLinkPreviews: Boolean = false,
     val recentSearchesEnabled: Boolean = true,
-    val semanticRerankEnabled: Boolean = false,
+    val semanticRerankEnabled: Boolean = true,
     val aiBackendPreference: AiBackendPreference = AiBackendPreference.AUTO,
     val energyEfficientAi: Boolean = true,
     val backgroundAnalysisEnabled: Boolean = true,

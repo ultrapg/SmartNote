@@ -32,7 +32,7 @@ class SettingsRepository(
         val DUPLICATE_DETECTION_ENABLED = booleanPreferencesKey("duplicate_detection_enabled")
         val FETCH_LINK_PREVIEWS = booleanPreferencesKey("fetch_link_previews")
         val RECENT_SEARCHES_ENABLED = booleanPreferencesKey("recent_searches_enabled")
-        val SEMANTIC_RERANK_ENABLED = booleanPreferencesKey("semantic_rerank_enabled")
+        val SEMANTIC_RERANK_ENABLED = booleanPreferencesKey("semantic_rerank_enabled_v2")
         val AI_BACKEND_PREFERENCE = stringPreferencesKey("ai_backend_preference")
         val ENERGY_EFFICIENT_AI = booleanPreferencesKey("energy_efficient_ai")
         val BACKGROUND_ANALYSIS_ENABLED = booleanPreferencesKey("background_analysis_enabled")
@@ -52,7 +52,8 @@ class SettingsRepository(
             notesLayout = enumOrDefault(prefs.getString("notes_layout", null), NotesLayoutMode.STAGGERED_CARDS),
             reducedMotion = prefs.getBoolean("reduced_motion", false),
             aiFeaturesEnabled = prefs.getBoolean("ai_features_enabled", true),
-            autoTitleEnabled = prefs.getBoolean("auto_title_enabled_v2", false)
+            autoTitleEnabled = prefs.getBoolean("auto_title_enabled_v2", false),
+            semanticRerankEnabled = prefs.getBoolean("semantic_rerank_enabled_v2", true)
         )
     }
 
@@ -64,6 +65,7 @@ class SettingsRepository(
             ?.putBoolean("reduced_motion", snapshot.reducedMotion)
             ?.putBoolean("ai_features_enabled", snapshot.aiFeaturesEnabled)
             ?.putBoolean("auto_title_enabled_v2", snapshot.autoTitleEnabled)
+            ?.putBoolean("semantic_rerank_enabled_v2", snapshot.semanticRerankEnabled)
             ?.apply()
     }
 
@@ -81,7 +83,7 @@ class SettingsRepository(
                 duplicateDetectionEnabled = prefs[Keys.DUPLICATE_DETECTION_ENABLED] ?: true,
                 fetchLinkPreviews = prefs[Keys.FETCH_LINK_PREVIEWS] ?: false,
                 recentSearchesEnabled = prefs[Keys.RECENT_SEARCHES_ENABLED] ?: true,
-                semanticRerankEnabled = prefs[Keys.SEMANTIC_RERANK_ENABLED] ?: false,
+                semanticRerankEnabled = prefs[Keys.SEMANTIC_RERANK_ENABLED] ?: true,
                 aiBackendPreference = enumOrDefault(
                     prefs[Keys.AI_BACKEND_PREFERENCE],
                     AiBackendPreference.AUTO
@@ -154,6 +156,8 @@ class SettingsRepository(
     }
 
     suspend fun setSemanticRerankEnabled(enabled: Boolean) {
+        currentSnapshot = currentSnapshot.copy(semanticRerankEnabled = enabled)
+        persistBootCache(currentSnapshot)
         dataStore.edit { it[Keys.SEMANTIC_RERANK_ENABLED] = enabled }
     }
 
