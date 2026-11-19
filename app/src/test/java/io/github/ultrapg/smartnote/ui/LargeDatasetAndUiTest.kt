@@ -534,6 +534,42 @@ class LargeDatasetAndUiTest {
         }
         composeRule.onNodeWithContentDescription("New note").performClick()
         composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithContentDescription("Close create menu").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+
+        // Switching away to SmartSearch and back to Notes must reset the create menu to collapsed
+        composeRule.onNodeWithText("SmartSearch").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Search notes, tags, images, links...").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("Notes").performClick()
+        composeRule.waitUntil(3_000L) {
+            composeRule.onAllNodesWithText("Capture your thoughts").fetchSemanticsNodes().isNotEmpty() &&
+                composeRule.onAllNodesWithContentDescription("New note").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithContentDescription("New note").assertIsDisplayed()
+        assertTrue(
+            "Create menu close state must not stay open across screen switches",
+            composeRule.onAllNodesWithContentDescription("Close create menu").fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "Image option must not remain open after switching screens",
+            composeRule.onAllNodesWithText("Image").fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "Checklist option must not remain open after switching screens",
+            composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isEmpty()
+        )
+        assertTrue(
+            "Note option must not remain open after switching screens",
+            composeRule.onAllNodesWithText("Note").fetchSemanticsNodes().isEmpty()
+        )
+
+        composeRule.onNodeWithContentDescription("New note").performClick()
+        composeRule.waitUntil(3_000L) {
             composeRule.onAllNodesWithText("Checklist").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.waitForIdle()

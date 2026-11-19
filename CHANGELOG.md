@@ -4,6 +4,18 @@ All notable changes to **SmartNote** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.19] - 2026-11-19
+
+### Fixed
+- **Overview Create & Top-Bar Menu Persistence Across Navigation / App Switches (`NotesOverviewScreen.kt`, `LargeDatasetAndUiTest.kt`)**:
+  - Switched `isCreateMenuExpanded` from `rememberSaveable` to `remember` so Navigation Compose `saveState` / `restoreState` tab switches never keep the `+` creation menu open when returning to **Notes**.
+  - Added a `DisposableEffect(LocalLifecycleOwner.current)` observer that resets `isCreateMenuExpanded`, `activeTopMenu`, and `lastTransitionWasCrossSwitch` whenever the screen pauses/stops (`Lifecycle.Event.ON_PAUSE`, `Lifecycle.Event.ON_STOP`) or disposes—closing open overview menus automatically across app switches, Home/Recents transitions, screen locks, and screen navigation.
+
+### Verification
+- `testDebugUnitTest`: **9 suites, 40 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `testReleaseUnitTest`: **9 suites, 40 tests passed, 0 failures, 0 errors, 0 skipped**.
+- `smartnote-release.apk`: `58,091,165` bytes (`55.40 MiB`), `SHA-256: 4d5f3a0c1f56867399408240e2f6c00cab030ffd65d90bb38e96e26eadfb369a`, `versionCode = 20`, `versionName = "1.0.19"`, 0 Kotlin source warnings, R8-minified + resource-shrunk, 16 KB `zipalign` verified, APK Signature Scheme v3 verified with 4096-bit RSA key (`b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`).
+
 ## [1.0.18] - 2026-11-19
 
 ### Added & Changed

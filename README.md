@@ -10,7 +10,7 @@
 **SmartNote** is a native Android note-taking application built in Kotlin with Jetpack Compose and **Material 3 Expressive**. Everything—note storage, full-text & semantic search, OCR, auto-tagging, title generation, duplicate detection, backups, and biometric/PIN locking—runs locally on your device with no accounts, no cloud sync, no telemetry, and no external AI API keys.
 
 - **Package ID:** `io.github.ultrapg.smartnote`
-- **Latest Release:** [`v1.0.18`](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.18) (`versionCode = 19`)
+- **Latest Release:** [`v1.0.19`](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.19) (`versionCode = 20`)
 - **Compatibility:** Android 9+ (`minSdk = 28`, `targetSdk = 36`, `compileSdk = 37`)
 - **ABIs:** `arm64-v8a`, `x86_64`
 - **License:** Apache License 2.0 ([LICENSE](LICENSE))
@@ -45,11 +45,11 @@ Inside **Settings → AI & Smart Features → Gemini Nano**, each AI feature has
 
 ## Installation
 
-1. Download **`smartnote-release.apk`** from the [v1.0.18 GitHub Release](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.18).
+1. Download **`smartnote-release.apk`** from the [v1.0.19 GitHub Release](https://github.com/ultrapg/SmartNote/releases/tag/v1.0.19).
 2. Verify the APK checksum before installing:
    - **File:** `smartnote-release.apk`
-   - **Size:** `58,091,175` bytes (`55.40 MiB`)
-   - **SHA-256:** `e5ed66574c837c25ced4df3d4d2408c4231897697fb4d3bcdd4d78db3a75012e`
+   - **Size:** `58,091,165` bytes (`55.40 MiB`)
+   - **SHA-256:** `4d5f3a0c1f56867399408240e2f6c00cab030ffd65d90bb38e96e26eadfb369a`
    - **APK Signature Scheme v3 Signer Cert SHA-256 (4096-bit RSA):**
      `b5081b918508a0f39f7928a0355ff45e7a29299dc8281cbc6d2e6a2714c467c6`
 3. Install on an Android 9+ device via system package installer or `adb install smartnote-release.apk`.
@@ -110,7 +110,7 @@ The R8-minified, resource-shrunk, signed APK is output to `app/build/outputs/apk
 - **Release APK Verification (`build-tools/37.0.0`):**
   - `zipalign -c -P 16 -v 4 smartnote-release.apk`: **Verification successful** (16 KB ELF page-aligned).
   - `apksigner verify --verbose --print-certs smartnote-release.apk`: **Verifies** under APK Signature Scheme v3 (RSA-4096).
-  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='19'`, `versionName='1.0.18'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`.
+  - `aapt2 dump badging smartnote-release.apk`: Confirmed `io.github.ultrapg.smartnote`, `versionCode='20'`, `versionName='1.0.19'`, `minSdkVersion:'28'`, `targetSdkVersion:'36'`.
 
 ### Hardware-Dependent Checks (Require Physical Android Device)
 Because this Linux build host has no `/dev/kvm` or attached physical Android device, the following behaviors are compile-verified and covered by host contract/fallback tests rather than executed on live phone hardware:

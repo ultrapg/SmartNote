@@ -100,13 +100,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -197,7 +200,7 @@ fun NotesOverviewScreen(
     if (activeTopMenu != OverviewTopMenu.NONE) {
         displayedTopMenu = activeTopMenu
     }
-    var isCreateMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var isCreateMenuExpanded by remember { mutableStateOf(false) }
     val themeMeta = LocalSmartNoteThemeMeta.current
     val reducedMotion = themeMeta.isReducedMotion
 
@@ -212,6 +215,24 @@ fun NotesOverviewScreen(
 
     LaunchedEffect(inSelectionMode) {
         if (inSelectionMode) {
+            lastTransitionWasCrossSwitch = false
+            isCreateMenuExpanded = false
+            activeTopMenu = OverviewTopMenu.NONE
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
+                lastTransitionWasCrossSwitch = false
+                isCreateMenuExpanded = false
+                activeTopMenu = OverviewTopMenu.NONE
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             lastTransitionWasCrossSwitch = false
             isCreateMenuExpanded = false
             activeTopMenu = OverviewTopMenu.NONE
